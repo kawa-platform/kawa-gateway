@@ -37,7 +37,7 @@
         <micrometer.version>1.13.6</micrometer.version>
         <jackson.version>3.2.2</jackson.version>
         <slf4j.version>2.0.18</slf4j.version>
-        <logback.version>1.5.12</logback.version>
+        <logback.version>1.6.3</logback.version>
         <junit.version>6.1.3</junit.version>
         <assertj.version>3.26.3</assertj.version>
         <kassert.version>0.1.0</kassert.version>
