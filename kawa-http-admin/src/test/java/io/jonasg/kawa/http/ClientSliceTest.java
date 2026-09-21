@@ -3,6 +3,8 @@ package io.jonasg.kawa.http;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.GroupConfig;
+import io.jonasg.kawa.config.HashedPassword;
+import io.jonasg.kawa.config.Mechanism;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -14,11 +16,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 /// [AdminHttpServer], asserting the JSON wire format the admin UI consumes.
 class ClientSliceTest extends AdminHttpSliceTestBase {
 
+    private static ClientConfig client(String mechanism, String password) {
+        return new ClientConfig(mechanism,
+                HashedPassword.fromPlaintext(Mechanism.fromWireName(mechanism), password));
+    }
+
     @Test
     void listsConfiguredClients() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", new ClientConfig("PLAIN", "secret"))));
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret"))));
         startServer();
 
         // when
@@ -36,8 +43,8 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
                 .updateAuth(GatewayConfig.empty().auth()
-                        .upsertClient("bob", new ClientConfig("PLAIN", "bob-secret"))
-                        .upsertClient("alice", new ClientConfig("PLAIN", "alice-secret"))));
+                        .upsertClient("bob", client("PLAIN", "bob-secret"))
+                        .upsertClient("alice", client("PLAIN", "alice-secret"))));
         startServer();
 
         // when
@@ -78,7 +85,10 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(repository.getActiveConfig().auth().clients()).containsKey("alice");
-        assertThat(repository.getActiveConfig().auth().clients().get("alice").password()).isEqualTo("secret");
+        assertThat(repository.getActiveConfig().auth().clients().get("alice").password().verify("secret"))
+                .withFailMessage(() -> "Persisted client password did not verify against the submitted plaintext")
+                .isTrue();
+        assertThat(response.body()).doesNotContain("secret");
         assertThat(repository.updateCalls()).isEqualTo(1);
         assertThat(repository.updateAndWaitCalls()).isEqualTo(0);
     }
@@ -178,7 +188,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
     void removesClientAndPersistsSnapshot() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", new ClientConfig("PLAIN", "secret"))));
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret"))));
         startServer();
 
         // when
@@ -193,7 +203,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
     void removesClientNotReferencedByAnyGroup() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", new ClientConfig("PLAIN", "secret")))
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret")))
                 .updateRbac(GatewayConfig.empty().rbac()
                         .upsertGroup("producers", new GroupConfig(List.of("bob"), List.of("reader")))));
         startServer();
@@ -210,7 +220,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
     void removesClientReferencedByAGroup() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", new ClientConfig("PLAIN", "secret")))
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret")))
                 .updateRbac(GatewayConfig.empty().rbac()
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("reader")))));
         startServer();
@@ -244,7 +254,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
     void patchChangesMechanismAndPreservesPassword() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", new ClientConfig("PLAIN", "secret"))));
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret"))));
         startServer();
 
         // when
@@ -253,14 +263,16 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(repository.getActiveConfig().auth().clients().get("alice"))
-                .isEqualTo(new ClientConfig("SCRAM-SHA-256", "secret"));
+                .satisfies(config -> assertThat(config.password().verify("secret"))
+                        .withFailMessage(() -> "Changed mechanism must preserve the existing password")
+                        .isTrue());
     }
 
     @Test
     void patchWithAppliedConsistencyWaitsForApplyMode() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", new ClientConfig("PLAIN", "secret"))));
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret"))));
         startServer();
 
         // when
@@ -276,7 +288,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
     void patchChangesPasswordAndPreservesMechanism() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", new ClientConfig("PLAIN", "secret"))));
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret"))));
         startServer();
 
         // when
@@ -285,7 +297,9 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(repository.getActiveConfig().auth().clients().get("alice"))
-                .isEqualTo(new ClientConfig("PLAIN", "new-secret"));
+                .satisfies(config -> assertThat(config.password().verify("new-secret"))
+                        .withFailMessage(() -> "Updated client password did not verify against submitted plaintext")
+                        .isTrue());
     }
 
     @Test
@@ -293,7 +307,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
                 .updateAuth(GatewayConfig.empty().auth()
-                        .upsertClient("alice", new ClientConfig("PLAIN", "secret")))
+                        .upsertClient("alice", client("PLAIN", "secret")))
                 .updateRbac(GatewayConfig.empty().rbac()
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("writer")))
                         .upsertGroup("admins", new GroupConfig(List.of(), List.of("admin")))));
@@ -342,7 +356,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
     void patchWithNothingToPatchIsRejected() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", new ClientConfig("PLAIN", "secret"))));
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret"))));
         startServer();
 
         // when
@@ -352,14 +366,16 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(response.body()).contains("no fields to patch");
         assertThat(repository.getActiveConfig().auth().clients().get("alice"))
-                .isEqualTo(new ClientConfig("PLAIN", "secret"));
+                .satisfies(config -> assertThat(config.password().verify("secret"))
+                        .withFailMessage(() -> "Patched client password was not preserved")
+                        .isTrue());
     }
 
     @Test
     void patchRejectsInvalidBody() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", new ClientConfig("PLAIN", "secret"))));
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret"))));
         startServer();
 
         // when

@@ -1,7 +1,6 @@
 package io.jonasg.kawa.it;
 
 import io.jonasg.kawa.config.AuthConfig;
-import io.jonasg.kawa.config.ClientConfig;
 import org.apache.kafka.common.message.SaslAuthenticateRequestData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -31,7 +30,7 @@ class SaslAuthenticateIT extends GatewayTestSupport {
     protected AuthConfig authConfig() {
         return new AuthConfig(
                 java.util.Set.of("PLAIN"),
-                java.util.Map.of("alice", new ClientConfig("PLAIN", "secret")),
+                java.util.Map.of("alice", client("PLAIN", "secret")),
                 null);
     }
 

@@ -121,7 +121,9 @@ class BrokerAuthIT {
 
         var auth = new AuthConfig(
                 Set.of("PLAIN"),
-                Map.of("client", new ClientConfig("PLAIN", "client-secret")),
+                Map.of("client", new ClientConfig("PLAIN",
+                        io.jonasg.kawa.config.HashedPassword.fromPlaintext(
+                                io.jonasg.kawa.config.Mechanism.PLAIN, "client-secret"))),
                 new BrokerAuthConfig("PLAIN", BROKER_USER, BROKER_PASSWORD));
 
         var allowAllRole = new RoleConfig(List.of(

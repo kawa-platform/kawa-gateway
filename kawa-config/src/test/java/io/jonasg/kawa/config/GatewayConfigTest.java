@@ -90,7 +90,8 @@ class GatewayConfigTest {
                 new AuthConfig(null, null, null), null, null, null, null);
         var newAuth = new AuthConfig(
                 java.util.Set.of("PLAIN"),
-                Map.of("alice", new ClientConfig("PLAIN", "secret")),
+                Map.of("alice", new ClientConfig("PLAIN",
+                        HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"))),
                 null);
 
         // when
