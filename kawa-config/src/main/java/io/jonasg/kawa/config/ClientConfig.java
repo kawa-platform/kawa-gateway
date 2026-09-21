@@ -6,31 +6,33 @@ import java.util.regex.Pattern;
 
 public record ClientConfig(
         String mechanism,
-        String password
+        HashedPassword password
 ) {
 
     private static final Pattern ENV_VAR_PATTERN =
             Pattern.compile("\\$\\{([^}:]+)(?::-(.+?))?\\}");
 
     public ClientConfig {
-        if (password == null || password.isBlank()) {
-            throw new IllegalArgumentException("password must not be null or blank");
+        if (password == null) {
+            throw new IllegalArgumentException("password must not be null");
         }
-        password = resolveEnvVars(password, System::getenv);
     }
 
-    static ClientConfig of(
-            String mechanism,
-            String password,
-            Function<String, String> envLookup
-    ) {
-        if (password == null || password.isBlank()) {
-            throw new IllegalArgumentException("password must not be null or blank");
+    /// Creates a client configuration by hashing a plaintext password before it enters the
+    /// configuration model.
+    public static ClientConfig fromPlaintext(String mechanism, String plaintext) {
+        if (mechanism == null || mechanism.isBlank()) {
+            throw new IllegalArgumentException("mechanism must not be null or blank");
         }
-        return new ClientConfig(mechanism, resolveEnvVars(password, envLookup));
+        return new ClientConfig(mechanism,
+                HashedPassword.fromPlaintext(Mechanism.fromWireName(mechanism), plaintext));
     }
 
-    static String resolveEnvVars(String value, Function<String, String> envLookup) {
+    /// Resolves `${VAR}` and `${VAR:-default}` placeholders in a value against the given lookup.
+    ///
+    /// Used by `BrokerAuthConfig` for broker credentials; client passwords are hashed before
+    /// construction and never pass through environment resolution.
+    public static String resolveEnvVars(String value, Function<String, String> envLookup) {
         Matcher matcher = ENV_VAR_PATTERN.matcher(value);
         if (!matcher.find()) {
             return value;

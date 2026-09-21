@@ -5,6 +5,8 @@ import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
 import io.jonasg.kawa.config.GroupConfig;
+import io.jonasg.kawa.config.HashedPassword;
+import io.jonasg.kawa.config.Mechanism;
 import io.jonasg.kawa.config.RbacConfig;
 
 import java.util.ArrayList;
@@ -67,8 +69,10 @@ final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig> {
             return Router.Response.badRequest("no fields to patch");
         }
         String mechanism = body.mechanism() == null ? current.mechanism() : body.mechanism();
-        String password = body.password() == null ? current.password() : body.password();
         try {
+            HashedPassword password = body.password() == null
+                    ? current.password()
+                    : HashedPassword.fromPlaintext(Mechanism.fromWireName(mechanism), body.password());
             updater.update(request, config -> updateClient(
                     config, name, new ClientConfig(mechanism, password), body.groups()));
         } catch (IllegalArgumentException e) {
@@ -88,12 +92,12 @@ final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig> {
         }
         try {
             updater.update(request, config -> updateClient(
-                    config, name, new ClientConfig(body.mechanism(), body.password()),
+                    config, name, ClientConfig.fromPlaintext(body.mechanism(), body.password()),
                     body.groups() == null ? List.of() : body.groups()));
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }
-        return Router.Response.ok(new ClientConfig(body.mechanism(), body.password()));
+        return Router.Response.ok(new ClientView(name, body.mechanism()));
     }
 
     private GatewayConfig updateClient(

@@ -23,15 +23,15 @@ auth:
     - PLAIN
   clients:
     john:
-      password: doe
+      password: <encoded-pbkdf2-hash>
     alice:
-      password: "${ALICE_PASSWORD}"
+      password: <encoded-pbkdf2-hash>
 ```
 
 | Field                      | Type        | Required | Description                                                                             |
 |----------------------------|-------------|----------|-----------------------------------------------------------------------------------------|
 | `mechanisms`               | string list | yes      | Advertised in `SaslHandshake` responses. Must include every mechanism any client needs. |
-| `clients.<name>.password`  | string      | yes      | Plain-text or `${VAR}` / `${VAR:-default}` for env interpolation.                       |
+| `clients.<name>.password`  | string      | yes      | Encoded salted PBKDF2-HMAC-SHA256 credential.                                            |
 | `clients.<name>.mechanism` | string      | no       | Per-client override. Inherits `mechanisms[0]` when omitted.                             |
 
 ### Per-client mechanism override
@@ -45,29 +45,14 @@ auth:
     - SCRAM-SHA-256
   clients:
     john:
-      password: doe                    # inherits PLAIN
+      password: <encoded-pbkdf2-hash>  # inherits PLAIN
     alice:
       mechanism: SCRAM-SHA-256         # explicit override
-      password: "${ALICE_PASSWORD}"
+      password: <encoded-credential>
 ```
 
 Every client mechanism must appear in the `mechanisms` list — the gateway advertises this list during handshake, so a
 mechanism not listed will be rejected before authentication is even attempted.
-
-### Environment variable interpolation
-
-Passwords support `${VAR}` and `${VAR:-default}` syntax. Missing variables without a default cause a startup error.
-
-```yaml
-auth:
-  mechanisms:
-    - PLAIN
-  clients:
-    alice:
-      password: "${ALICE_PASSWORD}"           # required at startup
-    bob:
-      password: "${BOB_PASSWORD:-changeme}"   # falls back to default
-```
 
 ### Validation
 
@@ -75,7 +60,10 @@ kawa validates auth config at startup:
 
 - A client without `mechanism` + no global `mechanisms` → error
 - A client with `mechanism` not in the `mechanisms` list → error
-- Blank or missing password → error
+- Blank, missing, or malformed encoded password → error
+
+The admin API accepts a plaintext password when creating or updating a client, hashes it immediately, and persists only
+the encoded credential. Client responses never include the password or its encoded hash.
 
 ## Upstream broker authentication
 

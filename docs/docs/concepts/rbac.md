@@ -195,9 +195,9 @@ auth:
     - PLAIN
   clients:
     alice:
-      password: "${ALICE_PASSWORD}"
+      password: <encoded-pbkdf2-hash>
     bob:
-      password: "${BOB_PASSWORD}"
+      password: <encoded-pbkdf2-hash>
 
 rbac:
   roles:

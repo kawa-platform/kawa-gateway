@@ -7,7 +7,6 @@ import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.RbacConfig;
 import io.jonasg.kawa.config.ResourceConfig;
 import io.jonasg.kawa.config.RoleConfig;
-import io.jonasg.kawa.config.ClientConfig;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -92,16 +91,16 @@ class RbacAuthorizationIT extends GatewayTestSupport {
         return new AuthConfig(
                 Set.of("PLAIN"),
                 Map.of(
-                        "alice", new ClientConfig("PLAIN", PASSWORD),
-                        "bob", new ClientConfig("PLAIN", PASSWORD),
-                        "carol", new ClientConfig("PLAIN", PASSWORD),
-                        "dave", new ClientConfig("PLAIN", PASSWORD),
-                        "erin", new ClientConfig("PLAIN", PASSWORD),
+                        "alice", client("PLAIN", PASSWORD),
+                        "bob", client("PLAIN", PASSWORD),
+                        "carol", client("PLAIN", PASSWORD),
+                        "dave", client("PLAIN", PASSWORD),
+                        "erin", client("PLAIN", PASSWORD),
                         // GatewayTestSupport builds shared gatewayProducer/gatewayConsumer/gatewayAdmin
                         // as DEFAULT_PRINCIPAL for every subclass. This class never uses them, but if
                         // that principal cannot authenticate they reconnect in a tight loop for the
                         // lifetime of the class, flooding the log and starving the tests that matter.
-                        DEFAULT_PRINCIPAL, new ClientConfig("PLAIN", DEFAULT_PASSWORD)),
+                        DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD)),
                 null);
     }
 

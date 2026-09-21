@@ -103,7 +103,7 @@ public final class SaslAuthenticator {
         }
 
         ClientConfig clientConfig = snapshot.clients().get(username);
-        if (clientConfig == null || !clientConfig.password().equals(password)) {
+        if (clientConfig == null || !clientConfig.password().verify(password)) {
             return authenticationFailed(response);
         }
 

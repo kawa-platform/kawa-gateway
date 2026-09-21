@@ -11,6 +11,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ConfigLoaderTest {
 
+    private static final String PLAIN_S3CRET = "pbkdf2-sha256$600000$000102030405060708090a0b0c0d0e0f$"
+            + "9bb2521bd15ed9f43200646a7fc90af2f03f560b074ce7a3e1d1d85914c0494c";
+    private static final String SCRAM_HUNTER2 = "scram-sha256$4096$000102030405060708090a0b0c0d0e0f$"
+            + "8a399d90117a55a52e469133c5ef0ff0dc992b3b871a4a25b890556790c5e7e4$"
+            + "9da30c0f6abfc8a7c371381f361a59aac6e4ce8450c0e3df4ff4e01c43d63fbc";
+
     private final ConfigLoader loader = new ConfigLoader();
 
     @Test
@@ -274,20 +280,23 @@ class ConfigLoaderTest {
                     - SCRAM-SHA-256
                   clients:
                     alice:
-                      password: s3cret
+                      password: %s
                     bob:
                       mechanism: SCRAM-SHA-256
-                      password: hunter2
+                      password: %s
                 listeners:
                   - port: 9092
-                """);
+                """.formatted(PLAIN_S3CRET, SCRAM_HUNTER2));
 
         assertThat(config.auth().mechanisms()).containsExactlyInAnyOrder("PLAIN", "SCRAM-SHA-256");
         assertThat(config.auth().clients()).hasSize(2);
         assertThat(config.auth().clients().get("alice").mechanism()).isEqualTo("PLAIN");
-        assertThat(config.auth().clients().get("alice").password()).isEqualTo("s3cret");
+        assertThat(config.auth().clients().get("alice").password().verify("s3cret"))
+                .withFailMessage(() -> "Loaded PLAIN password did not verify against the original plaintext")
+                .isTrue();
         assertThat(config.auth().clients().get("bob").mechanism()).isEqualTo("SCRAM-SHA-256");
-        assertThat(config.auth().clients().get("bob").password()).isEqualTo("hunter2");
+        assertThat(config.auth().clients().get("bob").password().encoded())
+                .isEqualTo(SCRAM_HUNTER2);
     }
 
     @Test
@@ -296,7 +305,7 @@ class ConfigLoaderTest {
                 auth:
                   clients:
                     alice:
-                      password: s3cret
+                      password: pbkdf2-sha256$600000$000102030405060708090a0b0c0d0e0f$9bb2521bd15ed9f43200646a7fc90af2f03f560b074ce7a3e1d1d85914c0494c
                 listeners:
                   - port: 9092
                 """))
@@ -312,14 +321,15 @@ class ConfigLoaderTest {
                     - PLAIN
                   clients:
                     alice:
-                      password: s3cret
+                      password: pbkdf2-sha256$600000$000102030405060708090a0b0c0d0e0f$9bb2521bd15ed9f43200646a7fc90af2f03f560b074ce7a3e1d1d85914c0494c
                 listeners:
                   - port: 9092
                 """);
 
         assertThatThrownBy(() -> config.auth().mechanisms().add("SCRAM-SHA-512"))
                 .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> config.auth().clients().put("bob", new ClientConfig("PLAIN", "pw")))
+        assertThatThrownBy(() -> config.auth().clients().put("bob",
+                new ClientConfig("PLAIN", HashedPassword.fromPlaintext(Mechanism.PLAIN, "pw"))))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
@@ -349,7 +359,7 @@ class ConfigLoaderTest {
                     - PLAIN
                   clients:
                     alice:
-                      password: secret
+                      password: pbkdf2-sha256$600000$000102030405060708090a0b0c0d0e0f$40595f52de533962fe67dfc916702017baa23908e1e26ea122766e9215bcd403
                 listeners:
                   - port: 9092
                 """);

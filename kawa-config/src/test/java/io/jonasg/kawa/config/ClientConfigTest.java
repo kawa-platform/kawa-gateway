@@ -19,10 +19,14 @@ class ClientConfigTest {
 
     @Test
     void allowsMissingMechanismForGlobalInheritance() {
-        ClientConfig config = new ClientConfig(null, "secret");
+        // given
+        ClientConfig config = new ClientConfig(null, HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"));
 
+        // then
         assertThat(config.mechanism()).isNull();
-        assertThat(config.password()).isEqualTo("secret");
+        assertThat(config.password().verify("secret"))
+                .withFailMessage(() -> "Hashed password did not verify against the original plaintext")
+                .isTrue();
     }
 
     @Test
@@ -33,44 +37,64 @@ class ClientConfigTest {
     }
 
     @Test
-    void rejectsBlankPassword() {
-        assertThatThrownBy(() -> new ClientConfig("PLAIN", "   "))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("password");
+    void hashesPlaintextPasswordAtConstructionBoundary() {
+        // when
+        ClientConfig config = ClientConfig.fromPlaintext("PLAIN", "secret");
+
+        // then
+        assertThat(config.password().encoded())
+                .withFailMessage(() -> "Client configuration retained plaintext password")
+                .doesNotContain("secret");
+        assertThat(config.password().verify("secret"))
+                .withFailMessage(() -> "Client configuration hash did not verify plaintext password")
+                .isTrue();
+    }
+
+    @Test
+    void constructorStoresPasswordAsIsWithoutEnvResolution() {
+        // given
+        HashedPassword hashed = HashedPassword.fromPlaintext(Mechanism.PLAIN, "${MY_SECRET}");
+
+        // when
+        ClientConfig config = new ClientConfig("PLAIN", hashed);
+
+        // then
+        assertThat(config.password().verify("${MY_SECRET}"))
+                .withFailMessage(() -> "Constructor must not resolve environment variables; hashing happens before construction")
+                .isTrue();
     }
 
     @Test
     void resolvesEnvironmentVariable() {
-        ClientConfig config = ClientConfig.of("PLAIN", "${MY_SECRET}", ENV);
+        // when
+        String resolved = ClientConfig.resolveEnvVars("${MY_SECRET}", ENV);
 
-        assertThat(config.password()).isEqualTo("s3cret-from-env");
+        // then
+        assertThat(resolved).isEqualTo("s3cret-from-env");
     }
 
     @Test
     void resolvesDefaultWhenEnvVarIsMissing() {
-        ClientConfig config = ClientConfig.of("PLAIN", "${NONEXISTENT:-fallback}", EMPTY_ENV);
+        // when
+        String resolved = ClientConfig.resolveEnvVars("${NONEXISTENT:-fallback}", EMPTY_ENV);
 
-        assertThat(config.password()).isEqualTo("fallback");
+        // then
+        assertThat(resolved).isEqualTo("fallback");
     }
 
     @Test
     void rejectsUnresolvedEnvVarWithoutDefault() {
-        assertThatThrownBy(() -> ClientConfig.of("PLAIN", "${NONEXISTENT}", EMPTY_ENV))
+        assertThatThrownBy(() -> ClientConfig.resolveEnvVars("${NONEXISTENT}", EMPTY_ENV))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("NONEXISTENT");
     }
 
     @Test
     void passesLiteralPasswordThroughUnchanged() {
-        ClientConfig config = ClientConfig.of("PLAIN", "plain-password", EMPTY_ENV);
+        // when
+        String resolved = ClientConfig.resolveEnvVars("plain-password", EMPTY_ENV);
 
-        assertThat(config.password()).isEqualTo("plain-password");
-    }
-
-    @Test
-    void publicConstructorUsesSystemGetenv() {
-        ClientConfig config = new ClientConfig("PLAIN", "literal");
-
-        assertThat(config.password()).isEqualTo("literal");
+        // then
+        assertThat(resolved).isEqualTo("plain-password");
     }
 }

@@ -23,6 +23,8 @@ import io.jonasg.kawa.server.broker.BrokerClientPool;
 import io.jonasg.kawa.server.broker.MetadataClient;
 import io.jonasg.kawa.server.auth.SaslAuthenticator;
 import io.jonasg.kawa.config.ClientConfig;
+import io.jonasg.kawa.config.HashedPassword;
+import io.jonasg.kawa.config.Mechanism;
 import io.jonasg.kawa.server.netty.ClientSession;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.netty.buffer.ByteBuf;
@@ -198,7 +200,10 @@ class KafkaClientRequestHandlerTest {
         return new KafkaClientRequestHandler(
                 codec, apiVersionsBuilder, pipeline,
                 new LeaderRouter(cache), brokerPool, metadataClient, metrics, new FetchSessionRegistry(),
-                new SaslAuthenticator(Set.of("PLAIN"), java.util.Map.of("alice", new ClientConfig("PLAIN", "secret"))));
+                new SaslAuthenticator(
+                        Set.of("PLAIN"),
+                        java.util.Map.of("alice", new ClientConfig("PLAIN",
+                                HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret")))));
     }
 
     private KafkaClientRequest apiVersionsRequest(int version) {

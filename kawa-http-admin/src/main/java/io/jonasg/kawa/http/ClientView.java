@@ -4,7 +4,6 @@ package io.jonasg.kawa.http;
 ///
 /// @param username  the SASL username
 /// @param mechanism the SASL mechanism (e.g. PLAIN, SCRAM-SHA-256)
-/// @param password  the password; may reference environment variables as `${VAR}` or `${VAR:-default}`
 public record ClientView(
         String username,
         String mechanism

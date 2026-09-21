@@ -7,7 +7,9 @@ import io.jonasg.kawa.config.AuthConfig;
 import io.jonasg.kawa.config.ClusterConfig;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GroupConfig;
+import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.ListenerConfig;
+import io.jonasg.kawa.config.Mechanism;
 import io.jonasg.kawa.config.RbacConfig;
 import io.jonasg.kawa.config.ResourceConfig;
 import io.jonasg.kawa.config.RoleConfig;
@@ -190,8 +192,13 @@ abstract class GatewayTestSupport {
     protected AuthConfig authConfig() {
         return new AuthConfig(
                 Set.of("PLAIN"),
-                Map.of(DEFAULT_PRINCIPAL, new ClientConfig("PLAIN", DEFAULT_PASSWORD)),
+                Map.of(DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD)),
                 null);
+    }
+
+    protected static ClientConfig client(String mechanism, String password) {
+        return new ClientConfig(mechanism,
+                HashedPassword.fromPlaintext(Mechanism.fromWireName(mechanism), password));
     }
 
     /// The gateway's RBAC configuration. Defaults to granting [DEFAULT_PRINCIPAL] broad access
