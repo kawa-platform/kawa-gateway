@@ -144,6 +144,20 @@ abstract class GatewayTestSupport {
         return props;
     }
 
+    /// A `Properties` map pointed at `bootstrap` that authenticates to the gateway as
+    /// `username`/`password` over SASL_PLAINTEXT with the given SCRAM mechanism, using the
+    /// standard `ScramLoginModule` a real client would configure.
+    protected static Properties scramSaslProps(String bootstrap, String mechanism, String username, String password) {
+        Properties props = new Properties();
+        props.put(BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+        props.put(SECURITY_PROTOCOL_CONFIG, "SASL_PLAINTEXT");
+        props.put(SaslConfigs.SASL_MECHANISM, mechanism);
+        props.put(SaslConfigs.SASL_JAAS_CONFIG,
+                "org.apache.kafka.common.security.scram.ScramLoginModule required username=\"" + username
+                + "\" password=\"" + password + "\";");
+        return props;
+    }
+
     @AfterAll
     void tearDown() {
         try {
