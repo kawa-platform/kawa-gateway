@@ -9,8 +9,14 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import org.apache.kafka.common.message.SaslAuthenticateRequestData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.security.scram.internals.ScramMechanism;
+import org.apache.kafka.common.security.scram.internals.ScramSaslClient;
 import org.junit.jupiter.api.Test;
 
+import javax.security.auth.callback.Callback;
+import javax.security.auth.callback.NameCallback;
+import javax.security.auth.callback.PasswordCallback;
+import javax.security.auth.callback.UnsupportedCallbackException;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Set;
@@ -45,6 +51,26 @@ class SaslAuthenticatorTest {
     private static SaslAuthenticateRequestData plainAuthenticate(String username, String password) {
         return new SaslAuthenticateRequestData()
                 .setAuthBytes(("\u0000" + username + "\u0000" + password).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static ScramSaslClient scramClient(ScramMechanism mechanism, String username, String password)
+            throws Exception {
+        return new ScramSaslClient(mechanism, callbacks -> {
+            for (Callback callback : callbacks) {
+                if (callback instanceof NameCallback nameCallback) {
+                    nameCallback.setName(username);
+                } else if (callback instanceof PasswordCallback passwordCallback) {
+                    passwordCallback.setPassword(password.toCharArray());
+                } else {
+                    throw new UnsupportedCallbackException(callback);
+                }
+            }
+        });
+    }
+
+    private static SaslAuthenticator scramAuthenticator() {
+        return new SaslAuthenticator(Set.of("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"),
+                Map.of("alice", client("SCRAM-SHA-256", "secret")));
     }
 
     @Test
@@ -165,6 +191,164 @@ class SaslAuthenticatorTest {
         authenticator.handleHandshake(other, handshake("PLAIN"));
         assertThat(authenticator.handleAuthenticate(other, plainAuthenticate("alice", "secret")))
                 .isInstanceOf(AuthenticationResult.Success.class);
+    }
+
+    @Test
+    void scramSha256AuthenticatesEndToEnd() throws Exception {
+        // given
+        var authenticator = scramAuthenticator();
+        var session = session();
+        authenticator.handleHandshake(session, handshake("SCRAM-SHA-256"));
+        var client = scramClient(ScramMechanism.SCRAM_SHA_256, "alice", "secret");
+
+        // when — client-first message
+        var first = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(new byte[0])));
+
+        // then — server-first message, exchange still open
+        assertThat(first).isInstanceOf(AuthenticationResult.Pending.class);
+        assertThat(first.response().errorCode()).isEqualTo(Errors.NONE.code());
+        assertThat(first.response().authBytes()).isNotEmpty();
+
+        // when — client-final message
+        var second = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(first.response().authBytes())));
+
+        // then — server-final message, authenticated
+        assertThat(second).isInstanceOf(AuthenticationResult.Success.class);
+        var success = (AuthenticationResult.Success) second;
+        assertThat(success.username()).isEqualTo("alice");
+        assertThat(success.response().errorCode()).isEqualTo(Errors.NONE.code());
+        assertThat(success.response().authBytes()).isNotEmpty();
+
+        // the client verifies the server signature and completes
+        client.evaluateChallenge(success.response().authBytes());
+        assertThat(client.isComplete()).isTrue();
+    }
+
+    @Test
+    void scramSha512AuthenticatesEndToEnd() throws Exception {
+        // given
+        var authenticator = new SaslAuthenticator(Set.of("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512"),
+                Map.of("alice", client("SCRAM-SHA-512", "secret")));
+        var session = session();
+        authenticator.handleHandshake(session, handshake("SCRAM-SHA-512"));
+        var client = scramClient(ScramMechanism.SCRAM_SHA_512, "alice", "secret");
+
+        // when — client-first message
+        var first = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(new byte[0])));
+
+        // then — server-first message, exchange still open
+        assertThat(first).isInstanceOf(AuthenticationResult.Pending.class);
+        assertThat(first.response().errorCode()).isEqualTo(Errors.NONE.code());
+        assertThat(first.response().authBytes()).isNotEmpty();
+
+        // when — client-final message
+        var second = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(first.response().authBytes())));
+
+        // then — server-final message, authenticated
+        assertThat(second).isInstanceOf(AuthenticationResult.Success.class);
+        var success = (AuthenticationResult.Success) second;
+        assertThat(success.username()).isEqualTo("alice");
+        assertThat(success.response().errorCode()).isEqualTo(Errors.NONE.code());
+        assertThat(success.response().authBytes()).isNotEmpty();
+
+        // the client verifies the server signature and completes
+        client.evaluateChallenge(success.response().authBytes());
+        assertThat(client.isComplete()).isTrue();
+    }
+
+    @Test
+    void scramWrongPasswordFails() throws Exception {
+        // given
+        var authenticator = scramAuthenticator();
+        var session = session();
+        authenticator.handleHandshake(session, handshake("SCRAM-SHA-256"));
+        var client = scramClient(ScramMechanism.SCRAM_SHA_256, "alice", "wrong");
+
+        // when — client-first message
+        var first = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(new byte[0])));
+
+        // then — the server-first message is sent before the credential check
+        assertThat(first).isInstanceOf(AuthenticationResult.Pending.class);
+        assertThat(first.response().errorCode()).isEqualTo(Errors.NONE.code());
+
+        // when — client-final message with a wrong proof
+        var second = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(first.response().authBytes())));
+
+        // then — rejected without a server-final message
+        assertThat(second).isInstanceOf(AuthenticationResult.Failure.class);
+        var failure = (AuthenticationResult.Failure) second;
+        assertThat(failure.response().errorCode()).isEqualTo(Errors.SASL_AUTHENTICATION_FAILED.code());
+        assertThat(failure.response().errorMessage()).contains("Invalid username or password");
+        assertThat(client.isComplete()).isFalse();
+    }
+
+    @Test
+    void scramUnknownUserFails() throws Exception {
+        // given
+        var authenticator = scramAuthenticator();
+        var session = session();
+        authenticator.handleHandshake(session, handshake("SCRAM-SHA-256"));
+        var client = scramClient(ScramMechanism.SCRAM_SHA_256, "mallory", "secret");
+
+        // when — client-first message; the server needs the credential before it can answer
+        var first = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(new byte[0])));
+
+        // then — rejected without a server-first message
+        assertThat(first).isInstanceOf(AuthenticationResult.Failure.class);
+        var failure = (AuthenticationResult.Failure) first;
+        assertThat(failure.response().errorCode()).isEqualTo(Errors.SASL_AUTHENTICATION_FAILED.code());
+        assertThat(failure.response().errorMessage()).contains("Invalid username or password");
+    }
+
+    @Test
+    void scramAuthenticateAfterSuccessIsIllegalSaslState() throws Exception {
+        // given
+        var authenticator = scramAuthenticator();
+        var session = session();
+        authenticator.handleHandshake(session, handshake("SCRAM-SHA-256"));
+        var client = scramClient(ScramMechanism.SCRAM_SHA_256, "alice", "secret");
+        var first = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(new byte[0])));
+        authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(first.response().authBytes())));
+
+        // when — a third SaslAuthenticate after the exchange completed
+        var third = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes("stale".getBytes(StandardCharsets.UTF_8)));
+
+        // then
+        assertThat(third).isInstanceOf(AuthenticationResult.Failure.class);
+        var failure = (AuthenticationResult.Failure) third;
+        assertThat(failure.response().errorCode()).isEqualTo(Errors.ILLEGAL_SASL_STATE.code());
+    }
+
+    @Test
+    void sessionClosedDuringExchangeDropsState() throws Exception {
+        // given
+        var authenticator = scramAuthenticator();
+        var session = session();
+        authenticator.handleHandshake(session, handshake("SCRAM-SHA-256"));
+        var client = scramClient(ScramMechanism.SCRAM_SHA_256, "alice", "secret");
+        var first = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(new byte[0])));
+        assertThat(first).isInstanceOf(AuthenticationResult.Pending.class);
+
+        // when — the connection closes mid-exchange
+        authenticator.sessionClosed(session);
+        var second = authenticator.handleAuthenticate(session,
+                new SaslAuthenticateRequestData().setAuthBytes(client.evaluateChallenge(first.response().authBytes())));
+
+        // then
+        assertThat(second).isInstanceOf(AuthenticationResult.Failure.class);
+        var failure = (AuthenticationResult.Failure) second;
+        assertThat(failure.response().errorCode()).isEqualTo(Errors.ILLEGAL_SASL_STATE.code());
     }
 
     @Test
