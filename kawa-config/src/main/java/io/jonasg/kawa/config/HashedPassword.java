@@ -5,9 +5,10 @@ import com.fasterxml.jackson.annotation.JsonValue;
 
 /// A client password stored in a mechanism-aware, non-reversible form.
 ///
-/// PLAIN passwords are stored as a PBKDF2-HMAC-SHA256 hash; SCRAM-SHA-256 passwords are stored as
-/// the RFC 5802 verifier (salt, StoredKey, ServerKey). The encoded form is what gets persisted in
-/// the config topic; plaintext never leaves the ingestion boundary.
+/// PLAIN passwords are stored as a PBKDF2-HMAC-SHA256 hash; SCRAM-SHA-256 and SCRAM-SHA-512
+/// passwords are stored as the RFC 5802 / RFC 7677 verifier (salt, StoredKey, ServerKey). The
+/// encoded form is what gets persisted in the config topic; plaintext never leaves the ingestion
+/// boundary.
 public final class HashedPassword {
 
     private final String encoded;
@@ -40,8 +41,9 @@ public final class HashedPassword {
 
     /// Verifies a plaintext password against this hash.
     ///
-    /// SCRAM-SHA-256 verifiers cannot be verified yet (server-side challenge-response is not
-    /// implemented), so this always returns false for them.
+    /// For SCRAM mechanisms verification is not performed here: the encoded verifier is used
+    /// by the gateway's SCRAM exchange at authentication time, so this always returns `false`
+    /// for SCRAM verifiers.
     public boolean verify(String plaintext) {
         if (plaintext == null) {
             return false;

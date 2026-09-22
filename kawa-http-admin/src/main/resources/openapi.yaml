@@ -707,7 +707,7 @@ components:
       properties:
         mechanism:
           type: string
-          description: SASL mechanism (e.g. PLAIN, SCRAM-SHA-256).
+          description: SASL mechanism (e.g. PLAIN, SCRAM-SHA-256, SCRAM-SHA-512).
         password:
           type: string
           description: Password; may reference environment variables as ${VAR} or ${VAR:-default}.
@@ -721,7 +721,7 @@ components:
       properties:
         mechanism:
           type: string
-          description: SASL mechanism (e.g. PLAIN, SCRAM-SHA-256); omitted to keep the current mechanism.
+          description: SASL mechanism (e.g. PLAIN, SCRAM-SHA-256, SCRAM-SHA-512); omitted to keep the current mechanism.
         password:
           type: string
           description: New password; may reference environment variables as ${VAR} or ${VAR:-default}. Omitted to keep the current password.
@@ -741,7 +741,7 @@ components:
           description: The SASL username.
         mechanism:
           type: string
-          description: SASL mechanism (e.g. PLAIN, SCRAM-SHA-256).
+          description: SASL mechanism (e.g. PLAIN, SCRAM-SHA-256, SCRAM-SHA-512).
         password:
           type: string
           description: Password; may reference environment variables as ${VAR} or ${VAR:-default}.

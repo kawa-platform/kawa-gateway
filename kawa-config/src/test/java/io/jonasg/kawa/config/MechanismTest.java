@@ -12,6 +12,7 @@ class MechanismTest {
         // given / when / then
         assertThat(Mechanism.fromWireName("PLAIN")).isEqualTo(Mechanism.PLAIN);
         assertThat(Mechanism.fromWireName("SCRAM-SHA-256")).isEqualTo(Mechanism.SCRAM_SHA_256);
+        assertThat(Mechanism.fromWireName("SCRAM-SHA-512")).isEqualTo(Mechanism.SCRAM_SHA_512);
     }
 
     @Test
@@ -19,6 +20,7 @@ class MechanismTest {
         // given / when / then
         assertThat(Mechanism.PLAIN.wireName()).isEqualTo("PLAIN");
         assertThat(Mechanism.SCRAM_SHA_256.wireName()).isEqualTo("SCRAM-SHA-256");
+        assertThat(Mechanism.SCRAM_SHA_512.wireName()).isEqualTo("SCRAM-SHA-512");
     }
 
     @Test

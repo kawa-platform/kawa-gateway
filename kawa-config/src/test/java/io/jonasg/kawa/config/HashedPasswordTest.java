@@ -112,6 +112,38 @@ class HashedPasswordTest {
     }
 
     @Test
+    void encodesScramSha512VerifierAndCannotVerifyYet() {
+        // given
+        HashedPassword hashed = HashedPassword.fromPlaintext(Mechanism.SCRAM_SHA_512, "s3cret");
+
+        // when
+        String encoded = hashed.encoded();
+        boolean matches = hashed.verify("s3cret");
+
+        // then
+        assertThat(encoded)
+                .withFailMessage(() -> "SCRAM-SHA-512 verifier did not use the expected format")
+                .startsWith("scram-sha512$4096$");
+        assertThat(matches)
+                .withFailMessage(() -> "SCRAM-SHA-512 verification should not be supported yet")
+                .isFalse();
+    }
+
+    @Test
+    void roundTripsScramSha512VerifierThroughEncodedForm() {
+        // given
+        HashedPassword original = HashedPassword.fromPlaintext(Mechanism.SCRAM_SHA_512, "s3cret");
+
+        // when
+        HashedPassword restored = HashedPassword.fromEncoded(original.encoded());
+
+        // then
+        assertThat(restored.encoded())
+                .withFailMessage(() -> "SCRAM-SHA-512 verifier did not survive the encoded round-trip")
+                .isEqualTo(original.encoded());
+    }
+
+    @Test
     void rejectsEncodedPasswordWithUnknownAlgorithm() {
         assertThatThrownBy(() -> HashedPassword.fromEncoded("md5$1000$salt$hash"))
                 .isInstanceOf(IllegalArgumentException.class)

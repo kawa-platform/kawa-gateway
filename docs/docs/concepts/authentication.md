@@ -31,7 +31,7 @@ auth:
 | Field                      | Type        | Required | Description                                                                             |
 |----------------------------|-------------|----------|-----------------------------------------------------------------------------------------|
 | `mechanisms`               | string list | yes      | Advertised in `SaslHandshake` responses. Must include every mechanism any client needs. |
-| `clients.<name>.password`  | string      | yes      | Encoded salted PBKDF2-HMAC-SHA256 credential.                                            |
+| `clients.<name>.password`  | string      | yes      | Encoded credential (PBKDF2-HMAC-SHA256 for PLAIN, SCRAM verifier for SCRAM mechanisms). |
 | `clients.<name>.mechanism` | string      | no       | Per-client override. Inherits `mechanisms[0]` when omitted.                             |
 
 ### Per-client mechanism override
@@ -43,16 +43,24 @@ auth:
   mechanisms:
     - PLAIN
     - SCRAM-SHA-256
+    - SCRAM-SHA-512
   clients:
     john:
       password: <encoded-pbkdf2-hash>  # inherits PLAIN
     alice:
       mechanism: SCRAM-SHA-256         # explicit override
       password: <encoded-credential>
+    bob:
+      mechanism: SCRAM-SHA-512         # explicit override
+      password: <encoded-credential>
 ```
 
 Every client mechanism must appear in the `mechanisms` list — the gateway advertises this list during handshake, so a
 mechanism not listed will be rejected before authentication is even attempted.
+
+SCRAM-SHA-256 and SCRAM-SHA-512 are fully supported for client authentication: kawa runs the real SCRAM
+challenge-response exchange (RFC 5802 / RFC 7677) via Kafka's `ScramSaslServer`, so any standard SCRAM client works
+with `security.protocol=SASL_PLAINTEXT` and the usual `ScramLoginModule` JAAS configuration.
 
 ### Validation
 

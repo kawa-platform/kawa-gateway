@@ -20,7 +20,7 @@ public enum Mechanism {
         @Override
         String encode(String plaintext) {
             byte[] salt = newSalt();
-            byte[] hash = pbkdf2(plaintext.toCharArray(), salt, PLAIN_ITERATIONS, HASH_BYTES);
+            byte[] hash = pbkdf2(plaintext.toCharArray(), salt, PLAIN_ITERATIONS, HASH_BYTES, "PBKDF2WithHmacSHA256");
             return "pbkdf2-sha256$" + PLAIN_ITERATIONS + "$" + HEX.formatHex(salt) + "$" + HEX.formatHex(hash);
         }
 
@@ -30,7 +30,7 @@ public enum Mechanism {
             int iterations = Integer.parseInt(parts[1]);
             byte[] salt = HEX.parseHex(parts[2]);
             byte[] expected = HEX.parseHex(parts[3]);
-            byte[] actual = pbkdf2(plaintext.toCharArray(), salt, iterations, HASH_BYTES);
+            byte[] actual = pbkdf2(plaintext.toCharArray(), salt, iterations, HASH_BYTES, "PBKDF2WithHmacSHA256");
             return MessageDigest.isEqual(expected, actual);
         }
 
@@ -47,11 +47,48 @@ public enum Mechanism {
         @Override
         String encode(String plaintext) {
             byte[] salt = newSalt();
-            byte[] saltedPassword = pbkdf2(plaintext.toCharArray(), salt, SCRAM_ITERATIONS, HASH_BYTES);
-            byte[] clientKey = hmacSha256(saltedPassword, "Client Key");
-            byte[] storedKey = sha256(clientKey);
-            byte[] serverKey = hmacSha256(saltedPassword, "Server Key");
+            byte[] saltedPassword = pbkdf2(
+                    plaintext.toCharArray(),
+                    salt,
+                    SCRAM_ITERATIONS,
+                    HASH_BYTES,
+                    "PBKDF2WithHmacSHA256");
+            byte[] clientKey = hmac(saltedPassword, "Client Key", "HmacSHA256");
+            byte[] storedKey = digest(clientKey, "SHA-256");
+            byte[] serverKey = hmac(saltedPassword, "Server Key", "HmacSHA256");
             return "scram-sha256$" + SCRAM_ITERATIONS + "$" + HEX.formatHex(salt) + "$"
+                    + HEX.formatHex(storedKey) + "$" + HEX.formatHex(serverKey);
+        }
+
+        @Override
+        boolean verify(String encoded, String plaintext) {
+            return false;
+        }
+
+        @Override
+        void validate(String encoded) {
+            String[] parts = encoded.split("\\$", -1);
+            requireParts(parts, 5, encoded);
+            parseIterations(parts[1], encoded);
+            validateHex(parts[2], encoded);
+            validateHex(parts[3], encoded);
+            validateHex(parts[4], encoded);
+        }
+    },
+    SCRAM_SHA_512("SCRAM-SHA-512", "scram-sha512") {
+        @Override
+        String encode(String plaintext) {
+            byte[] salt = newSalt();
+            byte[] saltedPassword = pbkdf2(
+                    plaintext.toCharArray(),
+                    salt,
+                    SCRAM_ITERATIONS,
+                    SCRAM_SHA_512_HASH_BYTES,
+                    "PBKDF2WithHmacSHA512");
+            byte[] clientKey = hmac(saltedPassword, "Client Key", "HmacSHA512");
+            byte[] storedKey = digest(clientKey, "SHA-512");
+            byte[] serverKey = hmac(saltedPassword, "Server Key", "HmacSHA512");
+            return "scram-sha512$" + SCRAM_ITERATIONS + "$" + HEX.formatHex(salt) + "$"
                     + HEX.formatHex(storedKey) + "$" + HEX.formatHex(serverKey);
         }
 
@@ -75,6 +112,7 @@ public enum Mechanism {
     private static final int SCRAM_ITERATIONS = 4_096;
     private static final int SALT_BYTES = 16;
     private static final int HASH_BYTES = 32;
+    private static final int SCRAM_SHA_512_HASH_BYTES = 64;
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final HexFormat HEX = HexFormat.of();
@@ -127,30 +165,30 @@ public enum Mechanism {
         return salt;
     }
 
-    private static byte[] pbkdf2(char[] password, byte[] salt, int iterations, int length) {
+    private static byte[] pbkdf2(char[] password, byte[] salt, int iterations, int length, String algorithm) {
         try {
             PBEKeySpec spec = new PBEKeySpec(password, salt, iterations, length * 8);
-            return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded();
+            return SecretKeyFactory.getInstance(algorithm).generateSecret(spec).getEncoded();
         } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("PBKDF2WithHmacSHA256 is not available", e);
+            throw new IllegalStateException(algorithm + " is not available", e);
         }
     }
 
-    private static byte[] hmacSha256(byte[] key, String data) {
+    private static byte[] hmac(byte[] key, String data, String algorithm) {
         try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(key, "HmacSHA256"));
+            Mac mac = Mac.getInstance(algorithm);
+            mac.init(new SecretKeySpec(key, algorithm));
             return mac.doFinal(data.getBytes(StandardCharsets.UTF_8));
         } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("HmacSHA256 is not available", e);
+            throw new IllegalStateException(algorithm + " is not available", e);
         }
     }
 
-    private static byte[] sha256(byte[] data) {
+    private static byte[] digest(byte[] data, String algorithm) {
         try {
-            return MessageDigest.getInstance("SHA-256").digest(data);
+            return MessageDigest.getInstance(algorithm).digest(data);
         } catch (GeneralSecurityException e) {
-            throw new IllegalStateException("SHA-256 is not available", e);
+            throw new IllegalStateException(algorithm + " is not available", e);
         }
     }
 

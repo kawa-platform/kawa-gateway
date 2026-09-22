@@ -14,11 +14,4 @@ public record KafkaApiSpec(
         MessageReader requestReader,
         MessageReader responseReader) {
 
-    public boolean decodesRequest() {
-        return requestReader != null;
-    }
-
-    public boolean decodesResponse() {
-        return responseReader != null;
-    }
 }

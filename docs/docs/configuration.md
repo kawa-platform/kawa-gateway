@@ -190,6 +190,7 @@ auth:
   mechanisms:
     - PLAIN
     - SCRAM-SHA-256
+    - SCRAM-SHA-512
   clients:
     alice:                          # inherits PLAIN
       password: "${ALICE_PASSWORD}"

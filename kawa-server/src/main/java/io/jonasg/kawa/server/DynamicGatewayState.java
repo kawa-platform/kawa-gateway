@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 
 /// Owns the four dynamically-reloaded consumers ([VirtualTopicManager], [RbacAuthorizer],
 /// [SaslAuthenticator], [GovernancePolicy]) and the [DynamicConfigManager] that feeds them
@@ -37,7 +36,7 @@ public final class DynamicGatewayState implements AutoCloseable {
         this.topic = topic;
         virtualTopics = new VirtualTopicManager(Map.of());
         authorizer = new RbacAuthorizer(new RbacConfig(Map.of(), Map.of()));
-        saslAuthenticator = new SaslAuthenticator(Set.of());
+        saslAuthenticator = new SaslAuthenticator();
         governance = new GovernancePolicy(new GovernanceConfig(null, null));
         // Direct partition assignment: the config consumer re-reads the full topic from the
         // earliest offset on every boot, so no consumer group is needed (and none is

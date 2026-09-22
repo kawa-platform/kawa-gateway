@@ -20,7 +20,6 @@ import org.junit.jupiter.api.Test;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.util.List;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -81,6 +80,6 @@ class KafkaListenerTest {
         return new KafkaClientRequestHandler(
                 codec, new ApiVersionsResponseBuilder(SupportedVersions.from(registry)), pipeline,
                 new LeaderRouter(cache), brokerPool, metadataClient, metrics, new FetchSessionRegistry(),
-                new SaslAuthenticator(Set.of()));
+                new SaslAuthenticator());
     }
 }
