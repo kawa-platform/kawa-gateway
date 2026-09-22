@@ -4,6 +4,8 @@ import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
 import io.jonasg.kawa.protocol.kafka.KafkaApiRegistry;
+import io.jonasg.kawa.server.netty.ClientSession;
+import io.netty.channel.embedded.EmbeddedChannel;
 import org.apache.kafka.common.message.SaslAuthenticateRequestData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
 import org.apache.kafka.common.protocol.Errors;
@@ -23,13 +25,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 /// retry with. This is real protocol behaviour, not a log line to assert on.
 ///
 /// Supersedes the old `SaslRequestLoggerTest`, which only checked that a request was
-/// logged. SaslAuthenticate (the actual credential check) is the next milestone; only the
-/// handshake is covered here.
+/// logged. The handshake and the PLAIN `SaslAuthenticate` credential check are covered here;
+/// SCRAM-SHA-256/512 exchanges are covered once the SCRAM flow lands.
 class SaslAuthenticatorTest {
 
     private static ClientConfig client(String mechanism, String password) {
         return new ClientConfig(mechanism,
                 HashedPassword.fromPlaintext(Mechanism.fromWireName(mechanism), password));
+    }
+
+    private static ClientSession session() {
+        return new ClientSession(new EmbeddedChannel());
+    }
+
+    private static SaslHandshakeRequestData handshake(String mechanism) {
+        return new SaslHandshakeRequestData().setMechanism(mechanism);
+    }
+
+    private static SaslAuthenticateRequestData plainAuthenticate(String username, String password) {
+        return new SaslAuthenticateRequestData()
+                .setAuthBytes(("\u0000" + username + "\u0000" + password).getBytes(StandardCharsets.UTF_8));
     }
 
     @Test
@@ -42,35 +57,35 @@ class SaslAuthenticatorTest {
 
     @Test
     void respondsWithNoErrorAndTheFullMechanismListForASupportedMechanism() {
-        var authenticator = new SaslAuthenticator(Set.of("PLAIN", "SCRAM-SHA-256"));
+        var authenticator = new SaslAuthenticator();
 
-        var response = authenticator.handleHandshake(new SaslHandshakeRequestData().setMechanism("PLAIN"));
+        var response = authenticator.handleHandshake(session(), handshake("PLAIN"));
 
         assertThat(response.errorCode()).isEqualTo(Errors.NONE.code());
-        assertThat(response.mechanisms()).containsExactlyInAnyOrder("PLAIN", "SCRAM-SHA-256");
+        assertThat(response.mechanisms()).containsExactlyInAnyOrder("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512");
     }
 
     @Test
     void respondsWithUnsupportedMechanismErrorButStillListsWhatIsSupported() {
-        var authenticator = new SaslAuthenticator(Set.of("PLAIN", "SCRAM-SHA-256"));
+        var authenticator = new SaslAuthenticator();
 
-        var response = authenticator.handleHandshake(new SaslHandshakeRequestData().setMechanism("GSSAPI"));
+        var response = authenticator.handleHandshake(session(), handshake("GSSAPI"));
 
         assertThat(response.errorCode()).isEqualTo(Errors.UNSUPPORTED_SASL_MECHANISM.code());
         assertThat(response.mechanisms())
                 .describedAs("a real broker still returns what it does support, so the client can retry")
-                .containsExactlyInAnyOrder("PLAIN", "SCRAM-SHA-256");
+                .containsExactlyInAnyOrder("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512");
     }
 
     @Test
     void authenticatesPlainWithKnownClientAndCorrectPassword() {
         // given
         var authenticator = new SaslAuthenticator(Set.of("PLAIN"), Map.of("alice", client("PLAIN", "secret")));
-        var request = new SaslAuthenticateRequestData()
-                .setAuthBytes("\u0000alice\u0000secret".getBytes(StandardCharsets.UTF_8));
+        var session = session();
+        authenticator.handleHandshake(session, handshake("PLAIN"));
 
         // when
-        var result = authenticator.handleAuthenticate(request);
+        var result = authenticator.handleAuthenticate(session, plainAuthenticate("alice", "secret"));
 
         // then
         assertThat(result).isInstanceOf(AuthenticationResult.Success.class);
@@ -84,11 +99,11 @@ class SaslAuthenticatorTest {
     void rejectsUnknownClientWithoutLeakingWhetherTheUsernameExists() {
         // given
         var authenticator = new SaslAuthenticator(Set.of("PLAIN"), Map.of("alice", client("PLAIN", "secret")));
-        var request = new SaslAuthenticateRequestData()
-                .setAuthBytes("\u0000bob\u0000secret".getBytes(StandardCharsets.UTF_8));
+        var session = session();
+        authenticator.handleHandshake(session, handshake("PLAIN"));
 
         // when
-        var result = authenticator.handleAuthenticate(request);
+        var result = authenticator.handleAuthenticate(session, plainAuthenticate("bob", "secret"));
 
         // then
         assertThat(result).isInstanceOf(AuthenticationResult.Failure.class);
@@ -101,17 +116,55 @@ class SaslAuthenticatorTest {
     void rejectsMalformedPlainPayload() {
         // given
         var authenticator = new SaslAuthenticator(Set.of("PLAIN"), Map.of("alice", client("PLAIN", "secret")));
-        var request = new SaslAuthenticateRequestData()
-                .setAuthBytes("not-a-plain-payload".getBytes(StandardCharsets.UTF_8));
+        var session = session();
+        authenticator.handleHandshake(session, handshake("PLAIN"));
 
         // when
-        var result = authenticator.handleAuthenticate(request);
+        var result = authenticator.handleAuthenticate(session, new SaslAuthenticateRequestData()
+                .setAuthBytes("not-a-plain-payload".getBytes(StandardCharsets.UTF_8)));
 
         // then
         assertThat(result).isInstanceOf(AuthenticationResult.Failure.class);
         var failure = (AuthenticationResult.Failure) result;
         assertThat(failure.response().errorCode()).isEqualTo(Errors.SASL_AUTHENTICATION_FAILED.code());
         assertThat(failure.response().errorMessage()).contains("Invalid username or password");
+    }
+
+    @Test
+    void authenticateWithoutHandshakeReturnsIllegalSaslState() {
+        // given
+        var authenticator = new SaslAuthenticator(Set.of("PLAIN"), Map.of("alice", client("PLAIN", "secret")));
+
+        // when
+        var result = authenticator.handleAuthenticate(session(), plainAuthenticate("alice", "secret"));
+
+        // then
+        assertThat(result).isInstanceOf(AuthenticationResult.Failure.class);
+        var failure = (AuthenticationResult.Failure) result;
+        assertThat(failure.response().errorCode()).isEqualTo(Errors.ILLEGAL_SASL_STATE.code());
+    }
+
+    @Test
+    void sessionClosedDropsPerSessionState() {
+        // given
+        var authenticator = new SaslAuthenticator(Set.of("PLAIN"), Map.of("alice", client("PLAIN", "secret")));
+        var session = session();
+        authenticator.handleHandshake(session, handshake("PLAIN"));
+
+        // when
+        authenticator.sessionClosed(session);
+        var result = authenticator.handleAuthenticate(session, plainAuthenticate("alice", "secret"));
+
+        // then
+        assertThat(result).isInstanceOf(AuthenticationResult.Failure.class);
+        var failure = (AuthenticationResult.Failure) result;
+        assertThat(failure.response().errorCode()).isEqualTo(Errors.ILLEGAL_SASL_STATE.code());
+
+        // and a different session is unaffected
+        var other = session();
+        authenticator.handleHandshake(other, handshake("PLAIN"));
+        assertThat(authenticator.handleAuthenticate(other, plainAuthenticate("alice", "secret")))
+                .isInstanceOf(AuthenticationResult.Success.class);
     }
 
     @Test
@@ -123,14 +176,15 @@ class SaslAuthenticatorTest {
         authenticator.reload(Set.of("PLAIN"), Map.of("bob", client("PLAIN", "hunter2")));
 
         // then
-        var handshake = authenticator.handleHandshake(new SaslHandshakeRequestData().setMechanism("PLAIN"));
+        var session = session();
+        var handshake = authenticator.handleHandshake(session, handshake("PLAIN"));
         assertThat(handshake.errorCode()).isEqualTo(Errors.NONE.code());
 
-        var oldUser = authenticator.handleAuthenticate(new SaslAuthenticateRequestData()
-                .setAuthBytes("\u0000alice\u0000secret".getBytes(StandardCharsets.UTF_8)));
+        var oldUser = authenticator.handleAuthenticate(session, plainAuthenticate("alice", "secret"));
         assertThat(oldUser).isInstanceOf(AuthenticationResult.Failure.class);
-        var newUser = authenticator.handleAuthenticate(new SaslAuthenticateRequestData()
-                .setAuthBytes("\u0000bob\u0000hunter2".getBytes(StandardCharsets.UTF_8)));
+
+        authenticator.handleHandshake(session, handshake("PLAIN"));
+        var newUser = authenticator.handleAuthenticate(session, plainAuthenticate("bob", "hunter2"));
         assertThat(newUser).isInstanceOf(AuthenticationResult.Success.class);
     }
 
@@ -143,10 +197,10 @@ class SaslAuthenticatorTest {
         authenticator.reload(Set.of(), Map.of());
 
         // then
-        var handshake = authenticator.handleHandshake(new SaslHandshakeRequestData().setMechanism("PLAIN"));
+        var session = session();
+        var handshake = authenticator.handleHandshake(session, handshake("PLAIN"));
         assertThat(handshake.errorCode()).isEqualTo(Errors.UNSUPPORTED_SASL_MECHANISM.code());
-        var authenticate = authenticator.handleAuthenticate(new SaslAuthenticateRequestData()
-                .setAuthBytes("\u0000alice\u0000secret".getBytes(StandardCharsets.UTF_8)));
+        var authenticate = authenticator.handleAuthenticate(session, plainAuthenticate("alice", "secret"));
         assertThat(authenticate).isInstanceOf(AuthenticationResult.Failure.class);
     }
 
@@ -167,11 +221,10 @@ class SaslAuthenticatorTest {
         var reader = new Thread(() -> {
             try {
                 for (int i = 0; i < 50; i++) {
-                    authenticator.handleHandshake(new SaslHandshakeRequestData().setMechanism("PLAIN"));
-                    authenticator.handleAuthenticate(new SaslAuthenticateRequestData()
-                            .setAuthBytes("\u0000alice\u0000secret".getBytes(StandardCharsets.UTF_8)));
-                    authenticator.handleAuthenticate(new SaslAuthenticateRequestData()
-                            .setAuthBytes("\u0000bob\u0000hunter2".getBytes(StandardCharsets.UTF_8)));
+                    var session = session();
+                    authenticator.handleHandshake(session, handshake("PLAIN"));
+                    authenticator.handleAuthenticate(session, plainAuthenticate("alice", "secret"));
+                    authenticator.handleAuthenticate(session, plainAuthenticate("bob", "hunter2"));
                 }
             } catch (Throwable t) {
                 failure.set(t);

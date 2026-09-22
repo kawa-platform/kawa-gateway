@@ -37,6 +37,7 @@ import org.apache.kafka.common.message.CreateTopicsRequestData;
 import org.apache.kafka.common.message.CreateTopicsResponseData;
 import org.apache.kafka.common.message.SaslAuthenticateRequestData;
 import org.apache.kafka.common.message.SaslAuthenticateResponseData;
+import org.apache.kafka.common.message.SaslHandshakeRequestData;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ObjectSerializationCache;
@@ -164,6 +165,8 @@ class KafkaClientRequestHandlerTest {
         var session = new ClientSession(channel);
 
         // when
+        dispatcher.handleRequest(session, saslHandshakeRequest("PLAIN", (short) 1));
+        channel.readOutbound(); // discard the handshake response
         dispatcher.handleRequest(session, saslAuthenticateRequest("\u0000alice\u0000secret", (short) 2));
 
         // then
@@ -223,6 +226,15 @@ class KafkaClientRequestHandlerTest {
                 .setNumPartitions(1)
                 .setReplicationFactor((short) 1));
         KafkaHeader header = KafkaHeader.of((short) ApiKeys.CREATE_TOPICS.id, version, 42, "test");
+        return KafkaClientRequest.of(header, body);
+    }
+
+    private KafkaClientRequest saslHandshakeRequest(
+            String mechanism,
+            short version
+    ) {
+        var body = new SaslHandshakeRequestData().setMechanism(mechanism);
+        KafkaHeader header = KafkaHeader.of((short) ApiKeys.SASL_HANDSHAKE.id, version, 42, "test");
         return KafkaClientRequest.of(header, body);
     }
 

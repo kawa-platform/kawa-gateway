@@ -23,6 +23,8 @@ import io.jonasg.kawa.governance.Violation;
 import io.jonasg.kawa.rbac.RbacAuthorizer;
 import io.jonasg.kawa.server.auth.AuthenticationResult;
 import io.jonasg.kawa.server.auth.SaslAuthenticator;
+import io.jonasg.kawa.server.netty.ClientSession;
+import io.netty.channel.embedded.EmbeddedChannel;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.acl.AclPermissionType;
 import org.apache.kafka.common.message.SaslAuthenticateRequestData;
@@ -75,7 +77,7 @@ class DynamicConfigManagerTest {
         // given
         var virtualTopics = new VirtualTopicManager(Map.of());
         var authorizer = new RbacAuthorizer(new RbacConfig(Map.of(), Map.of()));
-        var sasl = new SaslAuthenticator(Set.of());
+        var sasl = new SaslAuthenticator();
         var manager = new DynamicConfigManager("localhost:9092", "__kawa",
                 virtualTopics, authorizer, sasl, emptyGovernance());
         var config = config(Map.of("orders", new VirtualTopicConfig("orders-v2")), rbacAllowingReadOnOrders(), plainAuth(), null);
@@ -86,9 +88,10 @@ class DynamicConfigManagerTest {
         // then
         assertThat(virtualTopics.toPhysical("orders")).isEqualTo("orders-v2");
         assertThat(authorizer.isAuthorized("alice", ResourceType.TOPIC, "orders", AclOperation.READ)).isTrue();
-        var handshake = sasl.handleHandshake(new SaslHandshakeRequestData().setMechanism("PLAIN"));
+        var session = new ClientSession(new EmbeddedChannel());
+        var handshake = sasl.handleHandshake(session, new SaslHandshakeRequestData().setMechanism("PLAIN"));
         assertThat(handshake.errorCode()).isEqualTo(Errors.NONE.code());
-        var authenticate = sasl.handleAuthenticate(new SaslAuthenticateRequestData()
+        var authenticate = sasl.handleAuthenticate(session, new SaslAuthenticateRequestData()
                 .setAuthBytes("\u0000alice\u0000secret".getBytes(StandardCharsets.UTF_8)));
         assertThat(authenticate).isInstanceOf(AuthenticationResult.Success.class);
         assertThat(manager.getActiveConfig()).isSameAs(config);
@@ -99,7 +102,7 @@ class DynamicConfigManagerTest {
         // given
         var virtualTopics = new VirtualTopicManager(Map.of());
         var authorizer = new RbacAuthorizer(new RbacConfig(Map.of(), Map.of()));
-        var sasl = new SaslAuthenticator(Set.of());
+        var sasl = new SaslAuthenticator();
         var manager = new DynamicConfigManager("localhost:9092", "__kawa",
                 virtualTopics, authorizer, sasl, emptyGovernance());
         var good = config(Map.of("orders", new VirtualTopicConfig("orders-v2")), rbacAllowingReadOnOrders(), plainAuth(), null);
@@ -125,7 +128,7 @@ class DynamicConfigManagerTest {
         var manager = new DynamicConfigManager("localhost:9092", "__kawa",
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(Set.of()),
+                new SaslAuthenticator(),
                 emptyGovernance());
 
         // when / then
@@ -167,7 +170,7 @@ class DynamicConfigManagerTest {
         var manager = new DynamicConfigManager(writeRepository,
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(Set.of()),
+                new SaslAuthenticator(),
                 emptyGovernance());
         var first = config(Map.of("orders", new VirtualTopicConfig("orders-v2")), rbacAllowingReadOnOrders(), plainAuth(), null);
         var second = config(Map.of("customers", new VirtualTopicConfig("crm.customers")), rbacAllowingReadOnOrders(), plainAuth(), null);
@@ -214,7 +217,7 @@ class DynamicConfigManagerTest {
         var manager = new DynamicConfigManager(writeRepository,
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(Set.of()),
+                new SaslAuthenticator(),
                 emptyGovernance());
         var applied = config(Map.of("orders", new VirtualTopicConfig("orders-v2")),
                 rbacAllowingReadOnOrders(), plainAuth(), null);
@@ -235,7 +238,7 @@ class DynamicConfigManagerTest {
         var manager = new DynamicConfigManager("localhost:9092", "__kawa",
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(Set.of()),
+                new SaslAuthenticator(),
                 emptyGovernance());
 
         // when / then
@@ -249,7 +252,7 @@ class DynamicConfigManagerTest {
         var manager = new DynamicConfigManager("localhost:9092", "__kawa",
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(Set.of()),
+                new SaslAuthenticator(),
                 governancePolicy);
         var governance = new GovernanceConfig(Map.of(
                 "min-partitions", new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1")), null);
@@ -271,7 +274,7 @@ class DynamicConfigManagerTest {
         var manager = new DynamicConfigManager("localhost:9092", "__kawa",
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(Set.of()),
+                new SaslAuthenticator(),
                 governancePolicy);
         var good = config(Map.of(), new RbacConfig(Map.of(), Map.of()), plainAuth(),
                 new GovernanceConfig(Map.of(
@@ -297,7 +300,7 @@ class DynamicConfigManagerTest {
         var manager = new DynamicConfigManager("localhost:9092", "__kawa",
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(Set.of()),
+                new SaslAuthenticator(),
                 governancePolicy);
         var governance = new GovernanceConfig(null, Map.of(
                 "streams-internal", new GovernanceExemptionConfig("^streams-.*", ".*-changelog$")));
@@ -318,7 +321,7 @@ class DynamicConfigManagerTest {
                 writeRepository,
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(Set.of()),
+                new SaslAuthenticator(),
                 emptyGovernance(),
                 Duration.ofSeconds(1));
         var targetConfig = config(
@@ -354,7 +357,7 @@ class DynamicConfigManagerTest {
                 writeRepository,
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(Set.of()),
+                new SaslAuthenticator(),
                 emptyGovernance(),
                 Duration.ofMillis(20));
 
@@ -397,7 +400,7 @@ class DynamicConfigManagerTest {
                 writeRepository,
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(Set.of()),
+                new SaslAuthenticator(),
                 emptyGovernance(),
                 Duration.ofMillis(20));
 

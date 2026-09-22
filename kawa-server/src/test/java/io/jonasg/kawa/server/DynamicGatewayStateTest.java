@@ -15,8 +15,12 @@ import io.jonasg.kawa.config.Mechanism;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.governance.TopicSpec;
 import io.jonasg.kawa.server.auth.AuthenticationResult;
+import io.jonasg.kawa.server.netty.ClientSession;
+import io.netty.channel.embedded.EmbeddedChannel;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.message.SaslAuthenticateRequestData;
+import org.apache.kafka.common.message.SaslHandshakeRequestData;
+import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.resource.ResourceType;
 import org.junit.jupiter.api.Test;
 
@@ -55,7 +59,10 @@ class DynamicGatewayStateTest {
         assertThat(state.authorizer().hasAnyAcls()).isTrue();
         assertThat(state.authorizer().isAuthorized(
                 "alice", ResourceType.TOPIC, "orders-physical", AclOperation.READ)).isTrue();
-        assertThat(state.saslAuthenticator().handleAuthenticate(
+        var session = new ClientSession(new EmbeddedChannel());
+        assertThat(state.saslAuthenticator().handleHandshake(session,
+                new SaslHandshakeRequestData().setMechanism("PLAIN")).errorCode()).isEqualTo(Errors.NONE.code());
+        assertThat(state.saslAuthenticator().handleAuthenticate(session,
                 new SaslAuthenticateRequestData()
                         .setAuthBytes("\u0000alice\u0000secret".getBytes(StandardCharsets.UTF_8))))
                 .isInstanceOf(AuthenticationResult.Success.class);

@@ -8,10 +8,12 @@ import org.apache.kafka.common.message.SaslHandshakeResponseData;
 import org.apache.kafka.common.protocol.Errors;
 
 import io.jonasg.kawa.config.ClientConfig;
+import io.jonasg.kawa.server.netty.ClientSession;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /// Gateway-owned SASL bootstrap: decides whether the client's requested mechanism is one
 /// kawa supports and answers `SaslHandshake` locally, exactly as a real broker would - an
@@ -32,17 +34,33 @@ import java.util.Set;
 /// The mechanisms and clients are an immutable snapshot replaced atomically via [reload]: a
 /// reader on the hot path sees either the previous or the new auth state, never a
 /// partially-applied one.
+///
+/// Per-connection state (the mechanism negotiated at handshake) is tracked per
+/// [ClientSession] and dropped when the connection closes via [sessionClosed].
 public final class SaslAuthenticator {
+
+    private static final Set<String> DEFAULT_MECHANISMS = Set.of("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512");
 
     /// Immutable snapshot of the dynamic auth state, published as a unit so a reload can never
     /// be observed half-applied.
     private record Snapshot(Set<String> mechanisms, Map<String, ClientConfig> clients) {
     }
 
-    private volatile Snapshot snapshot;
+    /// Per-connection SASL state: the mechanism negotiated at handshake. The SCRAM server
+    /// instance is created lazily on the first `SaslAuthenticate` for SCRAM mechanisms.
+    private static final class SaslExchange {
+        final String mechanism;
 
-    public SaslAuthenticator(Set<String> mechanisms) {
-        this(mechanisms, Map.of());
+        SaslExchange(String mechanism) {
+            this.mechanism = mechanism;
+        }
+    }
+
+    private volatile Snapshot snapshot;
+    private final Map<ClientSession, SaslExchange> exchanges = new ConcurrentHashMap<>();
+
+    public SaslAuthenticator() {
+        this(DEFAULT_MECHANISMS, Map.of());
     }
 
     public SaslAuthenticator(
@@ -67,23 +85,47 @@ public final class SaslAuthenticator {
 
     /// Builds the handshake response: [Errors#NONE] when the requested mechanism is supported,
     /// [Errors#UNSUPPORTED_SASL_MECHANISM] otherwise - always listing every supported
-    /// mechanism so the client knows what to retry with.
-    public SaslHandshakeResponseData handleHandshake(SaslHandshakeRequestData request) {
+    /// mechanism so the client knows what to retry with. Records the negotiated mechanism for
+    /// the session so a later `SaslAuthenticate` knows which credential check to run.
+    public SaslHandshakeResponseData handleHandshake(ClientSession session, SaslHandshakeRequestData request) {
         Set<String> mechanisms = snapshot.mechanisms();
         var response = new SaslHandshakeResponseData();
-        response.setErrorCode(mechanisms.contains(request.mechanism())
-                ? Errors.NONE.code()
-                : Errors.UNSUPPORTED_SASL_MECHANISM.code());
+        boolean supported = mechanisms.contains(request.mechanism());
+        response.setErrorCode(supported ? Errors.NONE.code() : Errors.UNSUPPORTED_SASL_MECHANISM.code());
         mechanisms.forEach(response.mechanisms()::add);
+        if (supported) {
+            exchanges.put(session, new SaslExchange(request.mechanism()));
+        }
         return response;
     }
 
-    /// Validates `SaslAuthenticate` auth bytes for PLAIN credentials.
+    /// Validates `SaslAuthenticate` auth bytes against the mechanism negotiated at handshake.
     ///
-    /// Expected payload is `authzid\0authcid\0password`; `authzid` may be empty.
-    /// Unknown users, wrong passwords and malformed payloads all return the same generic
-    /// failure to avoid user enumeration.
-    public AuthenticationResult handleAuthenticate(SaslAuthenticateRequestData request) {
+    /// PLAIN payload is `authzid\0authcid\0password`; `authzid` may be empty. Unknown users,
+    /// wrong passwords and malformed payloads all return the same generic failure to avoid
+    /// user enumeration. A `SaslAuthenticate` without a preceding successful handshake is
+    /// rejected with [Errors#ILLEGAL_SASL_STATE], matching a real broker. The per-session
+    /// exchange is consumed on every outcome, so a connection authenticates at most once.
+    public AuthenticationResult handleAuthenticate(ClientSession session, SaslAuthenticateRequestData request) {
+        var exchange = exchanges.get(session);
+        if (exchange == null) {
+            return authenticationFailed(Errors.ILLEGAL_SASL_STATE,
+                    "SaslAuthenticate received without a successful SaslHandshake");
+        }
+        AuthenticationResult result = switch (exchange.mechanism) {
+            case "PLAIN" -> authenticatePlain(request);
+            default -> authenticationFailed(Errors.SASL_AUTHENTICATION_FAILED, "Invalid username or password");
+        };
+        exchanges.remove(session);
+        return result;
+    }
+
+    /// Drops per-connection SASL state when the connection closes.
+    public void sessionClosed(ClientSession session) {
+        exchanges.remove(session);
+    }
+
+    private AuthenticationResult authenticatePlain(SaslAuthenticateRequestData request) {
         var response = new SaslAuthenticateResponseData();
 
         var authBytes = request.authBytes();
@@ -102,7 +144,7 @@ public final class SaslAuthenticator {
             return authenticationFailed(response);
         }
 
-        ClientConfig clientConfig = snapshot.clients().get(username);
+        var clientConfig = snapshot.clients().get(username);
         if (clientConfig == null || !clientConfig.password().verify(password)) {
             return authenticationFailed(response);
         }
@@ -114,6 +156,13 @@ public final class SaslAuthenticator {
     private static AuthenticationResult authenticationFailed(SaslAuthenticateResponseData response) {
         response.setErrorCode(Errors.SASL_AUTHENTICATION_FAILED.code());
         response.setErrorMessage("Invalid username or password");
+        return new AuthenticationResult.Failure(response);
+    }
+
+    private static AuthenticationResult authenticationFailed(Errors error, String message) {
+        var response = new SaslAuthenticateResponseData();
+        response.setErrorCode(error.code());
+        response.setErrorMessage(message);
         return new AuthenticationResult.Failure(response);
     }
 

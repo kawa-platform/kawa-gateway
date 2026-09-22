@@ -121,7 +121,7 @@ public final class KafkaClientRequestHandler {
         var data = (SaslHandshakeRequestData) request.body();
         log.info("SaslHandshake request from {}: mechanism={}", session, data.mechanism());
 
-        var response = saslAuthenticator.handleHandshake((SaslHandshakeRequestData) request.body());
+        var response = saslAuthenticator.handleHandshake(session, (SaslHandshakeRequestData) request.body());
         short version = request.apiVersion();
         short responseHeaderVersion = KafkaHeader.of(
                         KafkaApiRegistry.SASL_HANDSHAKE, version, request.correlationId(), null)
@@ -145,7 +145,7 @@ public final class KafkaClientRequestHandler {
 
         log.info("SaslAuthenticate request from {}: {} auth bytes", session, requestData.authBytes().length);
 
-        var result = saslAuthenticator.handleAuthenticate(requestData);
+        var result = saslAuthenticator.handleAuthenticate(session, requestData);
         var response = result.response();
         short version = request.apiVersion();
         short responseHeaderVersion = KafkaHeader.of(
@@ -157,7 +157,7 @@ public final class KafkaClientRequestHandler {
         codec.encodeResponse(KafkaApiRegistry.SASL_AUTHENTICATE, version, response, out);
         session.writeResponse(request.correlationId(), out);
         metrics.request("SaslAuthenticate", "answered-locally");
-        metrics.response("SaslAuthenticate", result instanceof AuthenticationResult.Success ? "ok" : "error");
+        metrics.response("SaslAuthenticate", result instanceof AuthenticationResult.Failure ? "error" : "ok");
         return result;
     }
 
@@ -181,5 +181,6 @@ public final class KafkaClientRequestHandler {
     public void sessionClosed(ClientSession session) {
         brokerPool.closeSession(session);
         fetchSessions.sessionClosed(session);
+        saslAuthenticator.sessionClosed(session);
     }
 }
