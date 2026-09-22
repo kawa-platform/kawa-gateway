@@ -14,6 +14,10 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
   `JAVA_HOME=$HOME/.sdkman/candidates/java/26-tem`
 - **Do NOT pass `-Pca`** — that flag is specific to the separate `~/dev/bac`
   projects and doesn't exist in this repo.
+- **Maven version management:** every version number lives in the parent `pom.xml` - as a property in
+  `<properties>`, referenced from `<dependencyManagement>` (dependencies) or `<pluginManagement>` (plugins).
+  Module POMs declare dependencies and plugins without `<version>`; internal reactor dependencies use
+  `${project.version}`.
 - Single module + its upstream deps:
   `./mvnw -pl <module> -am test` (with the Java 26 JDK active via `.sdkmanrc`).
 - Single test class:
