@@ -1,5 +1,6 @@
-package io.jonasg.kawa.core;
+package io.jonasg.kawa.virtualtopic;
 
+import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 
@@ -22,7 +23,8 @@ public final class VirtualTopicManager {
             String virtual,
             String physical,
             VirtualTopicFilterConfig filter,
-            boolean exposePhysicalTopic
+            boolean exposePhysicalTopic,
+            PayloadFormatConfig valueFormat
     ) {
     }
 
@@ -49,11 +51,11 @@ public final class VirtualTopicManager {
         Map<String, Entry> virtual = new LinkedHashMap<>();
         Map<String, Entry> physical = new LinkedHashMap<>();
         Map<String, String> names = new LinkedHashMap<>();
-        virtualTopics.forEach((l, config) -> {
-            Entry entry = new Entry(l, config.topic(), config.filter(), config.exposePhysicalTopic());
-            virtual.put(l, entry);
+        virtualTopics.forEach((v, config) -> {
+            Entry entry = new Entry(v, config.topic(), config.filter(), config.exposePhysicalTopic(), config.valueFormat());
+            virtual.put(v, entry);
             physical.put(config.topic(), entry);
-            names.put(l, config.topic());
+            names.put(v, config.topic());
         });
         this.snapshot = new Snapshot(
                 Collections.unmodifiableMap(virtual),
@@ -90,12 +92,23 @@ public final class VirtualTopicManager {
     /// physical name, or [Optional#empty] if the topic isn't virtualized or has no
     /// filter configured.
     public Optional<VirtualTopicFilterConfig> filterFor(String virtualOrPhysical) {
+        return entryFor(virtualOrPhysical).map(Entry::filter);
+    }
+
+    /// The configured value encoding for a virtual topic, looked up by either its virtual or
+    /// physical name, or [Optional#empty] if the topic isn't virtualized or has no format
+    /// configured (values are then treated as raw strings).
+    public Optional<PayloadFormatConfig> valueFormatFor(String virtualOrPhysical) {
+        return entryFor(virtualOrPhysical).map(Entry::valueFormat);
+    }
+
+    private Optional<Entry> entryFor(String virtualOrPhysical) {
         Snapshot snap = snapshot;
         Entry entry = snap.byVirtual().get(virtualOrPhysical);
         if (entry == null) {
             entry = snap.byPhysical().get(virtualOrPhysical);
         }
-        return entry == null ? Optional.empty() : Optional.ofNullable(entry.filter());
+        return Optional.ofNullable(entry);
     }
 
     /// Whether this virtual topic's physical name should still be listed alongside its virtual

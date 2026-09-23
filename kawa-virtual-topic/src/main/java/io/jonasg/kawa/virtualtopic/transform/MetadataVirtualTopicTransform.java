@@ -2,7 +2,7 @@ package io.jonasg.kawa.virtualtopic.transform;
 
 import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.core.GatewayContext;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.MetadataResponseData;
 

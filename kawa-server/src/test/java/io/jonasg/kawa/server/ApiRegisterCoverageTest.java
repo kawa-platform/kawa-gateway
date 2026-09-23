@@ -1,6 +1,6 @@
 package io.jonasg.kawa.server;
 
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.protocol.kafka.KafkaApiRegistry;
 import io.jonasg.kawa.protocol.kafka.KafkaApiSpec;
 import io.jonasg.kawa.rbac.AuthorizationInterceptor;

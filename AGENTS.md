@@ -50,14 +50,16 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
 ## Modules (dependency direction)
 
 The build dependency direction is: `kawa-config` → `kawa-core` and
-`kawa-protocol-kafka`; `kawa-virtual-topic` and `kawa-rbac` depend on core/config;
-`kawa-governance` depends on config; `kawa-http-admin` depends on core/config/governance;
-`kawa-server` assembles the runtime modules; and `kawa-integration-tests` depends on
-`kawa-server`.
+`kawa-protocol-kafka`; `kawa-virtual-topic` depends on core/config; `kawa-rbac` depends on
+core/config/virtual-topic; `kawa-governance` depends on config; `kawa-http-admin` depends on
+core/config/governance/virtual-topic; `kawa-server` assembles the runtime modules; and
+`kawa-integration-tests` depends on `kawa-server`.
 
 - `kawa-config`: `GatewayConfig`/`ResourceConfig`/`RbacConfig` + YAML
   `ConfigLoader` (plain Jackson; no custom `ResourceType` deserializer).
-- `kawa-core`: `GatewayContext`, interceptors, `VirtualTopicManager`.
+- `kawa-core`: `GatewayContext`, interceptors.
+- `kawa-virtual-topic`: `VirtualTopicInterceptor` + per-API transforms; owns `VirtualTopicManager`
+  (the virtual-to-physical mapping state).
 - `kawa-protocol-kafka`: `KafkaApiRegistry` — the decoded API/version table; APIs not registered pass through ungated.
 - `kawa-rbac`: `AuthorizationInterceptor` + per-API `AuthorizationCheck`s. One check per gate shape; RBAC is
   **unconditional** (no opt-out) and **default-deny**.

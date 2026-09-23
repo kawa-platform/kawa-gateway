@@ -61,7 +61,8 @@ public final class VirtualTopicMapDeserializer extends ValueDeserializer<Map<Str
         }
         VirtualTopicFilterConfig filter = parseFilter(virtualTopic, object.get("filter"), context);
         boolean exposePhysicalTopic = parseExposePhysicalTopic(virtualTopic, object.get("exposePhysicalTopic"));
-        return new VirtualTopicConfig(topicNode.stringValue(), filter, exposePhysicalTopic);
+        PayloadFormatConfig valueFormat = parseValueFormat(virtualTopic, object.get("valueFormat"), context);
+        return new VirtualTopicConfig(topicNode.stringValue(), filter, exposePhysicalTopic, valueFormat);
     }
 
     private static boolean parseExposePhysicalTopic(
@@ -100,6 +101,29 @@ public final class VirtualTopicMapDeserializer extends ValueDeserializer<Map<Str
         } catch (RuntimeException e) {
             throw new IllegalArgumentException(
                     "Invalid filter config for virtual topic '" + virtualTopic + "': " + e.getMessage(), e);
+        }
+    }
+
+    /// Delegates the `valueFormat` node to Jackson's polymorphic `type`-based dispatch
+    /// ([PayloadFormatConfig]'s `@JsonTypeInfo`/`@JsonSubTypes`).
+    private static PayloadFormatConfig parseValueFormat(
+            String virtualTopic,
+            JsonNode formatNode,
+            DeserializationContext context
+    ) {
+        if (formatNode == null || formatNode.isNull()) {
+            return null;
+        }
+        if (!formatNode.isObject()) {
+            throw new IllegalArgumentException(
+                    "Invalid valueFormat for virtual topic '" + virtualTopic
+                    + "': expected an object with a required 'type' key");
+        }
+        try {
+            return context.readTreeAsValue(formatNode, PayloadFormatConfig.class);
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException(
+                    "Invalid valueFormat for virtual topic '" + virtualTopic + "': " + e.getMessage(), e);
         }
     }
 }

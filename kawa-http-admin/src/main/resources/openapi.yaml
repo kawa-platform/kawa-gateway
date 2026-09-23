@@ -520,6 +520,11 @@ components:
           type: string
           nullable: true
           description: The broker-side topic name, only present when type is virtual.
+        valueFormat:
+          allOf:
+            - $ref: '#/components/schemas/PayloadFormat'
+          nullable: true
+          description: Encoding of record values, or null if none (raw strings).
     TopicFilterView:
       type: object
       required:
@@ -573,6 +578,10 @@ components:
         exposePhysicalTopic:
           type: boolean
           description: Virtual topics only; whether the physical topic is also served directly.
+        valueFormat:
+          allOf:
+            - $ref: '#/components/schemas/PayloadFormat'
+          description: Virtual topics only; optional encoding of record values, letting CEL filters read the decoded value.
     VirtualTopicConfig:
       type: object
       required:
@@ -588,6 +597,10 @@ components:
           nullable: true
         exposePhysicalTopic:
           type: boolean
+        valueFormat:
+          allOf:
+            - $ref: '#/components/schemas/PayloadFormat'
+          nullable: true
     VirtualTopicConfigPatch:
       type: object
       properties:
@@ -605,6 +618,35 @@ components:
         exposePhysicalTopic:
           type: boolean
           description: Optional physical-topic exposure setting.
+        valueFormat:
+          allOf:
+            - $ref: '#/components/schemas/PayloadFormat'
+          nullable: true
+          description: Optional value format; omitted or null means raw values. Replaced together with filter.
+    PayloadFormat:
+      oneOf:
+        - $ref: '#/components/schemas/JsonFormat'
+      discriminator:
+        propertyName: type
+        mapping:
+          json: '#/components/schemas/JsonFormat'
+    JsonFormat:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum:
+            - json
+        onDecodeError:
+          type: string
+          enum:
+            - skip
+            - include
+            - fail
+          default: skip
+          description: What to do with a record whose value is not valid JSON - drop it, deliver it, or fail the fetch.
     VirtualTopicFilter:
       oneOf:
         - $ref: '#/components/schemas/HeaderEqualsFilter'

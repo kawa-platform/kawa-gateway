@@ -3,8 +3,8 @@ package io.jonasg.kawa.virtualtopic;
 import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
+import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
-import io.jonasg.kawa.core.VirtualTopicManager;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.core.Response;
@@ -1507,6 +1507,51 @@ class VirtualTopicInterceptorTest {
         filtered.records().forEach(survivors::add);
         assertThat(survivors).hasSize(1);
         assertThat(StandardCharsets.UTF_8.decode(survivors.get(0).key()).toString()).isEqualTo("k1");
+    }
+
+    @Test
+    void filtersFetchResponseRecordsByJsonContent() {
+        // given a virtual topic filtering on JSON content
+        var virtualTopicMan = new VirtualTopicManager(
+                Map.of(
+                        "paid-orders", new VirtualTopicConfig(
+                                "orders",
+                                new CelFilterConfig("value.status == \"PAID\""), false, new JsonFormatConfig()
+                        )
+                )
+        );
+        var interceptor = new VirtualTopicInterceptor(virtualTopicMan, advertised);
+
+        var requestData = new FetchRequestData();
+        requestData.topics().add(new FetchRequestData.FetchTopic().setTopic("paid-orders"));
+        var gatewayContext = freshContext();
+        interceptor.onRequest(gatewayContext, request(FETCH, requestData));
+        assertThat(first(requestData.topics()).topic()).isEqualTo("orders");
+
+        var matching = new SimpleRecord(1000L, "k1".getBytes(StandardCharsets.UTF_8),
+                "{\"status\":\"PAID\"}".getBytes(StandardCharsets.UTF_8));
+        var nonMatching = new SimpleRecord(2000L, "k2".getBytes(StandardCharsets.UTF_8),
+                "{\"status\":\"OPEN\"}".getBytes(StandardCharsets.UTF_8));
+        var records = MemoryRecords.withRecords(Compression.NONE, matching, nonMatching);
+
+        var responseData = new FetchResponseData();
+        responseData.responses().add(new FetchResponseData.FetchableTopicResponse()
+                .setTopic("orders")
+                .setPartitions(List.of(new FetchResponseData.PartitionData()
+                        .setPartitionIndex(0)
+                        .setRecords(records))));
+
+        interceptor.onResponse(gatewayContext, response(FETCH, responseData));
+
+        // then the topic is renamed back AND its records are filtered by JSON content
+        assertThat(first(responseData.responses()).topic()).isEqualTo("paid-orders");
+        var filtered = (MemoryRecords) first(responseData.responses()).partitions().getFirst().records();
+        List<Record> survivors = new ArrayList<>();
+        filtered.records().forEach(survivors::add);
+        assertThat(survivors).hasSize(1);
+        assertThat(StandardCharsets.UTF_8.decode(survivors.getFirst().value()).toString())
+                .withFailMessage(() -> "Non-matching JSON record was not filtered from the fetch response")
+                .isEqualTo("{\"status\":\"PAID\"}");
     }
 
     @Test

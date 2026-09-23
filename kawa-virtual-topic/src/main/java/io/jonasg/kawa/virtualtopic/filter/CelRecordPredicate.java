@@ -1,11 +1,14 @@
 package io.jonasg.kawa.virtualtopic.filter;
 
 import dev.cel.common.CelAbstractSyntaxTree;
+import dev.cel.common.CelOptions;
 import dev.cel.common.CelValidationException;
+import dev.cel.common.types.CelType;
 import dev.cel.common.types.MapType;
 import dev.cel.common.types.SimpleType;
 import dev.cel.compiler.CelCompiler;
 import dev.cel.compiler.CelCompilerFactory;
+import dev.cel.parser.CelStandardMacro;
 import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelRuntime;
 import dev.cel.runtime.CelRuntimeFactory;
@@ -17,6 +20,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class CelRecordPredicate implements RecordPredicate {
 
@@ -26,24 +30,47 @@ public class CelRecordPredicate implements RecordPredicate {
             .addVar("headers", MapType.create(SimpleType.STRING, SimpleType.STRING))
             .addVar("timestamp", SimpleType.INT)
             .build();
-    private static final CelRuntime RUNTIME = CelRuntimeFactory.plannerRuntimeBuilder().build();
+
+    /// Heterogeneous numeric comparisons let `value.amount > 100` work whether the JSON number
+    /// decoded to a `Long` or a `Double`.
+    private static final CelOptions OPTIONS = CelOptions.current()
+            .enableHeterogeneousNumericComparisons(true)
+            .build();
+
+    /// Without a value format, `value` is the raw payload as a string.
+    private static final CelCompiler RAW_VALUE_COMPILER = compiler(SimpleType.STRING);
+
+    /// With a value format, `value` is the decoded document (dyn can be a map, list or scalar).
+    private static final CelCompiler DECODED_VALUE_COMPILER = compiler(SimpleType.DYN);
+
+    private static final CelRuntime RUNTIME = CelRuntimeFactory.plannerRuntimeBuilder()
+            .setOptions(OPTIONS)
+            .build();
+    /// Compiled CEL programs keyed by expression string. Compilation is expensive and the same
+    /// expression is reused for every record of a virtual topic, so it is done once and cached.
+    /// `CelRuntime.Program` is thread-safe and side-effect free, so a single instance is shared.
+    private final Map<String, CelRuntime.Program> celPrograms = new ConcurrentHashMap<>();
 
     /// The compiled expression. Compilation is expensive, so it happens once here - which also
     /// rejects an invalid expression when the filter is created rather than on the first record.
     /// `CelRuntime.Program` is thread-safe and side-effect free, so the instance can be shared.
     private final CelRuntime.Program program;
     private final String expression;
+    private final PayloadDecoder valueDecoder;
 
-    public CelRecordPredicate(CelFilterConfig config) {
+    /// @param valueDecoder decodes the record value before evaluation, or `null` to bind the
+    ///                     raw value as a string
+    public CelRecordPredicate(CelFilterConfig config, PayloadDecoder valueDecoder) {
         this.expression = config.expression();
-        this.program = compile(expression);
+        this.valueDecoder = valueDecoder;
+        this.program = compile(valueDecoder == null ? RAW_VALUE_COMPILER : DECODED_VALUE_COMPILER, expression);
     }
 
     @Override
     public boolean test(Record record) {
         Map<String, Object> bindings = new HashMap<>(4);
         bindings.put("key", decode(record.key()));
-        bindings.put("value", decode(record.value()));
+        bindings.put("value", valueDecoder == null ? decode(record.value()) : valueDecoder.decode(record.value()));
         bindings.put("headers", headers(record));
         bindings.put("timestamp", record.timestamp());
         try {
@@ -54,9 +81,20 @@ public class CelRecordPredicate implements RecordPredicate {
         }
     }
 
-    private static CelRuntime.Program compile(String expression) {
+    private static CelCompiler compiler(CelType valueType) {
+        return CelCompilerFactory.standardCelCompilerBuilder()
+                .setOptions(OPTIONS)
+                .setStandardMacros(CelStandardMacro.HAS)
+                .addVar("key", SimpleType.STRING)
+                .addVar("value", valueType)
+                .addVar("headers", MapType.create(SimpleType.STRING, SimpleType.STRING))
+                .addVar("timestamp", SimpleType.INT)
+                .build();
+    }
+
+    private static CelRuntime.Program compile(CelCompiler compiler, String expression) {
         try {
-            CelAbstractSyntaxTree ast = COMPILER.compile(expression).getAst();
+            CelAbstractSyntaxTree ast = compiler.compile(expression).getAst();
             return RUNTIME.createProgram(ast);
         } catch (CelValidationException | CelEvaluationException e) {
             throw new IllegalArgumentException(
