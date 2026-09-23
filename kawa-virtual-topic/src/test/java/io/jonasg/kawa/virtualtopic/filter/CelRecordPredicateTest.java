@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CelRecordPredicateTest {
 
@@ -150,6 +151,18 @@ class CelRecordPredicateTest {
 
         // then — missing header resolves to "", which != "acme"
         assertThat(matches).isFalse();
+    }
+
+    @Test
+    void invalidCelExpressionIsRejectedWhenFilterIsCreated() {
+        // given a syntactically invalid CEL expression
+        var config = new CelFilterConfig("headers.tenant ==");
+
+        // when / then compilation happens once, up front, so the error surfaces at construction
+        // rather than on (and repeated for) every evaluated record
+        assertThatThrownBy(() -> new VirtualTopicRecordFilter.EvaluatingRecordFilter(config))
+                .withFailMessage(() -> "Invalid CEL expression was not rejected when the filter was created")
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     /// Wraps a [SimpleRecord] in a [MemoryRecords] batch and returns the decoded [Record],
