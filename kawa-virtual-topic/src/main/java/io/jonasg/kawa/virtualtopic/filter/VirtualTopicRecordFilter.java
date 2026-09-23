@@ -14,6 +14,8 @@ import org.apache.kafka.common.record.internal.RecordBatch;
 import org.apache.kafka.common.utils.BufferSupplier;
 
 import java.nio.ByteBuffer;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /// Applies a virtual topic's configured consume filter to a fetched partition's records:
 /// decodes the batch(es), drops records the filter rejects, and re-encodes a valid batch.
@@ -25,6 +27,11 @@ import java.nio.ByteBuffer;
 /// Surviving records keep their original offsets (this is what makes offset gaps in a fetch
 /// response safe for consumers, the same property compacted topics already rely on).
 public final class VirtualTopicRecordFilter {
+
+    /// Evaluating filters keyed by config. Filter configs are records (value equality), so each
+    /// distinct config is prepared - e.g. its CEL expression compiled - once and then reused across
+    /// fetches, instead of being rebuilt for every fetched partition.
+    private final Map<VirtualTopicFilterConfig, EvaluatingRecordFilter> filters = new ConcurrentHashMap<>();
 
     public VirtualTopicRecordFilter() {
     }
@@ -42,25 +49,25 @@ public final class VirtualTopicRecordFilter {
 
         ByteBuffer output = ByteBuffer.allocate(memoryRecords.sizeInBytes());
         memoryRecords.filterTo(
-                new EvaluatingRecordFilter(filter),
+                filters.computeIfAbsent(filter, EvaluatingRecordFilter::new),
                 output,
                 BufferSupplier.NO_CACHING);
         output.flip();
         return MemoryRecords.readableRecords(output);
     }
 
-    /// Retains a record iff it matches the configured filter. Decides whether a single decoded
-    /// [Record] matches a virtual topic's configured consume filter - pure evaluation over the
-    /// sealed [VirtualTopicFilterConfig], no wire-encoding concerns. The switch below is
+    /// Retains a record iff it matches the configured filter. The [RecordPredicate] is resolved
+    /// once at construction from the sealed [VirtualTopicFilterConfig], so per-record evaluation
+    /// does no preparation work and has no wire-encoding concerns. The switch below is
     /// exhaustive over the sealed interface's permitted subtypes: adding a new filter kind is a
     /// compile error here until a case is added.
     static final class EvaluatingRecordFilter extends MemoryRecords.RecordFilter {
 
-        private final VirtualTopicFilterConfig filterCfg;
+        private final RecordPredicate predicate;
 
         EvaluatingRecordFilter(VirtualTopicFilterConfig filterCfg) {
             super(RecordBatch.NO_TIMESTAMP, -1L);
-            this.filterCfg = filterCfg;
+            this.predicate = predicateFor(filterCfg);
         }
 
         @Override
@@ -81,12 +88,16 @@ public final class VirtualTopicRecordFilter {
         }
 
         boolean matches(Record record) {
+            return predicate.test(record);
+        }
+
+        private static RecordPredicate predicateFor(VirtualTopicFilterConfig filterCfg) {
             return switch (filterCfg) {
-                case HeaderEqualsFilterConfig headerEquals -> new HeaderEqualsRecordPredicate().test(headerEquals, record);
-                case HeaderContainsFilterConfig headerContains -> new HeaderContainsRecordPredicate().test(headerContains, record);
-                case HeaderStartsWithFilterConfig headerStartsWith -> new HeaderStartsWithRecordPredicate().test(headerStartsWith, record);
-                case HeaderMatchesFilterConfig headerMatches -> new HeaderMatchesRecordPredicate().test(headerMatches, record);
-                case CelFilterConfig cfg -> new CelRecordPredicate().test(cfg, record);
+                case HeaderEqualsFilterConfig cfg -> new HeaderEqualsRecordPredicate(cfg);
+                case HeaderContainsFilterConfig cfg -> new HeaderContainsRecordPredicate(cfg);
+                case HeaderStartsWithFilterConfig cfg -> new HeaderStartsWithRecordPredicate(cfg);
+                case HeaderMatchesFilterConfig cfg -> new HeaderMatchesRecordPredicate(cfg);
+                case CelFilterConfig cfg -> new CelRecordPredicate(cfg);
             };
         }
 

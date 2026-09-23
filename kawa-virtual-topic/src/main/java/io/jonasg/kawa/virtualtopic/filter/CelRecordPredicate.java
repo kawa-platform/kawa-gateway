@@ -17,9 +17,8 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
-public class CelRecordPredicate implements RecordPredicate<CelFilterConfig> {
+public class CelRecordPredicate implements RecordPredicate {
 
     private static final CelCompiler COMPILER = CelCompilerFactory.standardCelCompilerBuilder()
             .addVar("key", SimpleType.STRING)
@@ -29,14 +28,19 @@ public class CelRecordPredicate implements RecordPredicate<CelFilterConfig> {
             .build();
     private static final CelRuntime RUNTIME = CelRuntimeFactory.plannerRuntimeBuilder().build();
 
-    /// Compiled CEL programs keyed by expression string. Compilation is expensive and the same
-    /// expression is reused for every record of a virtual topic, so it is done once and cached.
-    /// `CelRuntime.Program` is thread-safe and side-effect free, so a single instance is shared.
-    private final Map<String, CelRuntime.Program> celPrograms = new ConcurrentHashMap<>();
+    /// The compiled expression. Compilation is expensive, so it happens once here - which also
+    /// rejects an invalid expression when the filter is created rather than on the first record.
+    /// `CelRuntime.Program` is thread-safe and side-effect free, so the instance can be shared.
+    private final CelRuntime.Program program;
+    private final String expression;
+
+    public CelRecordPredicate(CelFilterConfig config) {
+        this.expression = config.expression();
+        this.program = compile(expression);
+    }
 
     @Override
-    public boolean test(CelFilterConfig cfg, Record record) {
-        var program = celPrograms.computeIfAbsent(cfg.expression(), this::compile);
+    public boolean test(Record record) {
         Map<String, Object> bindings = new HashMap<>(4);
         bindings.put("key", decode(record.key()));
         bindings.put("value", decode(record.value()));
@@ -46,11 +50,11 @@ public class CelRecordPredicate implements RecordPredicate<CelFilterConfig> {
             return Boolean.TRUE.equals(program.eval(bindings));
         } catch (CelEvaluationException e) {
             throw new IllegalStateException(
-                    "Failed to evaluate CEL filter '" + cfg + "': " + e.getMessage(), e);
+                    "Failed to evaluate CEL filter '" + expression + "': " + e.getMessage(), e);
         }
     }
 
-    private CelRuntime.Program compile(String expression) {
+    private static CelRuntime.Program compile(String expression) {
         try {
             CelAbstractSyntaxTree ast = COMPILER.compile(expression).getAst();
             return RUNTIME.createProgram(ast);
