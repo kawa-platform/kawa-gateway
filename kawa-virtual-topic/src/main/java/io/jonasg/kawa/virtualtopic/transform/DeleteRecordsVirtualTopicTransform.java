@@ -1,7 +1,7 @@
 package io.jonasg.kawa.virtualtopic.transform;
 
 import io.jonasg.kawa.core.GatewayContext;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.virtualtopic.VirtualTopicState;
 import org.apache.kafka.common.message.DeleteRecordsRequestData;
 import org.apache.kafka.common.message.DeleteRecordsResponseData;

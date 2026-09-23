@@ -1,6 +1,7 @@
 package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.CelFilterConfig;
+import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceExemptionConfig;
@@ -9,8 +10,9 @@ import io.jonasg.kawa.config.HeaderContainsFilterConfig;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.HeaderMatchesFilterConfig;
 import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
+import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.governance.TopicSpec;
 import org.apache.kafka.common.errors.TopicExistsException;
@@ -54,7 +56,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "partitions": 3,
                             "replicationFactor": 2,
                             "filter": null,
-                            "physicalTopic": "orders-v2"
+                            "physicalTopic": "orders-v2",
+                            "valueFormat": null
                           },
                           {
                             "type": "physical",
@@ -62,7 +65,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "partitions": 3,
                             "replicationFactor": 2,
                             "filter": null,
-                            "physicalTopic": null
+                            "physicalTopic": null,
+                            "valueFormat": null
                           },
                           {
                             "type": "virtual",
@@ -73,7 +77,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                               "kind": "header",
                               "expression": "tenant=acme"
                             },
-                            "physicalTopic": "crm.customers"
+                            "physicalTopic": "crm.customers",
+                            "valueFormat": null
                           },
                           {
                             "type": "physical",
@@ -81,7 +86,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "partitions": 2,
                             "replicationFactor": 3,
                             "filter": null,
-                            "physicalTopic": null
+                            "physicalTopic": null,
+                            "valueFormat": null
                           },
                           {
                             "type": "physical",
@@ -89,7 +95,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "partitions": 1,
                             "replicationFactor": 1,
                             "filter": null,
-                            "physicalTopic": null
+                            "physicalTopic": null,
+                            "valueFormat": null
                           }
                         ]
                         """);
@@ -132,7 +139,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                     "kind": "cel",
                     "expression": "headers.tenant == \\\"acme\\\""
                   },
-                  "physicalTopic": "audit-v1"
+                  "physicalTopic": "audit-v1",
+                  "valueFormat": null
                 },
                 {
                   "type": "physical",
@@ -140,7 +148,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   "partitions": 1,
                   "replicationFactor": 1,
                   "filter": null,
-                  "physicalTopic": null
+                  "physicalTopic": null,
+                  "valueFormat": null
                 }]
                 """);
     }
@@ -176,7 +185,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                               "kind": "headerContains",
                               "expression": "tenant contains acm"
                             },
-                            "physicalTopic": "contains-v1"
+                            "physicalTopic": "contains-v1",
+                            "valueFormat": null
                           },
                           {
                             "type": "virtual",
@@ -187,7 +197,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                               "kind": "headerStartsWith",
                               "expression": "tenant starts with ac"
                             },
-                            "physicalTopic": "starts-v1"
+                            "physicalTopic": "starts-v1",
+                            "valueFormat": null
                           },
                           {
                             "type": "virtual",
@@ -198,7 +209,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                               "kind": "headerMatches",
                               "expression": "tenant matches eu.*"
                             },
-                            "physicalTopic": "matches-v1"
+                            "physicalTopic": "matches-v1",
+                            "valueFormat": null
                           },
                           {
                             "type": "physical",
@@ -206,7 +218,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "partitions": 1,
                             "replicationFactor": 1,
                             "filter": null,
-                            "physicalTopic": null
+                            "physicalTopic": null,
+                            "valueFormat": null
                           },
                           {
                             "type": "physical",
@@ -214,7 +227,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "partitions": 1,
                             "replicationFactor": 1,
                             "filter": null,
-                            "physicalTopic": null
+                            "physicalTopic": null,
+                            "valueFormat": null
                           },
                           {
                             "type": "physical",
@@ -222,7 +236,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "partitions": 1,
                             "replicationFactor": 1,
                             "filter": null,
-                            "physicalTopic": null
+                            "physicalTopic": null,
+                            "valueFormat": null
                           }
                         ]
                         """);
@@ -247,7 +262,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   "partitions": 0,
                   "replicationFactor": 0,
                   "filter": null,
-                  "physicalTopic": "orders-v2"
+                  "physicalTopic": "orders-v2",
+                  "valueFormat": null
                 }]
                 """);
     }
@@ -394,6 +410,55 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThat(topicAdmin.created).isEmpty();
         assertThat(repository.updateCalls()).isEqualTo(1);
         assertThat(repository.updateAndWaitCalls()).isEqualTo(0);
+    }
+
+    @Test
+    void createsVirtualTopicWithJsonValueFormat() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var response = send("POST", "/topics", """
+                {
+                  "type": "virtual",
+                  "name": "paid-orders",
+                  "topic": "orders",
+                  "filter": {"type": "cel", "expression": "value.status == \\"PAID\\""},
+                  "valueFormat": {"type": "json", "onDecodeError": "include"}
+                }
+                """);
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(201);
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "Virtual topic was not persisted with its JSON value format")
+                .containsEntry("paid-orders", new VirtualTopicConfig(
+                        "orders",
+                        new CelFilterConfig("value.status == \"PAID\""),
+                        false,
+                        new JsonFormatConfig(DecodeErrorPolicy.INCLUDE)));
+        assertThatJson(response.body()).inPath("valueFormat").isEqualTo("""
+                {"type": "json", "onDecodeError": "include"}
+                """);
+    }
+
+    @Test
+    void describesValueFormatOnVirtualEntry() throws Exception {
+        // given
+        virtualTopics = new VirtualTopicManager(Map.of(
+                "paid-orders", new VirtualTopicConfig("orders",
+                        new CelFilterConfig("value.status == \"PAID\""), false, new JsonFormatConfig())));
+        cache = cacheWith(topic("orders", 1, 1));
+        startServer();
+
+        // when
+        var response = send("GET", "/topics", null);
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThatJson(response.body()).inPath("[0].valueFormat").isEqualTo("""
+                {"type": "json", "onDecodeError": "skip"}
+                """);
     }
 
     @Test
@@ -559,7 +624,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                     "header": "region",
                     "value": "eu"
                   },
-                  "exposePhysicalTopic": true
+                  "exposePhysicalTopic": true,
+                  "valueFormat": null
                 }
                 """);
     }

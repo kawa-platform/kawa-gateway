@@ -1,17 +1,21 @@
 package io.jonasg.kawa.virtualtopic.filter;
 
 import io.jonasg.kawa.config.CelFilterConfig;
+import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.HeaderContainsFilterConfig;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.HeaderMatchesFilterConfig;
 import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
+import io.jonasg.kawa.config.JsonFormatConfig;
+import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.record.internal.BaseRecords;
 import org.apache.kafka.common.record.internal.MemoryRecords;
 import org.apache.kafka.common.record.internal.Record;
 import org.apache.kafka.common.record.internal.RecordBatch;
 import org.apache.kafka.common.utils.BufferSupplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
 import java.util.Map;
@@ -28,19 +32,22 @@ import java.util.concurrent.ConcurrentHashMap;
 /// response safe for consumers, the same property compacted topics already rely on).
 public final class VirtualTopicRecordFilter {
 
+    private static final Logger LOG = LoggerFactory.getLogger(VirtualTopicRecordFilter.class);
+
     /// Evaluating filters keyed by config. Filter configs are records (value equality), so each
     /// distinct config is prepared - e.g. its CEL expression compiled - once and then reused across
     /// fetches, instead of being rebuilt for every fetched partition.
-    private final Map<VirtualTopicFilterConfig, EvaluatingRecordFilter> filters = new ConcurrentHashMap<>();
+    private final Map<FilterKey, EvaluatingRecordFilter> filters = new ConcurrentHashMap<>();
 
-    public VirtualTopicRecordFilter() {
+    private record FilterKey(VirtualTopicFilterConfig filter, PayloadFormatConfig valueFormat) {
     }
 
-    /// Returns `records` filtered per `filter`, or `records` unchanged when
+    /// Returns `records` filtered per `filter` - with record values decoded per `valueFormat`
+    /// when one is configured (`null` for raw values) - or `records` unchanged when
     /// there is nothing to decode (null or empty - the fast path most partitions take).
     public BaseRecords apply(
             VirtualTopicFilterConfig filter,
-            TopicPartition partition,
+            PayloadFormatConfig valueFormat,
             BaseRecords records
     ) {
         if (!(records instanceof MemoryRecords memoryRecords) || memoryRecords.sizeInBytes() == 0) {
@@ -49,14 +56,16 @@ public final class VirtualTopicRecordFilter {
 
         ByteBuffer output = ByteBuffer.allocate(memoryRecords.sizeInBytes());
         memoryRecords.filterTo(
-                filters.computeIfAbsent(filter, EvaluatingRecordFilter::new),
+                filters.computeIfAbsent(
+                        new FilterKey(filter, valueFormat),
+                        key -> new EvaluatingRecordFilter(key.filter(), key.valueFormat())),
                 output,
                 BufferSupplier.NO_CACHING);
         output.flip();
         return MemoryRecords.readableRecords(output);
     }
 
-    /// Retains a record iff it matches the configured filter. The [RecordPredicate] is resolved
+    /// Retains a record if it matches the configured filter. The [RecordPredicate] is resolved
     /// once at construction from the sealed [VirtualTopicFilterConfig], so per-record evaluation
     /// does no preparation work and has no wire-encoding concerns. The switch below is
     /// exhaustive over the sealed interface's permitted subtypes: adding a new filter kind is a
@@ -64,10 +73,16 @@ public final class VirtualTopicRecordFilter {
     static final class EvaluatingRecordFilter extends MemoryRecords.RecordFilter {
 
         private final RecordPredicate predicate;
+        private final DecodeErrorPolicy onDecodeError;
 
         EvaluatingRecordFilter(VirtualTopicFilterConfig filterCfg) {
+            this(filterCfg, null);
+        }
+
+        EvaluatingRecordFilter(VirtualTopicFilterConfig filterCfg, PayloadFormatConfig valueFormat) {
             super(RecordBatch.NO_TIMESTAMP, -1L);
-            this.predicate = predicateFor(filterCfg);
+            this.predicate = predicateFor(filterCfg, decoderFor(valueFormat));
+            this.onDecodeError = valueFormat == null ? DecodeErrorPolicy.FAIL : valueFormat.onDecodeError();
         }
 
         @Override
@@ -88,16 +103,34 @@ public final class VirtualTopicRecordFilter {
         }
 
         boolean matches(Record record) {
-            return predicate.test(record);
+            try {
+                return predicate.test(record);
+            } catch (PayloadDecodeException e) {
+                return switch (onDecodeError) {
+                    case SKIP -> {
+                        LOG.debug("Dropping record at offset {}: {}", record.offset(), e.getMessage());
+                        yield false;
+                    }
+                    case INCLUDE -> true;
+                    case FAIL -> throw e;
+                };
+            }
         }
 
-        private static RecordPredicate predicateFor(VirtualTopicFilterConfig filterCfg) {
+        private static PayloadDecoder decoderFor(PayloadFormatConfig valueFormat) {
+            return switch (valueFormat) {
+                case null -> null;
+                case JsonFormatConfig _ -> new JsonPayloadDecoder();
+            };
+        }
+
+        private static RecordPredicate predicateFor(VirtualTopicFilterConfig filterCfg, PayloadDecoder valueDecoder) {
             return switch (filterCfg) {
                 case HeaderEqualsFilterConfig cfg -> new HeaderEqualsRecordPredicate(cfg);
                 case HeaderContainsFilterConfig cfg -> new HeaderContainsRecordPredicate(cfg);
                 case HeaderStartsWithFilterConfig cfg -> new HeaderStartsWithRecordPredicate(cfg);
                 case HeaderMatchesFilterConfig cfg -> new HeaderMatchesRecordPredicate(cfg);
-                case CelFilterConfig cfg -> new CelRecordPredicate(cfg);
+                case CelFilterConfig cfg -> new CelRecordPredicate(cfg, valueDecoder);
             };
         }
 

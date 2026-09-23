@@ -6,7 +6,7 @@ import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.HeaderMatchesFilterConfig;
 import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
 
@@ -39,7 +39,8 @@ public final class GetTopicsHandler implements Router.Handler {
                     cache.partitionCount(physical),
                     cache.replicationFactor(physical),
                     toFilterView(virtualTopics.filterFor(virtual).orElse(null)),
-                    physical));
+                    physical,
+                    virtualTopics.valueFormatFor(virtual).orElse(null)));
         }
         for (TopicMetadata tm : cache.topics()) {
             views.add(new TopicView(
@@ -47,6 +48,7 @@ public final class GetTopicsHandler implements Router.Handler {
                     tm.name(),
                     cache.partitionCount(tm.name()),
                     cache.replicationFactor(tm.name()),
+                    null,
                     null,
                     null));
         }

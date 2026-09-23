@@ -8,7 +8,7 @@ import io.jonasg.kawa.config.RoleConfig;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.core.Response;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.message.ListGroupsRequestData;
 import org.apache.kafka.common.message.ListGroupsResponseData;

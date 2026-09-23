@@ -62,7 +62,8 @@ public final class PatchTopicHandler implements Router.Handler {
                 patch.filter(),
                 patch.exposePhysicalTopic() == null
                         ? current.exposePhysicalTopic()
-                        : patch.exposePhysicalTopic());
+                        : patch.exposePhysicalTopic(),
+                patch.valueFormat());
         try {
             updater.update(request, config -> replace(config, currentName, newName, updated));
         } catch (IllegalArgumentException e) {

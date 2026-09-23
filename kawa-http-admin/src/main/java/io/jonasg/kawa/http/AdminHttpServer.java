@@ -2,7 +2,7 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.netty.bootstrap.ServerBootstrap;

@@ -9,7 +9,7 @@ import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.core.Response;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.MetadataResponseData;

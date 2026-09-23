@@ -5,7 +5,6 @@ import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.Interceptor;
 import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.core.Response;
-import io.jonasg.kawa.core.VirtualTopicManager;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
 import io.jonasg.kawa.virtualtopic.transform.AddPartitionsToTxnVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.AlterConfigsVirtualTopicTransform;

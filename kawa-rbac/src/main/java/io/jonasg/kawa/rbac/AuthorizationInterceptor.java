@@ -2,7 +2,7 @@ package io.jonasg.kawa.rbac;
 
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.Interceptor;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.core.Response;
 import org.apache.kafka.common.acl.AclOperation;

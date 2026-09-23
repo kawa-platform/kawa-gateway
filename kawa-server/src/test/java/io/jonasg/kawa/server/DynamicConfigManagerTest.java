@@ -16,7 +16,7 @@ import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
 import io.jonasg.kawa.config.VirtualTopicConfig;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.governance.TopicSpec;
 import io.jonasg.kawa.governance.Violation;

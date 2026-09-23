@@ -6,7 +6,7 @@ import io.jonasg.kawa.config.RbacConfig;
 import io.jonasg.kawa.config.ResourceConfig;
 import io.jonasg.kawa.config.RoleConfig;
 import io.jonasg.kawa.core.GatewayContext;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.core.Interceptor;
 import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.Request;

@@ -1,12 +1,13 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 
 import java.util.Map;
 
-/// The unified `POST /topics` request body: a `type` discriminator plus the fields of one
+/// The `POST /topics` request body: a `type` discriminator plus the fields of one
 /// topic kind. Physical topics carry partitions/replicationFactor/configs; virtual topics
-/// carry the physical backing topic and optional filter.
+/// carry the physical backing topic, optional filter and optional (record) value format.
 public record TopicCreateRequest(
         String type,
         String name,
@@ -15,7 +16,8 @@ public record TopicCreateRequest(
         Map<String, String> configs,
         String topic,
         VirtualTopicFilterConfig filter,
-        Boolean exposePhysicalTopic
+        Boolean exposePhysicalTopic,
+        PayloadFormatConfig valueFormat
 ) {
 
     public TopicCreateRequest {

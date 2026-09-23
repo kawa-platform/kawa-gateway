@@ -2,7 +2,7 @@ package io.jonasg.kawa.virtualtopic.transform;
 
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import io.jonasg.kawa.core.GatewayContext;
-import io.jonasg.kawa.core.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicState;
@@ -115,9 +115,10 @@ public final class FetchVirtualTopicTransform
             if (filter.isEmpty()) {
                 continue;
             }
+            var valueFormat = virtualTopics.valueFormatFor(topic.topic()).orElse(null);
             for (FetchResponseData.PartitionData partition : topic.partitions()) {
                 TopicPartition tp = new TopicPartition(topic.topic(), partition.partitionIndex());
-                partition.setRecords(recordFilter.apply(filter.get(), tp, partition.records()));
+                partition.setRecords(recordFilter.apply(filter.get(), valueFormat, partition.records()));
             }
         }
     }

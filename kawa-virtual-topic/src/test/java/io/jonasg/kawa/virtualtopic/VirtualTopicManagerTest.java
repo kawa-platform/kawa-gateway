@@ -1,4 +1,4 @@
-package io.jonasg.kawa.core;
+package io.jonasg.kawa.virtualtopic;
 
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
