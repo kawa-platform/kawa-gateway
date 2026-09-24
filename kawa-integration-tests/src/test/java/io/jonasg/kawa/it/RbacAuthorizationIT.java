@@ -35,6 +35,7 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -233,7 +234,11 @@ class RbacAuthorizationIT extends GatewayTestSupport {
         admin.deleteTopics(List.of(topic)).all().get(10, TimeUnit.SECONDS);
 
         // then
-        assertThat(admin.listTopics().names().get(10, TimeUnit.SECONDS)).doesNotContain(topic);
+        Awaitility.await()
+                .atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofMillis(500))
+                .untilAsserted(() ->
+                        assertThat(admin.listTopics().names().get(10, TimeUnit.SECONDS)).doesNotContain(topic));
     }
 
     @Test
