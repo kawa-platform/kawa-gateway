@@ -520,6 +520,10 @@ components:
           type: string
           nullable: true
           description: The broker-side topic name, only present when type is virtual.
+        exposePhysicalTopic:
+          type: boolean
+          nullable: true
+          description: Virtual topics only; true when the physical topic is also served directly, null for physical topics.
         valueFormat:
           allOf:
             - $ref: '#/components/schemas/PayloadFormat'
