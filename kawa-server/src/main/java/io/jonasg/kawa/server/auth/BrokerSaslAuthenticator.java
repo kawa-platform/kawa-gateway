@@ -19,12 +19,11 @@ import org.apache.kafka.common.protocol.Errors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/// Performs the SASL handshake and PLAIN authentication against an upstream broker.
+/// Performs the SASL handshake and mechanism authentication against an upstream broker.
 ///
 /// Used by `MetadataClient` and `BrokerClient` to authenticate the gateway's own
 /// connection to the cluster when `BrokerAuthConfig` is present.
@@ -34,15 +33,21 @@ public final class BrokerSaslAuthenticator {
     private static final String HANDLER_NAME = "broker-sasl-auth";
     private static final int TIMEOUT_SECONDS = 10;
 
-    private final BrokerAuthConfig config;
+    private final BrokerSaslMechanism mechanism;
     private final KafkaBodyCodec codec;
+    private final String host;
     private final RequestHeaderCodec requestHeaderCodec = new RequestHeaderCodec();
     private final ResponseHeaderCodec responseHeaderCodec = new ResponseHeaderCodec();
     private final AtomicInteger correlationIds = new AtomicInteger();
 
     public BrokerSaslAuthenticator(BrokerAuthConfig config, KafkaBodyCodec codec) {
-        this.config = config;
+        this(BrokerSaslMechanism.from(config), codec, "localhost");
+    }
+
+    public BrokerSaslAuthenticator(BrokerSaslMechanism mechanism, KafkaBodyCodec codec, String host) {
+        this.mechanism = mechanism;
         this.codec = codec;
+        this.host = host;
     }
 
     /// Performs SASL handshake + PLAIN authenticate on an already-connected channel.
@@ -52,7 +57,7 @@ public final class BrokerSaslAuthenticator {
             SaslHandshakeResponseData handshakeResponse = doHandshake(channel);
             if (handshakeResponse.errorCode() != Errors.NONE.code()) {
                 log.warn("Broker rejected SASL mechanism {}: error {}",
-                        config.mechanism(), handshakeResponse.errorCode());
+                        mechanism.name(), handshakeResponse.errorCode());
                 return false;
             }
             SaslAuthenticateResponseData authResponse = doAuthenticate(channel);
@@ -60,7 +65,7 @@ public final class BrokerSaslAuthenticator {
                 log.warn("Broker rejected SASL credentials: error {}", authResponse.errorCode());
                 return false;
             }
-            log.info("SASL {} authentication succeeded against broker", config.mechanism());
+            log.info("SASL {} authentication succeeded against broker", mechanism.name());
             return true;
         } catch (Exception e) {
             log.error("SASL authentication to broker failed", e);
@@ -80,7 +85,7 @@ public final class BrokerSaslAuthenticator {
         ByteBuf out = channel.alloc().buffer();
         requestHeaderCodec.encode(out, header);
         codec.encodeRequest(KafkaApiRegistry.SASL_HANDSHAKE, (short) 1,
-                new SaslHandshakeRequestData().setMechanism(config.mechanism()), out);
+                new SaslHandshakeRequestData().setMechanism(mechanism.name()), out);
         channel.writeAndFlush(out);
 
         ByteBuf frame = future.get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -102,8 +107,7 @@ public final class BrokerSaslAuthenticator {
         int correlationId = correlationIds.incrementAndGet();
         KafkaHeader header = KafkaHeader.of(
                 KafkaApiRegistry.SASL_AUTHENTICATE, (short) 2, correlationId, "kawa-gateway");
-        byte[] authBytes = ("\0" + config.username() + "\0" + config.password())
-                .getBytes(StandardCharsets.UTF_8);
+        byte[] authBytes = mechanism.authBytes(host);
         ByteBuf out = channel.alloc().buffer();
         requestHeaderCodec.encode(out, header);
         codec.encodeRequest(KafkaApiRegistry.SASL_AUTHENTICATE, (short) 2,

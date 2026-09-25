@@ -1,16 +1,15 @@
 package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.BrokerAuthConfig;
+import io.jonasg.kawa.config.BrokerAuthMechanisms;
 import io.jonasg.kawa.governance.TopicSpec;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
-import org.apache.kafka.common.config.SaslConfigs;
 
 import java.util.List;
 import java.util.Properties;
 
 import static org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
-import static org.apache.kafka.clients.CommonClientConfigs.SECURITY_PROTOCOL_CONFIG;
 
 /// [TopicAdmin] backed by Kafka's [AdminClient]: creates and deletes topics on the real
 /// cluster using the same bootstrap servers and broker credentials as the gateway.
@@ -50,11 +49,7 @@ public final class KafkaTopicAdmin implements TopicAdmin {
         Properties props = new Properties();
         props.put(BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         if (brokerAuth != null) {
-            props.put(SECURITY_PROTOCOL_CONFIG, "SASL_PLAINTEXT");
-            props.put(SaslConfigs.SASL_MECHANISM, brokerAuth.mechanism());
-            props.put(SaslConfigs.SASL_JAAS_CONFIG,
-                    "org.apache.kafka.common.security.plain.PlainLoginModule required "
-                    + "username=\"" + brokerAuth.username() + "\" password=\"" + brokerAuth.password() + "\";");
+            props.putAll(BrokerAuthMechanisms.resolve(brokerAuth.mechanism()).kafkaClientProperties(brokerAuth));
         }
         return props;
     }

@@ -8,6 +8,7 @@ import io.jonasg.kawa.core.metrics.GatewayMetrics;
 import io.jonasg.kawa.protocol.kafka.KafkaBodyCodec;
 import io.jonasg.kawa.server.netty.ClientSession;
 import io.netty.channel.EventLoopGroup;
+import io.netty.handler.ssl.SslContext;
 
 import java.util.Collection;
 import java.util.Map;
@@ -24,6 +25,7 @@ public final class BrokerClientPool {
     private final GatewayMetrics metrics;
     private final MetadataCache cache;
     private final BrokerAuthConfig brokerAuthConfig;
+    private final SslContext sslContext;
     private final BrokerClient bootstrap;
 
     public BrokerClientPool(EventLoopGroup group, KafkaBodyCodec codec, InterceptorPipeline pipeline,
@@ -34,14 +36,21 @@ public final class BrokerClientPool {
     public BrokerClientPool(EventLoopGroup group, KafkaBodyCodec codec, InterceptorPipeline pipeline,
                             GatewayMetrics metrics, MetadataCache cache, String bootstrapHost, int bootstrapPort,
                             BrokerAuthConfig brokerAuthConfig) {
+        this(group, codec, pipeline, metrics, cache, bootstrapHost, bootstrapPort, brokerAuthConfig, null);
+    }
+
+    public BrokerClientPool(EventLoopGroup group, KafkaBodyCodec codec, InterceptorPipeline pipeline,
+                            GatewayMetrics metrics, MetadataCache cache, String bootstrapHost, int bootstrapPort,
+                            BrokerAuthConfig brokerAuthConfig, SslContext sslContext) {
         this.group = group;
         this.codec = codec;
         this.pipeline = pipeline;
         this.metrics = metrics;
         this.cache = cache;
         this.brokerAuthConfig = brokerAuthConfig;
+        this.sslContext = sslContext;
         this.bootstrap = new BrokerClient(-1, bootstrapHost, bootstrapPort, group, codec, pipeline, metrics,
-                brokerAuthConfig);
+                brokerAuthConfig, sslContext);
     }
 
     public BrokerClient forBroker(int brokerId) {
@@ -54,7 +63,7 @@ public final class BrokerClientPool {
                 return bootstrap;
             }
             return new BrokerClient(id, node.host(), node.port(), group, codec, pipeline, metrics,
-                    brokerAuthConfig);
+                    brokerAuthConfig, sslContext);
         });
     }
 

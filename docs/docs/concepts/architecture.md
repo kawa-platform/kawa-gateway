@@ -68,7 +68,8 @@ a latency timer, byte counters, active connection gauges and virtual-topic hit c
 
 ## Current limitations
 
-- Plaintext only (no TLS/auth yet, see [Authentication](/docs/concepts/authentication))
+- Client-facing plaintext/SASL support remains separate from upstream PLAIN and provisioned MSK IAM (`SASL_SSL`) support;
+  see [Authentication](/docs/concepts/authentication)
 - Single upstream cluster
 - No intra-gateway leader forwarding (relies on client `NOT_LEADER` retries)
 - Advertised host must resolve from the client's network position

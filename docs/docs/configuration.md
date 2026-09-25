@@ -208,9 +208,11 @@ instead of connecting in plaintext.
 
 | Field       | Type   | Required | Description                                |
 |-------------|--------|----------|--------------------------------------------|
-| `mechanism` | string | yes      | SASL mechanism (currently `PLAIN` only)    |
-| `username`  | string | yes      | Broker SASL username                       |
-| `password`  | string | yes      | Plain-text or `${VAR}` / `${VAR:-default}` |
+| `mechanism` | string | yes      | `PLAIN` or provisioned MSK `AWS_MSK_IAM`  |
+| `username`  | string | PLAIN   | Broker SASL username                       |
+| `password`  | string | PLAIN   | Plain-text or `${VAR}` / `${VAR:-default}` |
+| `region`    | string | no       | AWS region override for `AWS_MSK_IAM`      |
+| `profile`   | string | no       | AWS credential profile override             |
 
 ```yaml
 auth:
@@ -222,6 +224,19 @@ auth:
 
 The gateway authenticates to the broker during the initial connection handshake (`SaslHandshake` + `SaslAuthenticate`),
 before forwarding any client requests. This is transparent to clients — they authenticate to the gateway independently.
+
+Provisioned MSK IAM connections must use the broker's `SASL_SSL` listener, normally port `9098`:
+
+```yaml
+auth:
+  brokerAuth:
+    mechanism: AWS_MSK_IAM
+    region: us-east-1
+    profile: msk-developer
+```
+
+When `region` is omitted, kawa derives it from the MSK broker hostname. When `profile` is omitted, the AWS default
+credential provider chain is used. The gateway uses the JVM default trust store for MSK's public TLS certificates.
 
 ### `rbac`
 

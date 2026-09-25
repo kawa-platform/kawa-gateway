@@ -15,6 +15,9 @@ import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class BrokerSaslAuthenticatorTest {
@@ -124,6 +127,32 @@ class BrokerSaslAuthenticatorTest {
         assertThat(apiKey).isEqualTo((short) ApiKeys.SASL_HANDSHAKE.id);
 
         handshakeFrame.release();
+    }
+
+    @Test
+    void sendsIamSaslHandshakeWithIamMechanism() {
+        // given
+        var channel = embeddedChannelWithBrokerSasl(
+                new SaslHandshakeResponseData().setErrorCode(Errors.NONE.code()),
+                new SaslAuthenticateResponseData().setErrorCode(Errors.NONE.code()));
+        var config = new BrokerAuthConfig("AWS_MSK_IAM", null, null, "us-east-1", null);
+        var authenticator = new BrokerSaslAuthenticator(
+                new IamSaslMechanism(config,
+                        () -> AwsBasicCredentials.create("ACCESS", "SECRET")),
+                codec, "b-1.cluster.abc.c2.kafka.us-east-1.amazonaws.com");
+
+        // when
+        authenticator.authenticate(channel);
+
+        // then
+        ByteBuf handshakeFrame = channel.readOutbound();
+        assertThat(handshakeFrame).isNotNull();
+        assertThat(handshakeFrame.toString(StandardCharsets.UTF_8)).contains("AWS_MSK_IAM");
+        handshakeFrame.release();
+
+        ByteBuf authenticateFrame = channel.readOutbound();
+        assertThat(authenticateFrame).isNotNull();
+        authenticateFrame.release();
     }
 
     /// Creates an [EmbeddedChannel] that automatically responds to SASL handshake

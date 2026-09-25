@@ -352,6 +352,29 @@ class ConfigLoaderTest {
     }
 
     @Test
+    void loadsIamBrokerAuthConfiguration() {
+        // given
+        // when
+        GatewayConfig config = loader.loadFromYaml("""
+                auth:
+                  brokerAuth:
+                    mechanism: AWS_MSK_IAM
+                    region: us-east-1
+                    profile: msk-developer
+                listeners:
+                  - port: 9092
+                """);
+
+        // then
+        assertThat(config.auth().brokerAuth()).isNotNull();
+        assertThat(config.auth().brokerAuth().mechanism()).isEqualTo("AWS_MSK_IAM");
+        assertThat(config.auth().brokerAuth().username()).isNull();
+        assertThat(config.auth().brokerAuth().password()).isNull();
+        assertThat(config.auth().brokerAuth().region()).isEqualTo("us-east-1");
+        assertThat(config.auth().brokerAuth().profile()).isEqualTo("msk-developer");
+    }
+
+    @Test
     void brokerAuthDefaultIsNull() {
         GatewayConfig config = loader.loadFromYaml("""
                 auth:

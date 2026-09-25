@@ -34,6 +34,8 @@
 
         <netty.version>4.1.137.Final</netty.version>
         <kafka.version>4.3.0</kafka.version>
+        <aws-msk-iam-auth.version>2.3.8</aws-msk-iam-auth.version>
+        <aws-sdk.version>2.51.2</aws-sdk.version>
         <micrometer.version>1.13.6</micrometer.version>
         <jackson.version>3.2.2</jackson.version>
         <slf4j.version>2.0.18</slf4j.version>
@@ -63,6 +65,13 @@
                 <scope>import</scope>
             </dependency>
             <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws-sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
                 <groupId>tools.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
                 <version>${jackson.version}</version>
@@ -74,6 +83,11 @@
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
                 <version>${kafka.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>software.amazon.msk</groupId>
+                <artifactId>aws-msk-iam-auth</artifactId>
+                <version>${aws-msk-iam-auth.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.micrometer</groupId>

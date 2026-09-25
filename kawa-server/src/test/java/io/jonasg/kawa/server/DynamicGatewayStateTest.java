@@ -34,6 +34,24 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DynamicGatewayStateTest {
 
     @Test
+    void buildsIamSslPropertiesForConfigTopic() {
+        // given
+        var auth = new io.jonasg.kawa.config.BrokerAuthConfig(
+                "AWS_MSK_IAM", null, null, "us-east-1", "developer");
+
+        // when
+        var properties = DynamicGatewayState.configTopicProps(auth);
+
+        // then
+        assertThat(properties.getProperty("security.protocol")).isEqualTo("SASL_SSL");
+        assertThat(properties.getProperty("sasl.mechanism")).isEqualTo("AWS_MSK_IAM");
+        assertThat(properties.getProperty("sasl.client.callback.handler.class"))
+                .isEqualTo("software.amazon.msk.auth.iam.IAMClientCallbackHandler");
+        assertThat(properties.getProperty("sasl.jaas.config"))
+                .contains("awsRegion=\"us-east-1\"", "awsProfileName=\"developer\"");
+    }
+
+    @Test
     void applyReachesAllConsumers() {
         // given
         var state = new DynamicGatewayState("localhost:9092", "__kawa", null);

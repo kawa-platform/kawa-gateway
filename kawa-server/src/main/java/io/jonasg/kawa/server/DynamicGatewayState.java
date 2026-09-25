@@ -1,6 +1,7 @@
 package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.BrokerAuthConfig;
+import io.jonasg.kawa.config.BrokerAuthMechanisms;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.RbacConfig;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
@@ -82,14 +83,10 @@ public final class DynamicGatewayState implements AutoCloseable {
     /// Consumer properties for the config topic. The gateway's own broker connection is
     /// PLAIN-only (see `BrokerSaslAuthenticator`), so the config-topic consumer uses the
     /// same credentials when the broker requires SASL.
-    private static Properties configTopicProps(BrokerAuthConfig brokerAuth) {
+    static Properties configTopicProps(BrokerAuthConfig brokerAuth) {
         Properties props = new Properties();
         if (brokerAuth != null) {
-            props.put("security.protocol", "SASL_PLAINTEXT");
-            props.put("sasl.mechanism", brokerAuth.mechanism());
-            props.put("sasl.jaas.config",
-                    "org.apache.kafka.common.security.plain.PlainLoginModule required "
-                    + "username=\"" + brokerAuth.username() + "\" password=\"" + brokerAuth.password() + "\";");
+            props.putAll(BrokerAuthMechanisms.resolve(brokerAuth.mechanism()).kafkaClientProperties(brokerAuth));
         }
         return props;
     }

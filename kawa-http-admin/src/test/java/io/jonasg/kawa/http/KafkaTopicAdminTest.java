@@ -32,4 +32,21 @@ class KafkaTopicAdminTest {
         assertThat(props.getProperty("sasl.mechanism")).isEqualTo("PLAIN");
         assertThat(props.getProperty("sasl.jaas.config")).contains("username=\"kawa\"", "password=\"secret\"");
     }
+
+    @Test
+    void buildsIamSslPropertiesWithBrokerAuth() {
+        // given
+        var auth = new BrokerAuthConfig("AWS_MSK_IAM", null, null, "us-east-1", "developer");
+
+        // when
+        var props = KafkaTopicAdmin.props("broker.example:9098", auth);
+
+        // then
+        assertThat(props.getProperty("security.protocol")).isEqualTo("SASL_SSL");
+        assertThat(props.getProperty("sasl.mechanism")).isEqualTo("AWS_MSK_IAM");
+        assertThat(props.getProperty("sasl.client.callback.handler.class"))
+                .isEqualTo("software.amazon.msk.auth.iam.IAMClientCallbackHandler");
+        assertThat(props.getProperty("sasl.jaas.config"))
+                .contains("awsRegion=\"us-east-1\"", "awsProfileName=\"developer\"");
+    }
 }

@@ -88,14 +88,26 @@ auth:
 
 | Field       | Type   | Required | Description                                |
 |-------------|--------|----------|--------------------------------------------|
-| `mechanism` | string | yes      | SASL mechanism (`PLAIN` for now)           |
-| `username`  | string | yes      | Broker SASL username                       |
-| `password`  | string | yes      | Plain-text or `${VAR}` / `${VAR:-default}` |
+| `mechanism` | string | yes      | `PLAIN` or provisioned MSK `AWS_MSK_IAM`  |
+| `username`  | string | PLAIN   | Broker SASL username                       |
+| `password`  | string | PLAIN   | Plain-text or `${VAR}` / `${VAR:-default}` |
+| `region`    | string | no       | AWS region override for `AWS_MSK_IAM`      |
+| `profile`   | string | no       | AWS credential profile override             |
 
 The gateway authenticates during connection setup — `SaslHandshake` + `SaslAuthenticate`
 — before any client traffic is forwarded. This is transparent to clients: they authenticate to the gateway
 independently.
 
-:::note Only `PLAIN` is supported for upstream broker authentication. SCRAM would require the `javax.security.sasl.Sasl`
-API and is not yet implemented.
-:::
+For provisioned MSK with IAM, use the `SASL_SSL` listener (normally port `9098`):
+
+```yaml
+auth:
+  brokerAuth:
+    mechanism: AWS_MSK_IAM
+    region: us-east-1       # optional; derived from the broker hostname when absent
+    profile: msk-developer  # optional; otherwise the AWS default credential chain is used
+```
+
+IAM requires TLS. kawa uses the JVM default trust store and the AWS default credential chain, including
+environment variables, web identity, shared profiles, ECS credentials, and EC2 instance profiles. The configured
+profile is passed to the official AWS MSK IAM authentication library.
