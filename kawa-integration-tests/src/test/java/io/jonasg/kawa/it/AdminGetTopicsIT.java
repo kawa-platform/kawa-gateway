@@ -15,7 +15,6 @@ import java.util.Map;
 
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 import static net.javacrumbs.jsonunit.core.Option.IGNORING_ARRAY_ORDER;
-import static net.javacrumbs.jsonunit.core.Option.IGNORING_EXTRA_FIELDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AdminGetTopicsIT extends AdminHTTPTestSupport {
@@ -46,24 +45,28 @@ class AdminGetTopicsIT extends AdminHTTPTestSupport {
 
             // then
             assertThat(response.statusCode()).isEqualTo(200);
-            assertThatJson(withoutInternalTopics(response.body())).when(IGNORING_ARRAY_ORDER, IGNORING_EXTRA_FIELDS).isEqualTo("""
+            assertThatJson(withoutInternalTopics(response.body())).when(IGNORING_ARRAY_ORDER).isEqualTo("""
                     [
                         {
-                            "type": "virtual",
-                            "name": "orders",
-                            "partitions": 1,
-                            "replicationFactor": 1,
-                            "filter": null,
-                            "physicalTopic": "orders-v2"
-                          },
+                          "type" : "virtual",
+                          "name" : "orders",
+                          "partitions" : 1,
+                          "replicationFactor" : 1,
+                          "filter" : null,
+                          "physicalTopic" : "orders-v2",
+                          "exposePhysicalTopic" : false,
+                          "valueFormat" : null
+                        },
                         {
-                            "type": "physical",
-                            "name": "orders-v2",
-                            "partitions": 1,
-                            "replicationFactor": 1,
-                            "filter": null,
-                            "physicalTopic": null
-                          }
+                          "type" : "physical",
+                          "name" : "orders-v2",
+                          "partitions" : 1,
+                          "replicationFactor" : 1,
+                          "filter" : null,
+                          "physicalTopic" : null,
+                          "exposePhysicalTopic" : null,
+                          "valueFormat" : null
+                        }
                     ]
                     """);
         });

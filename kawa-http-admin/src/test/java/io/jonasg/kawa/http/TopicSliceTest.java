@@ -55,6 +55,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "name": "orders",
                             "partitions": 3,
                             "replicationFactor": 2,
+                            "exposePhysicalTopic": false,
                             "filter": null,
                             "physicalTopic": "orders-v2",
                             "valueFormat": null
@@ -66,6 +67,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "replicationFactor": 2,
                             "filter": null,
                             "physicalTopic": null,
+                            "exposePhysicalTopic": null,
                             "valueFormat": null
                           },
                           {
@@ -73,6 +75,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "name": "customers",
                             "partitions": 2,
                             "replicationFactor": 3,
+                            "exposePhysicalTopic": true,
                             "filter": {
                               "kind": "header",
                               "expression": "tenant=acme"
@@ -87,6 +90,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "replicationFactor": 3,
                             "filter": null,
                             "physicalTopic": null,
+                            "exposePhysicalTopic": null,
                             "valueFormat": null
                           },
                           {
@@ -96,6 +100,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "replicationFactor": 1,
                             "filter": null,
                             "physicalTopic": null,
+                            "exposePhysicalTopic": null,
                             "valueFormat": null
                           }
                         ]
@@ -135,6 +140,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   "name": "audit",
                   "partitions": 1,
                   "replicationFactor": 1,
+                  "exposePhysicalTopic": false,
                   "filter": {
                     "kind": "cel",
                     "expression": "headers.tenant == \\\"acme\\\""
@@ -149,6 +155,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   "replicationFactor": 1,
                   "filter": null,
                   "physicalTopic": null,
+                  "exposePhysicalTopic": null,
                   "valueFormat": null
                 }]
                 """);
@@ -181,6 +188,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "name": "contains",
                             "partitions": 1,
                             "replicationFactor": 1,
+                            "exposePhysicalTopic": false,
                             "filter": {
                               "kind": "headerContains",
                               "expression": "tenant contains acm"
@@ -193,6 +201,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "name": "startsWith",
                             "partitions": 1,
                             "replicationFactor": 1,
+                            "exposePhysicalTopic": false,
                             "filter": {
                               "kind": "headerStartsWith",
                               "expression": "tenant starts with ac"
@@ -205,6 +214,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "name": "matches",
                             "partitions": 1,
                             "replicationFactor": 1,
+                            "exposePhysicalTopic": false,
                             "filter": {
                               "kind": "headerMatches",
                               "expression": "tenant matches eu.*"
@@ -213,31 +223,34 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "valueFormat": null
                           },
                           {
-                            "type": "physical",
-                            "name": "contains-v1",
-                            "partitions": 1,
-                            "replicationFactor": 1,
-                            "filter": null,
-                            "physicalTopic": null,
-                            "valueFormat": null
+                          "type": "physical",
+                          "name": "contains-v1",
+                          "partitions": 1,
+                          "replicationFactor": 1,
+                          "filter": null,
+                          "physicalTopic": null,
+                          "exposePhysicalTopic": null,
+                          "valueFormat": null
                           },
                           {
-                            "type": "physical",
-                            "name": "starts-v1",
-                            "partitions": 1,
-                            "replicationFactor": 1,
-                            "filter": null,
-                            "physicalTopic": null,
-                            "valueFormat": null
+                          "type": "physical",
+                          "name": "starts-v1",
+                          "partitions": 1,
+                          "replicationFactor": 1,
+                          "filter": null,
+                          "physicalTopic": null,
+                          "exposePhysicalTopic": null,
+                          "valueFormat": null
                           },
                           {
-                            "type": "physical",
-                            "name": "matches-v1",
-                            "partitions": 1,
-                            "replicationFactor": 1,
-                            "filter": null,
-                            "physicalTopic": null,
-                            "valueFormat": null
+                          "type": "physical",
+                          "name": "matches-v1",
+                          "partitions": 1,
+                          "replicationFactor": 1,
+                          "filter": null,
+                          "physicalTopic": null,
+                          "exposePhysicalTopic": null,
+                          "valueFormat": null
                           }
                         ]
                         """);
@@ -261,6 +274,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   "name": "orders",
                   "partitions": 0,
                   "replicationFactor": 0,
+                  "exposePhysicalTopic": false,
                   "filter": null,
                   "physicalTopic": "orders-v2",
                   "valueFormat": null
@@ -607,7 +621,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "header": "region",
                             "value": "eu"
                           },
-                          "exposePhysicalTopic": true
+                          "exposePhysicalTopic": false
                         }
                         """);
 
@@ -615,7 +629,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(repository.getActiveConfig().virtualTopics())
                 .containsEntry("orders", new VirtualTopicConfig("orders-v2",
-                        new HeaderEqualsFilterConfig("region", "eu"), true));
+                        new HeaderEqualsFilterConfig("region", "eu"), false));
         assertThatJson(response.body()).isEqualTo("""
                 {
                   "topic": "orders-v2",
@@ -624,7 +638,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                     "header": "region",
                     "value": "eu"
                   },
-                  "exposePhysicalTopic": true,
+                  "exposePhysicalTopic": false,
                   "valueFormat": null
                 }
                 """);
