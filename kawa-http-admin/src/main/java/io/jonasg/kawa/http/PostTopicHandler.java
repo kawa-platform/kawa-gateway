@@ -44,9 +44,9 @@ public final class PostTopicHandler implements Router.Handler {
         if (!"POST".equals(request.method())) {
             return Router.Response.badRequest("unsupported method " + request.method());
         }
-        TopicCreateRequest body;
+        TopicRequest body;
         try {
-            body = mapper.readValue(request.body(), TopicCreateRequest.class);
+            body = mapper.readValue(request.body(), TopicRequest.class);
         } catch (Exception e) {
             return Router.Response.badRequest("invalid topic body: " + e.getMessage());
         }
@@ -60,7 +60,7 @@ public final class PostTopicHandler implements Router.Handler {
         };
     }
 
-    private Router.Response<?> createVirtual(Router.Request request, TopicCreateRequest body) {
+    private Router.Response<?> createVirtual(Router.Request request, TopicRequest body) {
         if (body.topic() == null || body.topic().isBlank()) {
             return Router.Response.badRequest("virtual topic requires a physical 'topic'");
         }
@@ -74,10 +74,14 @@ public final class PostTopicHandler implements Router.Handler {
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }
-        return Router.Response.created(vTopicCfg);
+        return Router.Response.created(new VirtualTopicConfigView(
+                vTopicCfg.topic(),
+                vTopicCfg.filter(),
+                vTopicCfg.exposePhysicalTopic(),
+                vTopicCfg.valueFormat()));
     }
 
-    private Router.Response<?> createPhysical(TopicCreateRequest body) {
+    private Router.Response<?> createPhysical(TopicRequest body) {
         var spec = new TopicSpec(
                 body.name(),
                 body.partitions() == null ? -1 : body.partitions(),
@@ -100,7 +104,11 @@ public final class PostTopicHandler implements Router.Handler {
     private Router.Response<?> createOnBroker(TopicSpec spec) {
         try {
             topicAdmin.createTopic(spec);
-            return Router.Response.created(spec);
+            return Router.Response.created(new TopicSpecView(
+                    spec.name(),
+                    spec.partitions(),
+                    spec.replicationFactor(),
+                    spec.configs()));
         } catch (Exception e) {
             if (isTopicExists(e)) {
                 return Router.Response.conflict("topic '" + spec.name() + "' already exists");

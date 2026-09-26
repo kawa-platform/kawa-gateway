@@ -10,7 +10,7 @@ import java.util.Map;
 /// topic kind. Physical topics carry partitions/replicationFactor/configs; virtual topics
 /// carry the physical backing topic, optional filter and optional (record) value format.
 @NullUnmarked
-public record TopicCreateRequest(
+public record TopicRequest(
         String type,
         String name,
         Integer partitions,
@@ -22,7 +22,7 @@ public record TopicCreateRequest(
         PayloadFormatConfig valueFormat
 ) {
 
-    public TopicCreateRequest {
+    public TopicRequest {
         configs = configs == null ? Map.of() : Map.copyOf(configs);
     }
 }

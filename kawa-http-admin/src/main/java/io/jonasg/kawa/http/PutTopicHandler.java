@@ -24,9 +24,9 @@ public final class PutTopicHandler implements Router.Handler {
             return Router.Response.badRequest("unsupported method " + request.method());
         }
         String name = request.pathParams().get("name");
-        TopicCreateRequest body;
+        TopicRequest body;
         try {
-            body = mapper.readValue(request.body(), TopicCreateRequest.class);
+            body = mapper.readValue(request.body(), TopicRequest.class);
         } catch (Exception e) {
             return Router.Response.badRequest("invalid topic body: " + e.getMessage());
         }
@@ -46,6 +46,10 @@ public final class PutTopicHandler implements Router.Handler {
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }
-        return Router.Response.ok(vTopicCfg);
+        return Router.Response.ok(new VirtualTopicConfigView(
+                vTopicCfg.topic(),
+                vTopicCfg.filter(),
+                vTopicCfg.exposePhysicalTopic(),
+                vTopicCfg.valueFormat()));
     }
 }

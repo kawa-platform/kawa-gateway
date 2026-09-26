@@ -69,7 +69,11 @@ public final class PatchTopicHandler implements Router.Handler {
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }
-        return Router.Response.ok(updated);
+        return Router.Response.ok(new VirtualTopicConfigView(
+                updated.topic(),
+                updated.filter(),
+                updated.exposePhysicalTopic(),
+                updated.valueFormat()));
     }
 
     private static GatewayConfig replace(
