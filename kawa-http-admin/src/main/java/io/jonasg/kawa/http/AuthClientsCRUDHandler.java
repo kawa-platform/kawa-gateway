@@ -38,10 +38,11 @@ final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig, ClientC
 
     /// Not on the `PUT` path. This handler overrides `put` below, so the base `put` — the only
     /// caller of this hook — never runs and this conversion is never invoked; the implementation
-    /// is here solely to satisfy the abstract contract. The conversion that does run is the
-    /// `ClientConfig.fromPlaintext(...)` call inside the `put` override, which must also apply the
-    /// request's `groups` to the client's group membership. Delegating `put` to this hook without
-    /// moving that group assignment along with it would silently drop the memberships.
+    /// is here solely to satisfy the abstract contract. What runs instead is the `put` override's
+    /// conversion: `ClientConfig.fromPlaintext(...)` builds the record, and the enclosing
+    /// `updateClient(...)` call applies the request's `groups` to the client's group membership.
+    /// Delegating `put` to this hook without moving that group assignment along with it would
+    /// silently drop the memberships.
     @Override
     protected ClientConfig toConfig(String name, ClientConfigRequest body) {
         return ClientConfig.fromPlaintext(body.mechanism(), body.password());
