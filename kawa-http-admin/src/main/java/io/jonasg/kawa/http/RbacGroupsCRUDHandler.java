@@ -7,10 +7,10 @@ import io.jonasg.kawa.config.GroupConfig;
 import java.util.Comparator;
 import java.util.Map;
 
-final class RbacGroupsCRUDHandler extends BaseCRUDHandler<GroupConfig, GroupConfig> {
+final class RbacGroupsCRUDHandler extends BaseCRUDHandler<GroupConfig, GroupConfigRequest> {
 
     RbacGroupsCRUDHandler(GatewayConfigRepository repository) {
-        super(repository, GroupConfig.class, "group");
+        super(repository, GroupConfigRequest.class, "group");
     }
 
     @Override
@@ -21,19 +21,19 @@ final class RbacGroupsCRUDHandler extends BaseCRUDHandler<GroupConfig, GroupConf
     @Override
     protected Object listView(GatewayConfig config) {
         return entries(config).entrySet().stream()
-                .map(entry -> new GroupView(entry.getKey(), entry.getValue().clients(), entry.getValue().roles()))
-                .sorted(Comparator.comparing(GroupView::name))
+                .map(entry -> new GroupConfigView(entry.getKey(), entry.getValue().clients(), entry.getValue().roles()))
+                .sorted(Comparator.comparing(GroupConfigView::name))
                 .toList();
     }
 
     @Override
-    protected GroupConfig toConfig(String name, GroupConfig body) {
-        return body;
+    protected GroupConfig toConfig(String name, GroupConfigRequest body) {
+        return new GroupConfig(body.clients(), body.roles());
     }
 
     @Override
     protected Object putView(String name, GroupConfig value) {
-        return value;
+        return new GroupValueView(value.clients(), value.roles());
     }
 
     @Override
@@ -83,6 +83,6 @@ final class RbacGroupsCRUDHandler extends BaseCRUDHandler<GroupConfig, GroupConf
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }
-        return Router.Response.ok(new GroupView(newName, current.clients(), current.roles()));
+        return Router.Response.ok(new GroupConfigView(newName, current.clients(), current.roles()));
     }
 }
