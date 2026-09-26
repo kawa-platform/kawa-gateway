@@ -50,3 +50,6 @@ docs/.cache-loader/
 
 ### opencode ###
 maven-20*
+
+### git worktrees ###
+.worktrees/
