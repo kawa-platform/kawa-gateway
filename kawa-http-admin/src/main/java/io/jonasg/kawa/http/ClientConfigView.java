@@ -4,7 +4,7 @@ package io.jonasg.kawa.http;
 ///
 /// @param username  the SASL username
 /// @param mechanism the SASL mechanism (e.g. PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)
-public record ClientView(
+public record ClientConfigView(
         String username,
         String mechanism
 ) {

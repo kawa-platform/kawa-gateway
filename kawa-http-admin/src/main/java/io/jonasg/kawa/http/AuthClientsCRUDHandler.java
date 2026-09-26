@@ -31,21 +31,29 @@ final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig, ClientC
     @Override
     protected Object listView(GatewayConfig config) {
         return entries(config).entrySet().stream()
-                .map(entry -> new ClientView(entry.getKey(), entry.getValue().mechanism()))
-                .sorted(Comparator.comparing(ClientView::username))
+                .map(entry -> new ClientConfigView(entry.getKey(), entry.getValue().mechanism()))
+                .sorted(Comparator.comparing(ClientConfigView::username))
                 .toList();
     }
 
-    /// Covers the non-group half of the conversion. The request's `groups` is applied by the
-    /// `put` override below rather than here, so do not read this hook as the whole conversion.
+    /// Not on the `PUT` path. This handler overrides `put` below, so the base `put` — the only
+    /// caller of this hook — never runs and this conversion is never invoked; the implementation
+    /// is here solely to satisfy the abstract contract. The conversion that does run is the
+    /// `ClientConfig.fromPlaintext(...)` call inside the `put` override, which must also apply the
+    /// request's `groups` to the client's group membership. Delegating `put` to this hook without
+    /// moving that group assignment along with it would silently drop the memberships.
     @Override
     protected ClientConfig toConfig(String name, ClientConfigRequest body) {
         return ClientConfig.fromPlaintext(body.mechanism(), body.password());
     }
 
+    /// Not on the `PUT` path: this handler overrides `put` below, so the base `put` — the only
+    /// caller of this hook — never runs and this view is never built; the implementation is here
+    /// solely to satisfy the abstract contract. The `PUT` response that does go out is the
+    /// `ClientConfigView` constructed in the `put` override.
     @Override
     protected Object putView(String name, ClientConfig value) {
-        return new ClientView(name, value.mechanism());
+        return new ClientConfigView(name, value.mechanism());
     }
 
     @Override
@@ -90,7 +98,7 @@ final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig, ClientC
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }
-        return Router.Response.ok(new ClientView(name, mechanism));
+        return Router.Response.ok(new ClientConfigView(name, mechanism));
     }
 
     @Override
@@ -109,7 +117,7 @@ final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig, ClientC
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }
-        return Router.Response.ok(new ClientView(name, body.mechanism()));
+        return Router.Response.ok(new ClientConfigView(name, body.mechanism()));
     }
 
     private GatewayConfig updateClient(
