@@ -36,16 +36,16 @@ public final class PutTopicHandler implements Router.Handler {
         if (body.topic() == null || body.topic().isBlank()) {
             return Router.Response.badRequest("virtual topic requires a physical 'topic'");
         }
-        var value = new VirtualTopicConfig(
+        var vTopicCfg = new VirtualTopicConfig(
                 body.topic(),
                 body.filter(),
                 body.exposePhysicalTopic() != null && body.exposePhysicalTopic(),
                 body.valueFormat());
         try {
-            updater.update(request, gatewayCfg -> gatewayCfg.upsertVirtualTopic(name, value));
+            updater.update(request, gatewayCfg -> gatewayCfg.upsertVirtualTopic(name, vTopicCfg));
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }
-        return Router.Response.ok(value);
+        return Router.Response.ok(vTopicCfg);
     }
 }

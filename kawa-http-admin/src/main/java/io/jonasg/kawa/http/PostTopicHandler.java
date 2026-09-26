@@ -64,17 +64,17 @@ public final class PostTopicHandler implements Router.Handler {
         if (body.topic() == null || body.topic().isBlank()) {
             return Router.Response.badRequest("virtual topic requires a physical 'topic'");
         }
-        var config = new VirtualTopicConfig(
+        var vTopicCfg = new VirtualTopicConfig(
                 body.topic(),
                 body.filter(),
                 body.exposePhysicalTopic() != null && body.exposePhysicalTopic(),
                 body.valueFormat());
         try {
-            updater.update(request, base -> base.upsertVirtualTopic(body.name(), config));
+            updater.update(request, base -> base.upsertVirtualTopic(body.name(), vTopicCfg));
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }
-        return Router.Response.created(config);
+        return Router.Response.created(vTopicCfg);
     }
 
     private Router.Response<?> createPhysical(TopicCreateRequest body) {
