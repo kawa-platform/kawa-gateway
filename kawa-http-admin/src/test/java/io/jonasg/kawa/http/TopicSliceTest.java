@@ -876,4 +876,92 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThat(repository.getActiveConfig().virtualTopics()).isEmpty();
         assertThat(topicAdmin.deleted).isEmpty();
     }
+
+    @Test
+    void listsTopicsWithExactlyTheEightTopicKeys() throws Exception {
+        // given
+        virtualTopics = new VirtualTopicManager(Map.of(
+                "orders", new VirtualTopicConfig("orders-v2"),
+                "customers", new VirtualTopicConfig("crm.customers",
+                        new HeaderEqualsFilterConfig("tenant", "acme"), true)));
+        cache = cacheWith(
+                topic("orders-v2", 3, 2),
+                topic("crm.customers", 2, 3),
+                topic("raw-events", 1, 1));
+        startServer();
+
+        // when
+        var topicsResp = send("GET", "/topics", null);
+
+        // then
+        assertThat(topicsResp.statusCode()).isEqualTo(200);
+        assertWireKeys(topicsResp.body(),
+                "type", "name", "partitions", "replicationFactor", "filter", "physicalTopic",
+                "exposePhysicalTopic", "valueFormat");
+    }
+
+    @Test
+    void postVirtualResponseOmitsNameAndType() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var postResp = send("POST", "/topics", "{\"type\":\"virtual\",\"name\":\"orders\",\"topic\":\"orders-v2\"}");
+
+        // then
+        assertThat(postResp.statusCode()).isEqualTo(201);
+        assertWireKeys(postResp.body(), "topic", "filter", "exposePhysicalTopic", "valueFormat");
+    }
+
+    @Test
+    void postPhysicalResponseOmitsType() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var postResp = send("POST", "/topics",
+                """
+                        {
+                          "type": "physical",
+                          "name": "orders",
+                          "partitions": 3,
+                          "replicationFactor": 3,
+                          "configs": {
+                            "cleanup.policy": "compact"
+                          }
+                        }
+                        """);
+
+        // then
+        assertThat(postResp.statusCode()).isEqualTo(201);
+        assertWireKeys(postResp.body(), "name", "partitions", "replicationFactor", "configs");
+    }
+
+    @Test
+    void putResponseOmitsNameAndType() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/topics/orders", "{\"type\":\"virtual\",\"topic\":\"raw-orders\"}");
+
+        // then
+        assertThat(putResp.statusCode()).isEqualTo(200);
+        assertWireKeys(putResp.body(), "topic", "filter", "exposePhysicalTopic", "valueFormat");
+    }
+
+    @Test
+    void patchResponseOmitsNameAndType() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1")));
+        startServer();
+
+        // when
+        var patchResp = send("PATCH", "/topics/orders", "{\"topic\":\"orders-v2\"}");
+
+        // then
+        assertThat(patchResp.statusCode()).isEqualTo(200);
+        assertWireKeys(patchResp.body(), "topic", "filter", "exposePhysicalTopic", "valueFormat");
+    }
 }

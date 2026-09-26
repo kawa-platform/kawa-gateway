@@ -12,6 +12,8 @@ import io.jonasg.kawa.core.cluster.PartitionMetadata;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import org.junit.jupiter.api.AfterEach;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -22,6 +24,10 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /// Shared setup for the admin HTTP slice tests: boots a real [AdminHttpServer] on an ephemeral
 /// port wired to in-memory fakes, and sends real HTTP requests through the full Netty pipeline.
@@ -104,5 +110,33 @@ abstract class AdminHttpSliceTestBase {
                     i, 1, Collections.nCopies(replicas, 1), List.of(1), List.of()));
         }
         return TopicMetadata.of(name, partitionList);
+    }
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+
+    /// Asserts the body's top-level property names are exactly `keys` — for a single object, or
+    /// for every element of a JSON array. Pins the key set on its own, independently of the values,
+    /// and covers the endpoints whose bodies no other test compares in full; a partial assertion
+    /// such as a single `inPath` field says nothing about the properties beside it. Only the top
+    /// level is inspected, so a nested object's keys need an assertion of their own.
+    protected static void assertWireKeys(String body, String... keys) {
+        var expected = Set.of(keys);
+        JsonNode root = JSON.readTree(body);
+        var elements = new ArrayList<JsonNode>();
+        if (root.isArray()) {
+            root.forEach(elements::add);
+        } else {
+            elements.add(root);
+        }
+        assertThat(elements).as("response body elements: %s", body).isNotEmpty();
+        for (var element : elements) {
+            var actual = new TreeSet<String>();
+            for (var property : element.properties()) {
+                actual.add(property.getKey());
+            }
+            assertThat(actual)
+                    .withFailMessage(() -> "wire keys " + actual + " != expected " + expected + " in: " + body)
+                    .containsExactlyInAnyOrderElementsOf(expected);
+        }
     }
 }

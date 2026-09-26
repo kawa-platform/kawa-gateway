@@ -141,4 +141,32 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(404);
     }
+
+    @Test
+    void listsRolesWithExactlyNameAndAcls() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .updateRbac(GatewayConfig.empty().rbac().upsertRole("reader", new RoleConfig(null))));
+        startServer();
+
+        // when
+        var rolesResp = send("GET", "/rbac/roles", null);
+
+        // then
+        assertThat(rolesResp.statusCode()).isEqualTo(200);
+        assertWireKeys(rolesResp.body(), "name", "acls");
+    }
+
+    @Test
+    void putResponseOmitsName() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/rbac/roles/reader", "{\"acls\":[]}");
+
+        // then
+        assertThat(putResp.statusCode()).isEqualTo(200);
+        assertWireKeys(putResp.body(), "acls");
+    }
 }

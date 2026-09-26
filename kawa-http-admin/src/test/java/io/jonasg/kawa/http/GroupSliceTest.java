@@ -234,4 +234,48 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(response.body()).startsWith("{\"error\":\"invalid group body");
     }
+
+    @Test
+    void listsGroupsWithExactlyNameClientsAndRoles() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .updateRbac(GatewayConfig.empty().rbac().upsertGroup("producers", new GroupConfig(null, null))));
+        startServer();
+
+        // when
+        var groupsResp = send("GET", "/rbac/groups", null);
+
+        // then
+        assertThat(groupsResp.statusCode()).isEqualTo(200);
+        assertWireKeys(groupsResp.body(), "name", "clients", "roles");
+    }
+
+    @Test
+    void putResponseOmitsName() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/rbac/groups/producers", "{\"clients\":[],\"roles\":[]}");
+
+        // then
+        assertThat(putResp.statusCode()).isEqualTo(200);
+        assertWireKeys(putResp.body(), "clients", "roles");
+    }
+
+    @Test
+    void patchResponseIncludesName() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .updateRbac(GatewayConfig.empty().rbac()
+                        .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("reader")))));
+        startServer();
+
+        // when
+        var patchResp = send("PATCH", "/rbac/groups/producers", "{\"name\":\"publishers\"}");
+
+        // then
+        assertThat(patchResp.statusCode()).isEqualTo(200);
+        assertWireKeys(patchResp.body(), "name", "clients", "roles");
+    }
 }

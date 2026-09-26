@@ -385,4 +385,47 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(response.body()).startsWith("{\"error\":\"invalid client body");
     }
+
+    @Test
+    void listsClientsWithExactlyUsernameAndMechanism() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret"))));
+        startServer();
+
+        // when
+        var clientsResp = send("GET", "/auth/clients", null);
+
+        // then
+        assertThat(clientsResp.statusCode()).isEqualTo(200);
+        assertWireKeys(clientsResp.body(), "username", "mechanism");
+    }
+
+    @Test
+    void putResponseOmitsPassword() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/auth/clients/alice", "{\"mechanism\":\"PLAIN\",\"password\":\"secret\"}");
+
+        // then
+        assertThat(putResp.statusCode()).isEqualTo(200);
+        assertWireKeys(putResp.body(), "username", "mechanism");
+    }
+
+    @Test
+    void patchResponseOmitsPassword() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret"))));
+        startServer();
+
+        // when
+        var patchResp = send("PATCH", "/auth/clients/alice", "{\"mechanism\":\"SCRAM-SHA-256\"}");
+
+        // then
+        assertThat(patchResp.statusCode()).isEqualTo(200);
+        assertWireKeys(patchResp.body(), "username", "mechanism");
+    }
 }

@@ -187,4 +187,70 @@ class GovernanceSliceTest extends AdminHttpSliceTestBase {
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(repository.getActiveConfig().governance().topicRules()).isEmpty();
     }
+
+    @Test
+    void listsGovernanceWithExactlyTopicRulesAndExemptions() throws Exception {
+        // given
+        var governanceConfig = new GovernanceConfig(
+                Map.of("min-replication",
+                        new GovernanceRuleConfig("replication factor must be at least 3",
+                                "topic.replicationFactor >= 3")),
+                Map.of("ops", new GovernanceExemptionConfig(".*", ".*-changelog")));
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateGovernance(governanceConfig));
+        startServer();
+
+        // when
+        var governanceResp = send("GET", "/governance", null);
+
+        // then
+        assertThat(governanceResp.statusCode()).isEqualTo(200);
+        assertWireKeys(governanceResp.body(), "topicRules", "exemptions");
+    }
+
+    @Test
+    void putResponseCarriesTheSameNestedShapeAsTheRequest() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/governance",
+                """
+                        {
+                          "topicRules": {
+                            "min-replication": {
+                              "message": "replication factor must be at least 3",
+                              "expression": "topic.replicationFactor >= 3"
+                            }
+                          },
+                          "exemptions": {
+                            "ops": {
+                              "principal": ".*",
+                              "topicPattern": ".*-changelog"
+                            }
+                          }
+                        }
+                        """);
+
+        // then
+        assertThat(putResp.statusCode()).isEqualTo(200);
+        assertWireKeys(putResp.body(), "topicRules", "exemptions");
+        // and - the nested rule and exemption key sets are frozen too, which the top-level
+        // key assertion above cannot see
+        assertThatJson(putResp.body()).isEqualTo("""
+                {
+                  "topicRules": {
+                    "min-replication": {
+                      "message": "replication factor must be at least 3",
+                      "expression": "topic.replicationFactor >= 3"
+                    }
+                  },
+                  "exemptions": {
+                    "ops": {
+                      "principal": ".*",
+                      "topicPattern": ".*-changelog"
+                    }
+                  }
+                }
+                """);
+    }
 }
