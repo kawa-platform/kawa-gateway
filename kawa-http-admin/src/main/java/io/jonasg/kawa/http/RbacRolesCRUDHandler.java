@@ -7,10 +7,10 @@ import io.jonasg.kawa.config.RoleConfig;
 import java.util.Comparator;
 import java.util.Map;
 
-final class RbacRolesCRUDHandler extends BaseCRUDHandler<RoleConfig> {
+final class RbacRolesCRUDHandler extends BaseCRUDHandler<RoleConfig, RoleConfigRequest> {
 
     RbacRolesCRUDHandler(GatewayConfigRepository repository) {
-        super(repository, RoleConfig.class, "role");
+        super(repository, RoleConfigRequest.class, "role");
     }
 
     @Override
@@ -21,9 +21,19 @@ final class RbacRolesCRUDHandler extends BaseCRUDHandler<RoleConfig> {
     @Override
     protected Object listView(GatewayConfig config) {
         return entries(config).entrySet().stream()
-                .map(entry -> new RoleView(entry.getKey(), entry.getValue().acls()))
-                .sorted(Comparator.comparing(RoleView::name))
+                .map(entry -> new RoleConfigView(entry.getKey(), entry.getValue().acls()))
+                .sorted(Comparator.comparing(RoleConfigView::name))
                 .toList();
+    }
+
+    @Override
+    protected RoleConfig toConfig(String name, RoleConfigRequest body) {
+        return new RoleConfig(body.acls());
+    }
+
+    @Override
+    protected Object putView(String name, RoleConfig value) {
+        return new RoleValueView(value.acls());
     }
 
     @Override

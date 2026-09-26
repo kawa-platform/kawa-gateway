@@ -17,10 +17,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig> {
+final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig, ClientConfigRequest> {
 
     AuthClientsCRUDHandler(GatewayConfigRepository repository) {
-        super(repository, ClientConfig.class, "client");
+        super(repository, ClientConfigRequest.class, "client");
     }
 
     @Override
@@ -34,6 +34,18 @@ final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig> {
                 .map(entry -> new ClientView(entry.getKey(), entry.getValue().mechanism()))
                 .sorted(Comparator.comparing(ClientView::username))
                 .toList();
+    }
+
+    /// Covers the non-group half of the conversion. The request's `groups` is applied by the
+    /// `put` override below rather than here, so do not read this hook as the whole conversion.
+    @Override
+    protected ClientConfig toConfig(String name, ClientConfigRequest body) {
+        return ClientConfig.fromPlaintext(body.mechanism(), body.password());
+    }
+
+    @Override
+    protected Object putView(String name, ClientConfig value) {
+        return new ClientView(name, value.mechanism());
     }
 
     @Override

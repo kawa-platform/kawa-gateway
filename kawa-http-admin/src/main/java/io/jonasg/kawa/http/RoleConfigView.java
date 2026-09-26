@@ -8,7 +8,7 @@ import java.util.List;
 ///
 /// @param name the role name
 /// @param acls the ACLs making up this role
-public record RoleView(
+public record RoleConfigView(
         String name,
         List<AclConfig> acls) {
 }
