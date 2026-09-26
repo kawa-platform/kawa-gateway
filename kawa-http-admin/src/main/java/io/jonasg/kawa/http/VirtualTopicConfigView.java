@@ -3,7 +3,9 @@ package io.jonasg.kawa.http;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 
-/// A virtual topic in the admin `/topics` response.
+/// A virtual topic in the admin `/topics` response. `filter` and `valueFormat` remain
+/// `kawa-config` types because the frozen write path keeps the raw sealed filter,
+/// not the `{kind, expression}` form [TopicFilterView] renders on `GET`.
 ///
 /// @param topic               physical topic name
 /// @param filter              optional server-side consume filter configuration
