@@ -189,6 +189,24 @@ class GovernanceSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void rejectsMalformedExemptionRegexWithoutLeakingInternals() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/governance",
+                "{\"exemptions\":{\"e1\":{\"principal\":\"[unclosed\",\"topicPattern\":\".*\"}}}");
+
+        // then
+        assertThat(putResp.statusCode()).isEqualTo(400);
+        assertThat(putResp.body())
+                .contains("exemption 'e1'")
+                .doesNotContain("PatternSyntaxException")
+                .doesNotContain("near index")
+                .doesNotContain("[unclosed");
+    }
+
+    @Test
     void listsGovernanceWithExactlyTopicRulesAndExemptions() throws Exception {
         // given
         var governanceConfig = new GovernanceConfig(

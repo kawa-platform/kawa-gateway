@@ -12,6 +12,7 @@ public final class PutGovernanceHandler implements Router.Handler {
     private final ConsistencyAwareUpdater updater;
     private final GovernancePolicy governance;
     private final JsonMapper mapper = JsonMapper.builder().build();
+    private final GovernanceConfigMapper governanceMapper = new GovernanceConfigMapper();
 
     public PutGovernanceHandler(GatewayConfigRepository repository, GovernancePolicy governance) {
         this.repository = repository;
@@ -21,24 +22,25 @@ public final class PutGovernanceHandler implements Router.Handler {
 
     @Override
     public Router.Response<?> handle(Router.Request request) {
-        GovernanceConfig value;
+        GovernanceConfigRequest body;
         try {
-            value = mapper.readValue(request.body(), GovernanceConfig.class);
+            body = mapper.readValue(request.body(), GovernanceConfigRequest.class);
         } catch (Exception e) {
             return Router.Response.badRequest("invalid governance body: " + e.getMessage());
         }
-        for (var entry : value.topicRules().entrySet()) {
-            var error = governance.validationError(entry.getValue().expression());
-            if (error.isPresent()) {
-                return Router.Response.badRequest(
-                        "invalid governance rule '" + entry.getKey() + "': " + error.get());
-            }
+        // the mapper validates, so its rejections must not be folded into the deserialization
+        // message above: each one already names the rule or exemption at fault
+        GovernanceConfig value;
+        try {
+            value = governanceMapper.toConfig(body);
+        } catch (IllegalArgumentException e) {
+            return Router.Response.badRequest(e.getMessage());
         }
         try {
             updater.update(request, config -> config.updateGovernance(value));
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }
-        return Router.Response.ok(value);
+        return Router.Response.ok(governanceMapper.toView(value));
     }
 }
