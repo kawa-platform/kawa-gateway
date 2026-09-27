@@ -2,6 +2,7 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Map;
@@ -62,10 +63,11 @@ abstract class BaseCRUDHandler<T, R> {
     /// that still lists clients") when a section exposes a `DELETE`.
     ///
     /// @return a non-`null` response to short-circuit the removal, or `null` to allow it
-    protected Router.Response<?> validateRemove(GatewayConfig config, String name) {
+    protected Router.@Nullable Response<?> validateRemove(GatewayConfig config, String name) {
         return null;
     }
 
+    @SuppressWarnings("unused")
     Router.Response<?> get(Router.Request request) {
         GatewayConfig base = repository.getActiveConfigOrEmpty();
         return Router.Response.ok(listView(base));
