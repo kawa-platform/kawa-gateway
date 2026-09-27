@@ -47,7 +47,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TopicCreateRequest'
+              $ref: '#/components/schemas/TopicRequest'
       responses:
         '201':
           description: Topic created
@@ -55,8 +55,8 @@ paths:
             application/json:
               schema:
                 oneOf:
-                  - $ref: '#/components/schemas/VirtualTopicConfig'
-                  - $ref: '#/components/schemas/TopicSpec'
+                  - $ref: '#/components/schemas/VirtualTopicConfigView'
+                  - $ref: '#/components/schemas/TopicSpecView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
@@ -83,14 +83,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TopicCreateRequest'
+              $ref: '#/components/schemas/TopicRequest'
       responses:
         '200':
           description: The stored virtual topic config
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VirtualTopicConfig'
+                $ref: '#/components/schemas/VirtualTopicConfigView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -119,7 +119,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VirtualTopicConfig'
+                $ref: '#/components/schemas/VirtualTopicConfigView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -159,7 +159,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/RoleView'
+                  $ref: '#/components/schemas/RoleConfigView'
         '404':
           $ref: '#/components/responses/NotFound'
         '405':
@@ -177,14 +177,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RoleConfig'
+              $ref: '#/components/schemas/RoleConfigRequest'
       responses:
         '200':
           description: The stored role
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RoleConfig'
+                $ref: '#/components/schemas/RoleValueView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -219,7 +219,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/GroupView'
+                  $ref: '#/components/schemas/GroupConfigView'
         '404':
           $ref: '#/components/responses/NotFound'
         '405':
@@ -237,14 +237,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GroupConfig'
+              $ref: '#/components/schemas/GroupConfigRequest'
       responses:
         '200':
           description: The stored group
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GroupConfig'
+                $ref: '#/components/schemas/GroupValueView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -270,7 +270,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GroupView'
+                $ref: '#/components/schemas/GroupConfigView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -301,13 +301,13 @@ paths:
       description: The SASL clients from the dynamic config.
       responses:
         '200':
-          description: The clients, each with its username, mechanism and password
+          description: The clients, each with its username and mechanism
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/ClientView'
+                  $ref: '#/components/schemas/ClientConfigView'
         '404':
           $ref: '#/components/responses/NotFound'
         '405':
@@ -325,14 +325,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ClientConfig'
+              $ref: '#/components/schemas/ClientConfigRequest'
       responses:
         '200':
           description: The stored client
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientConfig'
+                $ref: '#/components/schemas/ClientConfigView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -358,7 +358,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ClientView'
+                $ref: '#/components/schemas/ClientConfigView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -391,7 +391,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GovernanceConfig'
+                $ref: '#/components/schemas/GovernanceConfigView'
         '404':
           $ref: '#/components/responses/NotFound'
         '405':
@@ -409,14 +409,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GovernanceConfig'
+              $ref: '#/components/schemas/GovernanceConfigRequest'
       responses:
         '200':
           description: The stored governance configuration
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GovernanceConfig'
+                $ref: '#/components/schemas/GovernanceConfigView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -546,7 +546,7 @@ components:
         expression:
           type: string
           description: The CEL expression, the header=value pair for headerEquals, or a header <operator> value description for the other header predicates.
-    TopicCreateRequest:
+    TopicRequest:
       type: object
       required:
         - type
@@ -586,7 +586,7 @@ components:
           allOf:
             - $ref: '#/components/schemas/PayloadFormat'
           description: Virtual topics only; optional encoding of record values, letting CEL filters read the decoded value.
-    VirtualTopicConfig:
+    VirtualTopicConfigView:
       type: object
       required:
         - topic
@@ -690,7 +690,7 @@ components:
         expression:
           type: string
           description: The CEL expression selecting records to keep.
-    TopicSpec:
+    TopicSpecView:
       type: object
       required:
         - name
@@ -711,7 +711,20 @@ components:
           type: object
           additionalProperties:
             type: string
-    GovernanceConfig:
+    GovernanceConfigRequest:
+      type: object
+      properties:
+        topicRules:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/GovernanceRuleConfig'
+          description: Named rules, each a message plus a CEL expression.
+        exemptions:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/GovernanceExemptionConfig'
+          description: Named exemptions, each a principal regex plus a topic pattern regex.
+    GovernanceConfigView:
       type: object
       properties:
         topicRules:
@@ -746,7 +759,7 @@ components:
         topicPattern:
           type: string
           description: Topic pattern regex the exemption applies to.
-    ClientConfig:
+    ClientConfigRequest:
       type: object
       required:
         - password
@@ -776,11 +789,10 @@ components:
           items:
             type: string
           description: Replaces the client's RBAC group memberships; omitted to keep current memberships.
-    ClientView:
+    ClientConfigView:
       type: object
       required:
         - username
-        - password
       properties:
         username:
           type: string
@@ -788,10 +800,7 @@ components:
         mechanism:
           type: string
           description: SASL mechanism (e.g. PLAIN, SCRAM-SHA-256, SCRAM-SHA-512).
-        password:
-          type: string
-          description: Password; may reference environment variables as ${VAR} or ${VAR:-default}.
-    RoleConfig:
+    RoleConfigRequest:
       type: object
       properties:
         acls:
@@ -799,7 +808,15 @@ components:
           items:
             $ref: '#/components/schemas/AclConfig'
           description: The ACLs making up this role.
-    RoleView:
+    RoleValueView:
+      type: object
+      properties:
+        acls:
+          type: array
+          items:
+            $ref: '#/components/schemas/AclConfig'
+          description: The ACLs making up this role.
+    RoleConfigView:
       type: object
       required:
         - name
@@ -812,7 +829,20 @@ components:
           items:
             $ref: '#/components/schemas/AclConfig'
           description: The ACLs making up this role.
-    GroupConfig:
+    GroupConfigRequest:
+      type: object
+      properties:
+        clients:
+          type: array
+          items:
+            type: string
+          description: The usernames in this group.
+        roles:
+          type: array
+          items:
+            type: string
+          description: The roles whose ACLs every client inherits.
+    GroupValueView:
       type: object
       properties:
         clients:
@@ -833,7 +863,7 @@ components:
         name:
           type: string
           description: The new group name; the group's clients and roles move with it.
-    GroupView:
+    GroupConfigView:
       type: object
       required:
         - name
