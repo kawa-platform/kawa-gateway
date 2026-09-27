@@ -17,7 +17,11 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig, ClientConfigRequest> {
+final class AuthClientsCRUDHandler extends BaseCRUDHandler<
+        ClientConfig,
+        ClientConfigRequest,
+        ClientConfigView,
+        ClientConfigView> {
 
     AuthClientsCRUDHandler(GatewayConfigRepository repository) {
         super(repository, ClientConfigRequest.class, "client");
@@ -29,7 +33,7 @@ final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig, ClientC
     }
 
     @Override
-    protected Object listView(GatewayConfig config) {
+    protected List<ClientConfigView> listView(GatewayConfig config) {
         return entries(config).entrySet().stream()
                 .map(entry -> new ClientConfigView(entry.getKey(), entry.getValue().mechanism()))
                 .sorted(Comparator.comparing(ClientConfigView::username))
@@ -52,8 +56,13 @@ final class AuthClientsCRUDHandler extends BaseCRUDHandler<ClientConfig, ClientC
     /// caller of this hook — never runs and this view is never built; the implementation is here
     /// solely to satisfy the abstract contract. The `PUT` response that does go out is the
     /// `ClientConfigView` constructed in the `put` override.
+    ///
+    /// `P` is `ClientConfigView`, the type the real `put` also returns, so the type system cannot
+    /// tell this dead hook from a live one: deleting the `put` override to drop the duplication
+    /// would compile, and would silently drop group membership. Types constrain the view type, not
+    /// the call path — that is what the [put] override is for.
     @Override
-    protected Object putView(String name, ClientConfig value) {
+    protected ClientConfigView putView(String name, ClientConfig value) {
         return new ClientConfigView(name, value.mechanism());
     }
 

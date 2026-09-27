@@ -5,20 +5,23 @@ import io.jonasg.kawa.config.GatewayConfigRepository;
 import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.List;
 import java.util.Map;
 
 /// Base for the per-section config handlers (`/rbac/...`, `/auth/...`). Each subclass maps one dynamic
 /// config section (virtual topics, RBAC roles/groups, auth users) onto the [GatewayConfig]
 /// snapshot: [entries] reads the section, [upsert] and [remove] produce a new snapshot with
-/// one entry changed. `T` is the config record the section stores and `R` is the transport
-/// body the endpoint accepts, so the config model and the wire model are free to differ.
-/// Plain handler with no Netty imports; the [HttpRouterHandler] dispatcher serializes the
-/// result and writes the response.
+/// one entry changed. `C` is the config record the section stores and `R` the transport body the
+/// endpoint accepts, so the config model and the wire model are free to differ; `G` and `P` are
+/// the `GET` list element and the `PUT` response body, named after the method that produces each,
+/// which keeps [listView] and [putView] from handing back an untyped value. A section whose list
+/// item and `PUT` body coincide names the same type twice. Plain handler with no Netty imports;
+/// the [HttpRouterHandler] dispatcher serializes the result and writes the response.
 ///
 /// `GET` lists the section, `PUT /{name}` upserts one entry (persisting the new snapshot via
 /// the [GatewayConfigRepository] and returning the stored entry), `DELETE /{name}` removes it
 /// (404 when it does not exist). The section starts empty when no snapshot has been applied yet.
-abstract class BaseCRUDHandler<T, R> {
+abstract class BaseCRUDHandler<C, R, G, P> {
 
     protected final GatewayConfigRepository repository;
     protected final ConsistencyAwareUpdater updater;
@@ -35,25 +38,23 @@ abstract class BaseCRUDHandler<T, R> {
 
     /// The request body mapped onto a config entry. Null-defaulting must match the config
     /// record exactly, so the accept/reject boundary does not move.
-    protected abstract T toConfig(String name, R body);
+    protected abstract C toConfig(String name, R body);
 
-    /// The `PUT` response body: the stored entry as written. The base imposes no shape on it;
-    /// each subclass returns whichever body its endpoint's wire format calls for, repeating the
-    /// name or leaving it out as that format dictates. The name is on the path the caller just
-    /// wrote, so a subclass may omit it from the body.
-    protected abstract Object putView(String name, T value);
+    /// The `PUT` response body: the stored entry as written, in the shape `P` names. The name is
+    /// on the path the caller just wrote, so a section may omit it from the body, which is why `P`
+    /// is often a `*PutView` rather than the same type as `G`.
+    protected abstract P putView(String name, C value);
 
     /// The section's entries from a snapshot.
-    protected abstract Map<String, T> entries(GatewayConfig config);
+    protected abstract Map<String, C> entries(GatewayConfig config);
 
-    /// The GET response body for the section. Defaults to the raw entries map; subclasses
-    /// override to project entries into a list of view records carrying the entry name.
-    protected Object listView(GatewayConfig config) {
-        return entries(config);
-    }
+    /// The `GET` response body: one `G` per entry, each carrying the entry name the map key holds,
+    /// since a list has no path to read it from. Abstract rather than defaulted to the raw entries
+    /// map, because a response body is a transport type and never a `kawa-config` record.
+    protected abstract List<G> listView(GatewayConfig config);
 
     /// A new snapshot with the given entry added or replaced.
-    protected abstract GatewayConfig upsert(GatewayConfig config, String name, T value);
+    protected abstract GatewayConfig upsert(GatewayConfig config, String name, C value);
 
     /// A new snapshot with the given entry removed.
     protected abstract GatewayConfig remove(GatewayConfig config, String name);
@@ -81,7 +82,7 @@ abstract class BaseCRUDHandler<T, R> {
         } catch (Exception e) {
             return Router.Response.badRequest("invalid " + sectionName + " body: " + e.getMessage());
         }
-        T value;
+        C value;
         try {
             value = toConfig(name, body);
         } catch (IllegalArgumentException e) {

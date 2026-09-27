@@ -7,5 +7,5 @@ import java.util.List;
 ///
 /// @param clients the usernames in this group
 /// @param roles   the roles whose ACLs every client inherits
-public record GroupValueView(List<String> clients, List<String> roles) {
+public record GroupPutView(List<String> clients, List<String> roles) {
 }

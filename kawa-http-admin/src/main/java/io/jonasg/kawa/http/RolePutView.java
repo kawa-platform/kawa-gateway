@@ -8,5 +8,5 @@ import java.util.List;
 /// caller read it off the path it just wrote.
 ///
 /// @param acls the ACLs making up this role
-public record RoleValueView(List<AclConfig> acls) {
+public record RolePutView(List<AclConfig> acls) {
 }

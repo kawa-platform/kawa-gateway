@@ -5,9 +5,14 @@ import io.jonasg.kawa.config.GatewayConfigRepository;
 import io.jonasg.kawa.config.GroupConfig;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 
-final class RbacGroupsCRUDHandler extends BaseCRUDHandler<GroupConfig, GroupConfigRequest> {
+final class RbacGroupsCRUDHandler extends BaseCRUDHandler<
+        GroupConfig,
+        GroupConfigRequest,
+        GroupConfigView,
+        GroupPutView> {
 
     RbacGroupsCRUDHandler(GatewayConfigRepository repository) {
         super(repository, GroupConfigRequest.class, "group");
@@ -19,7 +24,7 @@ final class RbacGroupsCRUDHandler extends BaseCRUDHandler<GroupConfig, GroupConf
     }
 
     @Override
-    protected Object listView(GatewayConfig config) {
+    protected List<GroupConfigView> listView(GatewayConfig config) {
         return entries(config).entrySet().stream()
                 .map(entry -> new GroupConfigView(entry.getKey(), entry.getValue().clients(), entry.getValue().roles()))
                 .sorted(Comparator.comparing(GroupConfigView::name))
@@ -32,8 +37,8 @@ final class RbacGroupsCRUDHandler extends BaseCRUDHandler<GroupConfig, GroupConf
     }
 
     @Override
-    protected Object putView(String name, GroupConfig value) {
-        return new GroupValueView(value.clients(), value.roles());
+    protected GroupPutView putView(String name, GroupConfig value) {
+        return new GroupPutView(value.clients(), value.roles());
     }
 
     @Override

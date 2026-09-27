@@ -16,14 +16,18 @@ class.
 Every admin HTTP request and response body is a transport type declared in `io.jonasg.kawa.http`, never a
 `kawa-config` record. The config records stay the domain: the config repository stores them, and handlers convert
 between the two. The role, group and client handlers convert at the `toConfig` and `listView`/`putView` hooks of
-`BaseCRUDHandler<T, R>`, where `T` is the config record a section stores and `R` is the body the endpoint accepts;
-the topic and governance handlers do not extend that base and convert inline, governance through
+`BaseCRUDHandler<C, R, G, P>`, where `C` is the config record a section stores, `R` the body the endpoint accepts,
+`G` the `GET` list element and `P` the `PUT` response body — the last two named after the method that produces
+them, so neither hook returns an untyped value. A section whose list item and `PUT` body coincide names the same
+type twice. The topic and governance handlers do not extend that base and convert inline, governance through
 `GovernanceConfigMapper`.
 
 The suffix says which side of the boundary a type sits on, and the set is stable: `*Request` and `*Patch` are bodies
-a client sends, `*View` a response body mirroring the config record it is named after, and `*ValueView` a response
-body for one stored entry that the path already names, which is why it carries no name of its own — hence
-`RoleValueView` for the `PUT` response alongside `RoleConfigView` for the same role in the `GET` list.
+a client sends, `*View` a response body mirroring the config record it is named after, and `*PutView` the body the
+`PUT /{name}` endpoint writes back — one stored entry whose name the path already carries, which is why the record
+itself holds no name. Hence `RolePutView` for the `PUT` response alongside `RoleConfigView` for the same role in the
+`GET` list. A section whose list item and `PUT` body coincide names the same type for both — the client section uses
+`ClientConfigView` in each slot, so it has no `*PutView` of its own.
 
 The rule covers the **top-level** body only. Records nested inside a body are left as `kawa-config` types, because
 they are an interior detail of the payload and copying them would duplicate the whole `kawa-config` graph under
