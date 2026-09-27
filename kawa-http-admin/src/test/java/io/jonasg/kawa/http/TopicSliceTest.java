@@ -22,7 +22,7 @@ import java.util.Map;
 
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 import static net.javacrumbs.jsonunit.core.Option.IGNORING_ARRAY_ORDER;
-import static org.assertj.core.api.Assertions.assertThat;
+import static io.jonasg.kawa.http.KawaAssertions.assertThat;
 
 /// Slice tests for the `/topics` admin surface: real HTTP requests through a booted
 /// [AdminHttpServer], asserting the JSON wire format the admin UI consumes.
@@ -878,7 +878,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
-    void listsTopicsWithExactlyTheEightTopicKeys() throws Exception {
+    void listsTopicsWithExactlyTheEightTopicPropertyNames() throws Exception {
         // given
         virtualTopics = new VirtualTopicManager(Map.of(
                 "orders", new VirtualTopicConfig("orders-v2"),
@@ -891,11 +891,11 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         startServer();
 
         // when
-        var topicsResp = send("GET", "/topics", null);
+        var topicsResp = send("GET", "/topics");
 
         // then
         assertThat(topicsResp.statusCode()).isEqualTo(200);
-        assertWireKeys(topicsResp.body(),
+        assertThat(topicsResp).containsExactlyTopLevelPropertyNames(
                 "type", "name", "partitions", "replicationFactor", "filter", "physicalTopic",
                 "exposePhysicalTopic", "valueFormat");
     }
@@ -910,7 +910,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(postResp.statusCode()).isEqualTo(201);
-        assertWireKeys(postResp.body(), "topic", "filter", "exposePhysicalTopic", "valueFormat");
+        assertThat(postResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat");
     }
 
     @Test
@@ -934,7 +934,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(postResp.statusCode()).isEqualTo(201);
-        assertWireKeys(postResp.body(), "name", "partitions", "replicationFactor", "configs");
+        assertThat(postResp).containsExactlyTopLevelPropertyNames("name", "partitions", "replicationFactor", "configs");
     }
 
     @Test
@@ -947,7 +947,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(putResp.statusCode()).isEqualTo(200);
-        assertWireKeys(putResp.body(), "topic", "filter", "exposePhysicalTopic", "valueFormat");
+        assertThat(putResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat");
     }
 
     @Test
@@ -962,6 +962,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(patchResp.statusCode()).isEqualTo(200);
-        assertWireKeys(patchResp.body(), "topic", "filter", "exposePhysicalTopic", "valueFormat");
+        assertThat(patchResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat");
     }
 }

@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
-import static org.assertj.core.api.Assertions.assertThat;
+import static io.jonasg.kawa.http.KawaAssertions.assertThat;
 
 /// Slice tests for the `/rbac/roles` admin surface: real HTTP requests through a booted
 /// [AdminHttpServer], asserting the JSON wire format the admin UI consumes.
@@ -163,7 +163,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(rolesResp.statusCode()).isEqualTo(200);
-        assertWireKeys(rolesResp.body(), "name", "acls");
+        assertThat(rolesResp)
+                .containsExactlyTopLevelPropertyNames("name", "acls");
     }
 
     @Test
@@ -176,6 +177,6 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(putResp.statusCode()).isEqualTo(200);
-        assertWireKeys(putResp.body(), "acls");
+        assertThat(putResp).containsExactlyTopLevelPropertyNames("acls");
     }
 }

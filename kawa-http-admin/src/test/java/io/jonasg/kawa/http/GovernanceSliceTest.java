@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Map;
 
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
-import static org.assertj.core.api.Assertions.assertThat;
+import static io.jonasg.kawa.http.KawaAssertions.assertThat;
 
 /// Slice tests for the `/governance` admin surface: real HTTP requests through a booted
 /// [AdminHttpServer], asserting the JSON wire format the admin UI consumes.
@@ -223,7 +223,7 @@ class GovernanceSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(governanceResp.statusCode()).isEqualTo(200);
-        assertWireKeys(governanceResp.body(), "topicRules", "exemptions");
+        assertThat(governanceResp).containsExactlyTopLevelPropertyNames("topicRules", "exemptions");
     }
 
     @Test
@@ -252,7 +252,7 @@ class GovernanceSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(putResp.statusCode()).isEqualTo(200);
-        assertWireKeys(putResp.body(), "topicRules", "exemptions");
+        assertThat(putResp).containsExactlyTopLevelPropertyNames("topicRules", "exemptions");
         // and - the nested rule and exemption key sets are frozen too, which the top-level
         // key assertion above cannot see
         assertThatJson(putResp.body()).isEqualTo("""

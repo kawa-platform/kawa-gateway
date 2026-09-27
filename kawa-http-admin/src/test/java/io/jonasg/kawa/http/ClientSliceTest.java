@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
-import static org.assertj.core.api.Assertions.assertThat;
+import static io.jonasg.kawa.http.KawaAssertions.assertThat;
 
 /// Slice tests for the `/auth/clients` admin surface: real HTTP requests through a booted
 /// [AdminHttpServer], asserting the JSON wire format the admin UI consumes.
@@ -398,7 +398,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(clientsResp.statusCode()).isEqualTo(200);
-        assertWireKeys(clientsResp.body(), "username", "mechanism");
+        assertThat(clientsResp).containsExactlyTopLevelPropertyNames("username", "mechanism");
     }
 
     @Test
@@ -411,7 +411,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(putResp.statusCode()).isEqualTo(200);
-        assertWireKeys(putResp.body(), "username", "mechanism");
+        assertThat(putResp).containsExactlyTopLevelPropertyNames("username", "mechanism");
     }
 
     @Test
@@ -426,6 +426,6 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(patchResp.statusCode()).isEqualTo(200);
-        assertWireKeys(patchResp.body(), "username", "mechanism");
+        assertThat(patchResp).containsExactlyTopLevelPropertyNames("username", "mechanism");
     }
 }

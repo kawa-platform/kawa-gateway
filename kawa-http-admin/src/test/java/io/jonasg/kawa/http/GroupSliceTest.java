@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
-import static org.assertj.core.api.Assertions.assertThat;
+import static io.jonasg.kawa.http.KawaAssertions.assertThat;
 
 /// Slice tests for the `/rbac/groups` admin surface: real HTTP requests through a booted
 /// [AdminHttpServer], asserting the JSON wire format the admin UI consumes.
@@ -247,7 +247,7 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(groupsResp.statusCode()).isEqualTo(200);
-        assertWireKeys(groupsResp.body(), "name", "clients", "roles");
+        assertThat(groupsResp).containsExactlyTopLevelPropertyNames("name", "clients", "roles");
     }
 
     @Test
@@ -260,7 +260,7 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(putResp.statusCode()).isEqualTo(200);
-        assertWireKeys(putResp.body(), "clients", "roles");
+        assertThat(putResp).containsExactlyTopLevelPropertyNames("clients", "roles");
     }
 
     @Test
@@ -276,6 +276,6 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(patchResp.statusCode()).isEqualTo(200);
-        assertWireKeys(patchResp.body(), "name", "clients", "roles");
+        assertThat(patchResp).containsExactlyTopLevelPropertyNames("name", "clients", "roles");
     }
 }
