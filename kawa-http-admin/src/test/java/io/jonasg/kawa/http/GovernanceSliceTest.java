@@ -199,6 +199,7 @@ class GovernanceSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(putResp.statusCode()).isEqualTo(400);
+        assertThat(repository.getActiveConfig().governance().topicRules()).isEmpty();
         assertThat(putResp.body())
                 .contains("exemption 'e1'")
                 .doesNotContain("PatternSyntaxException")

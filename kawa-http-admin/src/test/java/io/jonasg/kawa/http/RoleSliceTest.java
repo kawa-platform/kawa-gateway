@@ -78,6 +78,15 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(200);
+        assertThatJson(response.body()).isEqualTo("""
+                {
+                  "acls": [{
+                    "resource": {"type": "TOPIC", "pattern": "orders", "patternType": "LITERAL"},
+                    "operation": "READ",
+                    "permission": "ALLOW"
+                  }]
+                }
+                """);
         assertThat(repository.getActiveConfig().rbac().roles()).containsKey("reader");
         assertThat(repository.getActiveConfig().rbac().roles().get("reader").acls()).hasSize(1);
     }

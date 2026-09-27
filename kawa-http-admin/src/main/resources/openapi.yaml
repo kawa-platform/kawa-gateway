@@ -403,7 +403,11 @@ paths:
       description: |
         Replaces the whole governance section (rules + exemptions). Rule expressions are
         validated before the new snapshot is persisted, so a bad expression is rejected
-        here instead of failing the config-topic consumer later.
+        here instead of failing the config-topic consumer later. A malformed exemption regex
+        and a CEL expression that does not compile are both rejected with `400` and a message
+        naming the rule or exemption and the field at fault, without the regex parser's
+        diagnostics; where a body is defective in both, the topic rules are reported before
+        the exemptions.
       requestBody:
         required: true
         content:

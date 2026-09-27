@@ -6,7 +6,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Map;
 
-/// Base for the per-section config handlers (`/config/...`). Each subclass maps one dynamic
+/// Base for the per-section config handlers (`/rbac/...`, `/auth/...`). Each subclass maps one dynamic
 /// config section (virtual topics, RBAC roles/groups, auth users) onto the [GatewayConfig]
 /// snapshot: [entries] reads the section, [upsert] and [remove] produce a new snapshot with
 /// one entry changed. `T` is the config record the section stores and `R` is the transport

@@ -42,6 +42,7 @@ abstract class AdminHttpSliceTestBase {
     protected FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
     protected CorsConfig cors;
 
+    private static final JsonMapper JSON = JsonMapper.builder().build();
     private AdminHttpServer server;
     private final HttpClient client = HttpClient.newHttpClient();
 
@@ -112,11 +113,10 @@ abstract class AdminHttpSliceTestBase {
         return TopicMetadata.of(name, partitionList);
     }
 
-    private static final JsonMapper JSON = JsonMapper.builder().build();
-
     /// Asserts the body's top-level property names are exactly `keys` — for a single object, or
     /// for every element of a JSON array. Pins the key set on its own, independently of the values,
-    /// and covers the endpoints whose bodies no other test compares in full; a partial assertion
+    /// so a shape can be asserted without also pinning values that carry no contract, and names the
+    /// offending key set in the failure rather than showing a whole-body diff. A partial assertion
     /// such as a single `inPath` field says nothing about the properties beside it. Only the top
     /// level is inspected, so a nested object's keys need an assertion of their own.
     protected static void assertWireKeys(String body, String... keys) {
