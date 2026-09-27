@@ -2,7 +2,6 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.GatewayConfigRepository;
 import io.jonasg.kawa.config.GovernanceConfig;
-import io.jonasg.kawa.governance.GovernancePolicy;
 import tools.jackson.databind.json.JsonMapper;
 
 /// Serves `PUT /governance`.
@@ -10,14 +9,12 @@ public final class PutGovernanceHandler implements Router.Handler {
 
     private final GatewayConfigRepository repository;
     private final ConsistencyAwareUpdater updater;
-    private final GovernancePolicy governance;
     private final JsonMapper mapper = JsonMapper.builder().build();
     private final GovernanceConfigMapper governanceMapper = new GovernanceConfigMapper();
 
-    public PutGovernanceHandler(GatewayConfigRepository repository, GovernancePolicy governance) {
+    public PutGovernanceHandler(GatewayConfigRepository repository) {
         this.repository = repository;
         this.updater = new ConsistencyAwareUpdater(repository);
-        this.governance = governance;
     }
 
     @Override

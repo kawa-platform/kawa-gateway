@@ -72,7 +72,7 @@ public final class AdminHttpServer {
                 .patch("/auth/clients/{name}", new PatchAuthClientHandler(configRepository))
                 .delete("/auth/clients/{name}", new DeleteAuthClientHandler(configRepository))
                 .get("/governance", new GetGovernanceHandler(configRepository))
-                .put("/governance", new PutGovernanceHandler(configRepository, governance))
+                .put("/governance", new PutGovernanceHandler(configRepository))
                 .get("/docs", new GetDocsHandler());
     }
 
