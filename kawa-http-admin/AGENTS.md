@@ -23,11 +23,11 @@ they are an interior detail of the payload and copying them would duplicate the 
 new names. That is why governance has a `GovernanceConfigView` but no rule or exemption view type of its own, and
 why `VirtualTopicConfigView` still exposes `VirtualTopicFilterConfig` and `PayloadFormatConfig`.
 
-Governance is the deliberate end of that carve-out. Its rules and exemptions round-trip through the admin UI
-unchanged, so their wire shape is frozen and a view type could only be a copy. The nested governance schemas in
-`openapi.yaml` are consequently still named after the `kawa-config` records on both sides of the boundary, even
-though the `PUT` request body carries the unvalidating `GovernanceRuleRequest` and `GovernanceExemptionRequest` in
-place of the config records.
+Governance is the instance where that carve-out is deliberate rather than incidental, because its nested wire shape
+is frozen and must not move. Its rules and exemptions round-trip through the admin UI unchanged, so a view type could
+only be a copy. The nested governance schemas in `openapi.yaml` are consequently still named after the `kawa-config`
+records on both sides of the boundary, even though the `PUT` request body carries the unvalidating
+`GovernanceRuleRequest` and `GovernanceExemptionRequest` in place of the config records.
 
 - A `*View` must never carry a secret. `ClientConfigView` is `(username, mechanism)`; a password belongs only to
   `ClientConfigRequest` and `ClientConfigPatch`.
