@@ -721,12 +721,12 @@ components:
         topicRules:
           type: object
           additionalProperties:
-            $ref: '#/components/schemas/GovernanceRuleConfig'
+            $ref: '#/components/schemas/GovernanceRuleRequest'
           description: Named rules, each a message plus a CEL expression.
         exemptions:
           type: object
           additionalProperties:
-            $ref: '#/components/schemas/GovernanceExemptionConfig'
+            $ref: '#/components/schemas/GovernanceExemptionRequest'
           description: Named exemptions, each a principal regex plus a topic pattern regex.
     GovernanceConfigView:
       type: object
@@ -752,6 +752,28 @@ components:
           type: string
           description: The CEL expression new topics must satisfy.
     GovernanceExemptionConfig:
+      type: object
+      required:
+        - principal
+        - topicPattern
+      properties:
+        principal:
+          type: string
+          description: Principal regex; matching principals skip governance evaluation.
+        topicPattern:
+          type: string
+          description: Topic pattern regex the exemption applies to.
+    GovernanceRuleRequest:
+      type: object
+      required:
+        - expression
+      properties:
+        message:
+          type: string
+        expression:
+          type: string
+          description: The CEL expression new topics must satisfy.
+    GovernanceExemptionRequest:
       type: object
       required:
         - principal

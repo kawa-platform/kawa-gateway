@@ -32,9 +32,10 @@ why `VirtualTopicConfigView` still exposes `VirtualTopicFilterConfig` and `Paylo
 
 Governance is the instance where that carve-out is deliberate rather than incidental, because its nested wire shape
 is frozen and must not move. Its rules and exemptions round-trip through the admin UI unchanged, so a view type could
-only be a copy. The nested governance schemas in `openapi.yaml` are consequently still named after the `kawa-config`
-records on both sides of the boundary, even though the `PUT` request body carries the unvalidating
-`GovernanceRuleRequest` and `GovernanceExemptionRequest` in place of the config records.
+only be a copy. `GovernanceConfigView` therefore keeps the `kawa-config` records, and `openapi.yaml` names them on the
+response side. The request side is not carved out: `GovernanceConfigRequest` already carries the unvalidating
+`GovernanceRuleRequest` and `GovernanceExemptionRequest`, so the spec names those instead. The two schema pairs are
+wire-identical by design, which is what makes the body round-trip unchanged.
 
 - A `*View` must never carry a secret. `ClientConfigView` is `(username, mechanism)`; a password belongs only to
   `ClientConfigRequest` and `ClientConfigPatch`.
