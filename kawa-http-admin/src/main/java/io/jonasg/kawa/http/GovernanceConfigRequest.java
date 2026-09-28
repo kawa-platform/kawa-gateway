@@ -1,5 +1,7 @@
 package io.jonasg.kawa.http;
 
+import org.jspecify.annotations.NullUnmarked;
+
 import java.util.Map;
 
 /// The `PUT /governance` request body. The rules and exemptions are unvalidated on purpose:
@@ -9,6 +11,7 @@ import java.util.Map;
 ///
 /// @param topicRules named rules, each a message plus a CEL expression
 /// @param exemptions named exemptions, each a principal regex plus a topic pattern regex
+@NullUnmarked
 public record GovernanceConfigRequest(
         Map<String, GovernanceRuleRequest> topicRules,
         Map<String, GovernanceExemptionRequest> exemptions

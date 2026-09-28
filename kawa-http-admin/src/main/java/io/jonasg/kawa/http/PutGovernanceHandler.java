@@ -7,13 +7,11 @@ import tools.jackson.databind.json.JsonMapper;
 /// Serves `PUT /governance`.
 public final class PutGovernanceHandler implements Router.Handler {
 
-    private final GatewayConfigRepository repository;
     private final ConsistencyAwareUpdater updater;
     private final JsonMapper mapper = JsonMapper.builder().build();
     private final GovernanceConfigMapper governanceMapper = new GovernanceConfigMapper();
 
     public PutGovernanceHandler(GatewayConfigRepository repository) {
-        this.repository = repository;
         this.updater = new ConsistencyAwareUpdater(repository);
     }
 
@@ -25,8 +23,6 @@ public final class PutGovernanceHandler implements Router.Handler {
         } catch (Exception e) {
             return Router.Response.badRequest("invalid governance body: " + e.getMessage());
         }
-        // the mapper validates, so its rejections must not be folded into the deserialization
-        // message above: each one already names the rule or exemption at fault
         GovernanceConfig value;
         try {
             value = governanceMapper.toConfig(body);

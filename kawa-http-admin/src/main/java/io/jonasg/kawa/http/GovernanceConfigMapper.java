@@ -63,7 +63,7 @@ final class GovernanceConfigMapper {
     }
 
     private static void requireCompilable(String name, String field, String regex) {
-        if (regex == null || regex.isBlank()) {
+        if (regex.isBlank()) {
             throw new IllegalArgumentException("exemption '" + name + "': " + field + " must not be blank");
         }
         try {
