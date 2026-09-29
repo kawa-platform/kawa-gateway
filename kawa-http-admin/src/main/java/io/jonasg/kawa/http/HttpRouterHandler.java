@@ -10,6 +10,7 @@ import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpUtil;
 import io.netty.handler.codec.http.HttpVersion;
+import org.jspecify.annotations.Nullable;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
@@ -77,7 +78,7 @@ public final class HttpRouterHandler extends SimpleChannelInboundHandler<FullHtt
         write(ctx, request, HttpResponseStatus.valueOf(response.status()), responseBody, response.contentType());
     }
 
-    private static Map<String, String> parseQueryParams(String query) {
+    private static Map<String, String> parseQueryParams(@Nullable String query) {
         if (query == null || query.isBlank()) {
             return Map.of();
         }

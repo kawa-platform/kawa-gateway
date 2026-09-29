@@ -46,6 +46,7 @@
         <jsonunit.version>6.2.0</jsonunit.version>
         <cel.version>0.13.1</cel.version>
         <openapi-generator.version>7.25.0</openapi-generator.version>
+        <jspecify.version>1.0.1</jspecify.version>
 
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.2</maven-surefire-plugin.version>
@@ -89,6 +90,11 @@
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>
                 <version>${logback.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.jspecify</groupId>
+                <version>${jspecify.version}</version>
+                <artifactId>jspecify</artifactId>
             </dependency>
 
             <dependency>

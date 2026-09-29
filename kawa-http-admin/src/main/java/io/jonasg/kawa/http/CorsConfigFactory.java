@@ -4,6 +4,8 @@ import io.jonasg.kawa.config.CorsConfig;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.cors.CorsConfigBuilder;
 
+import java.util.Objects;
+
 /// Maps the config-layer [CorsConfig] to a Netty [io.netty.handler.codec.http.cors.CorsConfig].
 /// Returns `null` when CORS is disabled so the pipeline can skip the handler entirely.
 public final class CorsConfigFactory {
@@ -12,9 +14,8 @@ public final class CorsConfigFactory {
     }
 
     public static io.netty.handler.codec.http.cors.CorsConfig from(CorsConfig config) {
-        if (config == null) {
-            return null;
-        }
+        Objects.requireNonNull(config, "CORS config must not be null");
+
         CorsConfigBuilder builder = config.allowedOrigins().contains("*")
                 ? CorsConfigBuilder.forAnyOrigin()
                 : CorsConfigBuilder.forOrigins(config.allowedOrigins().toArray(String[]::new));

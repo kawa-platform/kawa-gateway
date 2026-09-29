@@ -1,6 +1,7 @@
 package io.jonasg.kawa.http;
 
 import io.netty.handler.codec.http.HttpMethod;
+import org.jspecify.annotations.NullUnmarked;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,16 +32,12 @@ public final class Router {
             Map<String, String> pathParams,
             Map<String, String> queryParams,
             byte[] body
-    ) {
-
-        public boolean hasBody() {
-            return body.length > 0;
-        }
-    }
+    ) { }
 
     /// The response a handler returns: an HTTP status plus a body object serialized to JSON by the
     /// dispatcher. A `null` body serializes to an empty body. A raw response carries a
     /// pre-serialized body (e.g. YAML) written verbatim with [Response#contentType].
+    @NullUnmarked
     public record Response<T>(int status, T body, String contentType, boolean rawBody) {
 
         private static final String JSON = "application/json";
