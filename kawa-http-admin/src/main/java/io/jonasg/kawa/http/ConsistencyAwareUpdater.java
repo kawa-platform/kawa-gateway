@@ -3,9 +3,9 @@ package io.jonasg.kawa.http;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
 
-import java.util.Objects;
 import java.util.function.UnaryOperator;
 
+/// Applies mutations to the gateway config snapshot with the requested consistency.
 final class ConsistencyAwareUpdater {
 
     private final GatewayConfigRepository repository;
@@ -14,12 +14,8 @@ final class ConsistencyAwareUpdater {
         this.repository = repository;
     }
 
-    void update(Router.Request request, UnaryOperator<GatewayConfig> mutation) {
-        String consistency = request.queryParams().get("consistency");
-        if (!Objects.equals(consistency, "applied") && consistency != null) {
-            throw new IllegalArgumentException("invalid consistency '" + consistency + "' (expected 'persisted')");
-        }
-        if ("applied".equals(consistency)) {
+    void update(Consistency consistency, UnaryOperator<GatewayConfig> mutation) {
+        if (consistency == Consistency.APPLIED) {
             repository.updateAndWaitUntilApplied(mutation);
             return;
         }

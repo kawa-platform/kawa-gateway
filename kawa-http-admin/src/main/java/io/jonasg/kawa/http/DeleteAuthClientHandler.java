@@ -1,18 +1,25 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfigRepository;
-
 /// Serves `DELETE /auth/clients/{name}`.
 public final class DeleteAuthClientHandler implements Router.Handler {
 
-    private final AuthClientsCRUDHandler crudHandler;
+    private final AuthClientService service;
 
-    public DeleteAuthClientHandler(GatewayConfigRepository repository) {
-        this.crudHandler = new AuthClientsCRUDHandler(repository);
+    public DeleteAuthClientHandler(AuthClientService service) {
+        this.service = service;
     }
 
     @Override
     public Router.Response<?> handle(Router.Request request) {
-        return crudHandler.delete(request);
+        String name = request.pathParams().get("name");
+        try {
+            var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
+            service.deleteClient(name, consistency);
+            return Router.Response.noContent();
+        } catch (NotFoundException e) {
+            return Router.Response.notFound(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return Router.Response.badRequest(e.getMessage());
+        }
     }
 }

@@ -1,18 +1,25 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfigRepository;
-
 /// Serves `DELETE /rbac/roles/{name}`.
 public final class DeleteRbacRoleHandler implements Router.Handler {
 
-    private final RbacRolesCRUDHandler crudHandler;
+    private final RbacRoleService service;
 
-    public DeleteRbacRoleHandler(GatewayConfigRepository repository) {
-        this.crudHandler = new RbacRolesCRUDHandler(repository);
+    public DeleteRbacRoleHandler(RbacRoleService service) {
+        this.service = service;
     }
 
     @Override
     public Router.Response<?> handle(Router.Request request) {
-        return crudHandler.delete(request);
+        String name = request.pathParams().get("name");
+        try {
+            var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
+            service.deleteRole(name, consistency);
+            return Router.Response.noContent();
+        } catch (NotFoundException e) {
+            return Router.Response.notFound(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return Router.Response.badRequest(e.getMessage());
+        }
     }
 }

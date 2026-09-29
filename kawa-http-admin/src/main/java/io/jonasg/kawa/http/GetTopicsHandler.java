@@ -6,50 +6,42 @@ import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.HeaderMatchesFilterConfig;
 import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
-import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
-import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
-/// Projects the virtual and physical topics served by `GET /topics` from the [VirtualTopicManager]
-/// (virtual config) and the [MetadataCache] (live physical topology). Plain handler with no Netty
-/// imports; the [HttpRouterHandler] dispatcher serializes the result and writes the response.
+/// Serves `GET /topics`.
 public final class GetTopicsHandler implements Router.Handler {
 
-    private final VirtualTopicManager virtualTopics;
-    private final MetadataCache cache;
+    private final TopicService topicService;
 
-    public GetTopicsHandler(VirtualTopicManager virtualTopics, MetadataCache cache) {
-        this.virtualTopics = virtualTopics;
-        this.cache = cache;
+    public GetTopicsHandler(TopicService topicService) {
+        this.topicService = topicService;
     }
 
     @Override
     public Router.Response<List<TopicView>> handle(Router.Request request) {
+        var listing = topicService.listTopics();
         List<TopicView> views = new ArrayList<>();
-        for (Map.Entry<String, String> entry : virtualTopics.virtualTopics().entrySet()) {
-            String virtual = entry.getKey();
-            String physical = entry.getValue();
+        for (var entry : listing.virtual()) {
             views.add(new TopicView(
                     "virtual",
-                    virtual,
-                    cache.partitionCount(physical),
-                    cache.replicationFactor(physical),
-                    toFilterView(virtualTopics.filterFor(virtual).orElse(null)),
-                    physical,
-                    virtualTopics.exposesPhysicalTopic(virtual),
-                    virtualTopics.valueFormatFor(virtual).orElse(null)));
+                    entry.name(),
+                    topicService.partitionCount(entry.physicalTopic()),
+                    topicService.replicationFactor(entry.physicalTopic()),
+                    toFilterView(entry.filter()),
+                    entry.physicalTopic(),
+                    entry.exposePhysicalTopic(),
+                    entry.valueFormat()));
         }
-        for (TopicMetadata tm : cache.topics()) {
+        for (TopicMetadata tm : listing.physical()) {
             views.add(new TopicView(
                     "physical",
                     tm.name(),
-                    cache.partitionCount(tm.name()),
-                    cache.replicationFactor(tm.name()),
+                    topicService.partitionCount(tm.name()),
+                    topicService.replicationFactor(tm.name()),
                     null,
                     null,
                     null,

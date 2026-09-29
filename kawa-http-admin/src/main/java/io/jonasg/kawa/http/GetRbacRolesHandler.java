@@ -1,18 +1,27 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.RoleConfig;
+
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 
 /// Serves `GET /rbac/roles`.
 public final class GetRbacRolesHandler implements Router.Handler {
 
-    private final RbacRolesCRUDHandler crudHandler;
+    private final RbacRoleService service;
 
-    public GetRbacRolesHandler(GatewayConfigRepository repository) {
-        this.crudHandler = new RbacRolesCRUDHandler(repository);
+    public GetRbacRolesHandler(RbacRoleService service) {
+        this.service = service;
     }
 
     @Override
     public Router.Response<?> handle(Router.Request request) {
-        return crudHandler.get(request);
+        Map<String, RoleConfig> roles = service.listRoles();
+        List<RoleConfigView> views = roles.entrySet().stream()
+                .map(entry -> new RoleConfigView(entry.getKey(), entry.getValue().acls()))
+                .sorted(Comparator.comparing(RoleConfigView::name))
+                .toList();
+        return Router.Response.ok(views);
     }
 }

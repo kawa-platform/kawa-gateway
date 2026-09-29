@@ -355,6 +355,19 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void rejectsVirtualTopicWithoutName() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var response = send("POST", "/topics", "{\"type\":\"virtual\",\"topic\":\"orders-v2\"}");
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(400);
+        assertThat(response.body()).contains("topic name is required");
+    }
+
+    @Test
     void rejectsTopicViolatingGovernance() throws Exception {
         // given
         governance = new GovernancePolicy(new GovernanceConfig(

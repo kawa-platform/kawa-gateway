@@ -55,25 +55,30 @@ public final class AdminHttpServer {
         this.config = config;
         this.topicAdmin = topicAdmin;
         this.routerExecutorThreads = Math.max(4, Runtime.getRuntime().availableProcessors());
+        var topicService = new TopicService(virtualTopics, cache, configRepository, topicAdmin, governance);
+        var roleService = new RbacRoleService(configRepository);
+        var groupService = new RbacGroupService(configRepository);
+        var clientService = new AuthClientService(configRepository);
+        var governanceService = new GovernanceService(configRepository);
         this.router = new Router()
-                .get("/topics", new GetTopicsHandler(virtualTopics, cache))
-                .post("/topics", new PostTopicHandler(governance, configRepository, topicAdmin))
-                .put("/topics/{name}", new PutTopicHandler(configRepository))
-                .patch("/topics/{name}", new PatchTopicHandler(configRepository, cache))
-                .delete("/topics/{name}", new DeleteTopicHandler(configRepository, cache, topicAdmin))
-                .get("/rbac/roles", new GetRbacRolesHandler(configRepository))
-                .put("/rbac/roles/{name}", new PutRbacRoleHandler(configRepository))
-                .delete("/rbac/roles/{name}", new DeleteRbacRoleHandler(configRepository))
-                .get("/rbac/groups", new GetRbacGroupsHandler(configRepository))
-                .put("/rbac/groups/{name}", new PutRbacGroupHandler(configRepository))
-                .delete("/rbac/groups/{name}", new DeleteRbacGroupHandler(configRepository))
-                .patch("/rbac/groups/{name}", new PatchRbacGroupHandler(configRepository))
-                .get("/auth/clients", new GetAuthClientsHandler(configRepository))
-                .put("/auth/clients/{name}", new PutAuthClientHandler(configRepository))
-                .patch("/auth/clients/{name}", new PatchAuthClientHandler(configRepository))
-                .delete("/auth/clients/{name}", new DeleteAuthClientHandler(configRepository))
-                .get("/governance", new GetGovernanceHandler(configRepository))
-                .put("/governance", new PutGovernanceHandler(configRepository))
+                .get("/topics", new GetTopicsHandler(topicService))
+                .post("/topics", new PostTopicHandler(topicService))
+                .put("/topics/{name}", new PutTopicHandler(topicService))
+                .patch("/topics/{name}", new PatchTopicHandler(topicService))
+                .delete("/topics/{name}", new DeleteTopicHandler(topicService))
+                .get("/rbac/roles", new GetRbacRolesHandler(roleService))
+                .put("/rbac/roles/{name}", new PutRbacRoleHandler(roleService))
+                .delete("/rbac/roles/{name}", new DeleteRbacRoleHandler(roleService))
+                .get("/rbac/groups", new GetRbacGroupsHandler(groupService))
+                .put("/rbac/groups/{name}", new PutRbacGroupHandler(groupService))
+                .delete("/rbac/groups/{name}", new DeleteRbacGroupHandler(groupService))
+                .patch("/rbac/groups/{name}", new PatchRbacGroupHandler(groupService))
+                .get("/auth/clients", new GetAuthClientsHandler(clientService))
+                .put("/auth/clients/{name}", new PutAuthClientHandler(clientService))
+                .patch("/auth/clients/{name}", new PatchAuthClientHandler(clientService))
+                .delete("/auth/clients/{name}", new DeleteAuthClientHandler(clientService))
+                .get("/governance", new GetGovernanceHandler(governanceService))
+                .put("/governance", new PutGovernanceHandler(governanceService))
                 .get("/docs", new GetDocsHandler());
     }
 
