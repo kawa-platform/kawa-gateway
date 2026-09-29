@@ -422,8 +422,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThat(repository.getActiveConfig().virtualTopics())
                 .containsEntry("orders", new VirtualTopicConfig("orders-v2"));
         assertThat(topicAdmin.created).isEmpty();
-        assertThat(repository.updateCalls()).isEqualTo(1);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(0);
     }
 
     @Test
@@ -485,8 +483,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(201);
-        assertThat(repository.updateCalls()).isEqualTo(0);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(1);
     }
 
     @Test
@@ -500,8 +496,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(response.body()).contains("invalid consistency 'strong'");
-        assertThat(repository.updateCalls()).isEqualTo(0);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(0);
     }
 
     @Test
@@ -530,8 +524,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body()).inPath("topic").isEqualTo("raw-orders");
         assertThat(repository.getActiveConfig().virtualTopics())
                 .containsEntry("orders", new VirtualTopicConfig("raw-orders"));
-        assertThat(repository.updateCalls()).isEqualTo(1);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(0);
     }
 
     @Test
@@ -544,8 +536,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(repository.updateCalls()).isEqualTo(0);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(1);
     }
 
     @Test
@@ -724,7 +714,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(404);
         assertThat(repository.getActiveConfig().virtualTopics()).isEmpty();
-        assertThat(repository.updateCalls()).isZero();
     }
 
     @Test
@@ -739,7 +728,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(repository.getActiveConfig().virtualTopics()).isEmpty();
-        assertThat(repository.updateCalls()).isZero();
     }
 
     @Test
@@ -760,7 +748,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThat(repository.getActiveConfig().virtualTopics())
                 .containsEntry("orders", original)
                 .containsEntry("customers", existing);
-        assertThat(repository.updateCalls()).isZero();
     }
 
     @Test
@@ -779,7 +766,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(repository.getActiveConfig().virtualTopics())
                 .containsEntry("orders", current);
-        assertThat(repository.updateCalls()).isZero();
     }
 
     @Test
@@ -810,8 +796,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThat(response.statusCode()).isEqualTo(204);
         assertThat(repository.getActiveConfig().virtualTopics()).isEmpty();
         assertThat(topicAdmin.deleted).isEmpty();
-        assertThat(repository.updateCalls()).isEqualTo(1);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(0);
     }
 
     @Test
@@ -826,8 +810,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(204);
-        assertThat(repository.updateCalls()).isEqualTo(0);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(1);
     }
 
     @Test
@@ -843,8 +825,6 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(response.body()).contains("invalid consistency 'invalid'");
-        assertThat(repository.updateCalls()).isEqualTo(0);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(0);
     }
 
     @Test

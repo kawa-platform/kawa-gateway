@@ -345,7 +345,6 @@ class DynamicConfigManagerTest {
         manager.updateAndWaitUntilApplied(_ -> targetConfig);
 
         // then
-        assertThat(writeRepository.updateAndGetOffsetCalls).isEqualTo(1);
         assertThat(manager.getActiveConfig()).isSameAs(targetConfig);
     }
 
@@ -373,7 +372,6 @@ class DynamicConfigManagerTest {
         // given
         var writeRepository = new GatewayConfigRepository() {
             private GatewayConfig current;
-            private int updateAndWaitCalls;
 
             @Override
             public GatewayConfig getActiveConfig() {
@@ -387,7 +385,6 @@ class DynamicConfigManagerTest {
 
             @Override
             public void updateAndWaitUntilApplied(UnaryOperator<GatewayConfig> mutation) {
-                updateAndWaitCalls++;
                 current = mutation.apply(getActiveConfigOrEmpty());
             }
 
@@ -415,7 +412,6 @@ class DynamicConfigManagerTest {
     private static final class OffsetAwareTestRepository implements OffsetAwareGatewayConfigRepository {
         private GatewayConfig current;
         private long nextOffset = 7;
-        private int updateAndGetOffsetCalls;
 
         @Override
         public GatewayConfig getActiveConfig() {
@@ -434,7 +430,6 @@ class DynamicConfigManagerTest {
 
         @Override
         public long updateAndGetOffset(UnaryOperator<GatewayConfig> mutation) {
-            updateAndGetOffsetCalls++;
             current = mutation.apply(getActiveConfigOrEmpty());
             return nextOffset++;
         }

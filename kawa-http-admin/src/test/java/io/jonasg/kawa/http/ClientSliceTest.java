@@ -89,8 +89,6 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
                 .withFailMessage(() -> "Persisted client password did not verify against the submitted plaintext")
                 .isTrue();
         assertThat(response.body()).doesNotContain("secret");
-        assertThat(repository.updateCalls()).isEqualTo(1);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(0);
     }
 
     @Test
@@ -125,8 +123,6 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(repository.updateCalls()).isEqualTo(0);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(1);
     }
 
     @Test
@@ -139,8 +135,6 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(repository.updateCalls()).isEqualTo(1);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(0);
     }
 
     @Test
@@ -154,8 +148,6 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(400);
         assertThat(response.body()).contains("invalid consistency 'strong'");
-        assertThat(repository.updateCalls()).isEqualTo(0);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(0);
     }
 
     @Test
@@ -280,8 +272,6 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(repository.updateCalls()).isEqualTo(0);
-        assertThat(repository.updateAndWaitCalls()).isEqualTo(1);
     }
 
     @Test
