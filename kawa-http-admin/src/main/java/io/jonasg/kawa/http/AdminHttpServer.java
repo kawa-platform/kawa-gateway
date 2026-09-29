@@ -18,6 +18,7 @@ import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.cors.CorsHandler;
 import io.netty.util.concurrent.DefaultEventExecutorGroup;
 import io.netty.util.concurrent.EventExecutorGroup;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,10 +39,10 @@ public final class AdminHttpServer {
     private final Router router;
     private final int routerExecutorThreads;
 
-    private EventLoopGroup bossGroup;
-    private EventLoopGroup workerGroup;
-    private EventExecutorGroup routerExecutorGroup;
-    private Channel serverChannel;
+    private @Nullable EventLoopGroup bossGroup;
+    private @Nullable EventLoopGroup workerGroup;
+    private @Nullable EventExecutorGroup routerExecutorGroup;
+    private @Nullable Channel serverChannel;
 
     public AdminHttpServer(
             AdminConfig config,
@@ -101,6 +102,7 @@ public final class AdminHttpServer {
         log.info("Admin HTTP server listening on {}:{}", config.host(), boundPort);
     }
 
+    @SuppressWarnings("ConstantConditions")
     public void stop() {
         if (serverChannel != null) {
             serverChannel.close();
@@ -119,6 +121,7 @@ public final class AdminHttpServer {
         return routerExecutorGroup != null;
     }
 
+    @SuppressWarnings("ConstantConditions")
     public int boundPort() {
         return ((InetSocketAddress) serverChannel.localAddress()).getPort();
     }

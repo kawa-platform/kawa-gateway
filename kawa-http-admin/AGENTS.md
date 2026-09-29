@@ -78,6 +78,19 @@ wire-identical by design, which is what makes the body round-trip unchanged.
 - Prefer `request` and `response` in production APIs and framework types;
   `Req`/`Resp` is a test naming convention, not an API naming convention.
 
+## Test method naming
+
+Use descriptive, behavior-focused method names. For the standard CRUD lifecycle in slice tests,
+follow the existing patterns:
+
+- First create/upsert via `PUT /{name}`: `adds<Resource>AndPersistsSnapshot()`
+  - e.g. `addsRoleAndPersistsSnapshot()`, `addsGroupAndPersistsSnapshot()`,
+    `addsClientAndPersistsSnapshot()`.
+- Listing an empty or populated section: `listsConfigured<Resource>s()`,
+  `lists<Resource>sEmptyWhenNoSnapshotApplied()`.
+- Deleting an existing entry: `removes<Resource>AndPersistsSnapshot()`.
+- Deleting a missing entry: `missing<Resource>ReturnsNotFound()`.
+
 ## Verification
 
 - Unit and HTTP slice tests use Surefire and can be run with:
