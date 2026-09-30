@@ -40,7 +40,7 @@ class RbacGroupServiceTest {
     }
 
     @Test
-    void patchesGroupRename() {
+    void updateGroupRename() {
         // given
         repository.update(base -> base.updateRbac(
                 base.rbac().upsertGroup("producers", new GroupConfig(List.of("alice"), List.of()))));

@@ -343,37 +343,65 @@ the CORS spec.
 
 ### `governance`
 
-Dynamic — see [Dynamic config](#dynamic-config).
+Dynamic, and **managed only through the [Admin API](#config-endpoints)** — governance is never read from the YAML
+file. A `governance` section in the file is dropped at load time: it is neither applied nor validated.
 
 Topic governance: named CEL rules that new topics must satisfy, and named exemptions that skip evaluation for matching
 principal + topic pairs. When no rules are configured, every topic creation is admitted.
 
 | Field        | Type | Default   | Description                                                         |
 |--------------|------|-----------|---------------------------------------------------------------------|
-| `topicRules` | map  | *(empty)* | Named rules, each a message plus a CEL expression                   |
+| `rules`      | map  | *(empty)* | Named rules, see below                                              |
 | `exemptions` | map  | *(empty)* | Named exemptions, each a principal regex plus a topic pattern regex |
 
-```yaml
-governance:
-  topicRules:
-    min-replication:
-      message: replication factor must be at least 3
-      expression: topic.replicationFactor >= 3
-  exemptions:
-    ops-internal:
-      principal: "ops-.*"
-      topicPattern: ".*-changelog"
+These tables and the example below describe the governance section as it is **stored in the config topic snapshot**:
+`rules` and `exemptions` are maps keyed by name. The Admin API presents the same data differently —
+`GET /governance/rules` returns both as **lists**, each rule carrying its own `name` — and writes one rule at a time
+through `PUT /governance/rules/{name}` (see [Config endpoints](#config-endpoints)).
+
+#### `governance.rules.<name>`
+
+| Field          | Type                    | Description                                                               |
+|----------------|-------------------------|---------------------------------------------------------------------------|
+| `name`         | string                  | Unique, human-readable name of the rule (required)                        |
+| `errorMessage` | string                  | Message shown when the rule rejects a topic                               |
+| `description`  | string                  | Longer explanation of what the rule enforces                              |
+| `selector`     | [selector](#selector)   | Which Kafka resources the rule applies to                                 |
+| `expression`   | [expression](#expression) | Must evaluate to `true` for the resource to be compliant (required)     |
+
+##### `selector`
+
+| Field          | Type                      | Description                                             |
+|----------------|---------------------------|---------------------------------------------------------|
+| `resourceType` | string                    | Kafka resource type the rule targets, e.g. `TOPIC`      |
+| `expression`   | [expression](#expression) | Narrows the selected resources; `true` selects them all |
+
+##### `expression`
+
+| Field   | Type   | Description                         |
+|---------|--------|-------------------------------------|
+| `type`  | string | Expression language; currently `CEL` |
+| `value` | string | The expression source                |
+
+```json
+{
+  "rules": {
+    "min-replication": {
+      "name": "min-replication",
+      "errorMessage": "replication factor must be at least 3",
+      "description": "Topics need at least 3 replicas to survive a broker loss.",
+      "selector": {"resourceType": "TOPIC", "expression": {"type": "CEL", "value": "true"}},
+      "expression": {"type": "CEL", "value": "topic.replicationFactor >= 3"}
+    }
+  },
+  "exemptions": {
+    "ops-internal": {"principal": "ops-.*", "topicPattern": ".*-changelog"}
+  }
+}
 ```
 
-#### `governance.topicRules.<name>`
-
-| Field        | Type   | Description                                                               |
-|--------------|--------|---------------------------------------------------------------------------|
-| `message`    | string | Human-readable description shown when this rule rejects a topic           |
-| `expression` | string | CEL expression that must evaluate to `true` for the topic to be compliant |
-
-The expression is compiled eagerly when the config is applied — a bad expression fails the config load instead of the
-first request. It has access to these bindings:
+CEL expressions are compiled eagerly when the config is applied — a bad expression rejects the config instead of
+failing the first request. They have access to these bindings:
 
 | Binding                   | Type                    | Notes                                                               |
 |---------------------------|-------------------------|---------------------------------------------------------------------|
@@ -383,17 +411,6 @@ first request. It has access to these bindings:
 | `topic.partitions`        | int                     | Requested partitions, or `-1` for the broker default                |
 | `topic.replicationFactor` | int                     | Requested replication factor, or `-1` for the broker default        |
 | `topic.configs`           | map of string to string | Topic configs; a missing key resolves to `""` (falsy, not an error) |
-
-```yaml
-governance:
-  topicRules:
-    min-replication:
-      message: replication factor must be at least 3
-      expression: topic.replicationFactor >= 3
-    no-compact:
-      message: compaction is not allowed
-      expression: !("cleanup.policy" in topic.configs) || topic.configs["cleanup.policy"] != "compact"
-```
 
 #### `governance.exemptions.<name>`
 
@@ -468,8 +485,8 @@ both resolves to the virtual config removal.
 
 ### Config endpoints
 
-The `/rbac/...`, `/auth/...` and `/governance` endpoints read and write the dynamic config (RBAC, client auth and
-governance). `GET` lists a section, `PUT /{name}` upserts one entry,
+The `/rbac/...`, `/auth/...` and `/governance/rules` endpoints read and write the dynamic config (RBAC, client auth
+and governance). `GET` lists a section, `PUT /{name}` upserts one entry,
 `DELETE /{name}` removes it. Writes persist a full snapshot to the config topic and are applied live.
 
 | Endpoint               | Method | Description                                      |
@@ -483,13 +500,13 @@ governance). `GET` lists a section, `PUT /{name}` upserts one entry,
 | `/auth/clients`        | GET    | List clients                                     |
 | `/auth/clients/{name}` | PUT    | Add or replace a client                          |
 | `/auth/clients/{name}` | DELETE | Remove a client                                  |
-| `/governance`          | GET    | List the governance section (rules + exemptions) |
-| `/governance`          | PUT    | Replace the whole governance section             |
+| `/governance/rules`         | GET    | List the governance rules and exemptions |
+| `/governance/rules/{name}`  | PUT    | Add or replace a governance rule         |
 
-The request body for a `PUT` is the entry's JSON object, using the same fields as the YAML reference above — e.g.
+The request body for a `PUT` is the entry's JSON object, using the same fields as the reference above — e.g.
 `{"acls": [...]}` for a role, `{"clients": [...], "roles": [...]}`
-for a group, `{"mechanism": "PLAIN", "password": "..."}` for a client, or the full
-`{"topicRules": {...}, "exemptions": {...}}` object for governance.
+for a group, `{"mechanism": "PLAIN", "password": "..."}` for a client, or a rule object
+(`errorMessage`, `description`, `selector`, `expression`; see [`governance`](#governance)) for a governance rule.
 
 Adding a client via `PUT /auth/clients/{name}` auto-expands the advertised SASL mechanisms to include the client's
 mechanism, so the first client can be added to an empty config. The client's `mechanism` is required — a `PUT` without
@@ -503,9 +520,10 @@ Deleting a role also removes it from every group that references it: the groups 
 role's ACLs stop applying to them. Unlike group/client deletion, this is not rejected — the reference is cleaned up as
 part of the delete.
 
-Unlike the per-entry sections, `PUT /governance` replaces the **whole**
-governance section in one write. Every rule expression is validated before the snapshot is persisted — a `PUT`
-containing an invalid CEL expression is rejected with `400` and nothing is written.
+A governance rule's name always comes from the path: the body's `name` is optional, and when present it must equal
+the path name, or the `PUT` is rejected with `400`. Both the rule's and the selector's CEL expressions are compiled
+before the snapshot is persisted — an invalid rule is rejected with `400` and nothing is written. Exemptions are
+listed by `GET /governance/rules` but have no write endpoint yet.
 
 `PUT` returns `200` with the stored entry, `DELETE` returns `204`, a missing entry on
 `DELETE` returns `404`, and an invalid body returns `400`.

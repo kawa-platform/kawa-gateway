@@ -1,36 +1,32 @@
 package io.jonasg.kawa.config;
 
+import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
+import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
 import org.junit.jupiter.api.Test;
 
+import static io.jonasg.kawa.config.GovernanceRuleConfigMother.governanceRule;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class GovernanceRuleConfigTest {
 
     @Test
-    void rejectsNullMessage() {
-        assertThatThrownBy(() -> new GovernanceRuleConfig(null, "true"))
+    void rejectsNullName() {
+        assertThatThrownBy(() -> governanceRule().withName(null).build())
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("message");
+                .hasMessageContaining("name");
     }
 
     @Test
-    void rejectsBlankMessage() {
-        assertThatThrownBy(() -> new GovernanceRuleConfig("   ", "true"))
+    void rejectsBlankName() {
+        assertThatThrownBy(() -> governanceRule().withName("   ").build())
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("message");
+                .hasMessageContaining("name");
     }
 
     @Test
     void rejectsNullExpression() {
-        assertThatThrownBy(() -> new GovernanceRuleConfig("must be valid", null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("expression");
-    }
-
-    @Test
-    void rejectsBlankExpression() {
-        assertThatThrownBy(() -> new GovernanceRuleConfig("must be valid", "  "))
+        assertThatThrownBy(() -> governanceRule().withExpression(null).build())
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("expression");
     }
@@ -38,10 +34,19 @@ class GovernanceRuleConfigTest {
     @Test
     void acceptsValidConfig() {
         // when
-        GovernanceRuleConfig config = new GovernanceRuleConfig("must be valid", "true");
+        GovernanceRuleConfig config = governanceRule()
+                .withName("min-partitions")
+                .withErrorMessage("must have at least one partition")
+                .withDescription("Topics must have at least one partition.")
+                .withSelector(Selector.topic(Expression.cel("true")))
+                .withExpression(Expression.cel("topic.partitions >= 1"))
+                .build();
 
         // then
-        assertThat(config.message()).isEqualTo("must be valid");
-        assertThat(config.expression()).isEqualTo("true");
+        assertThat(config.name()).isEqualTo("min-partitions");
+        assertThat(config.errorMessage()).isEqualTo("must have at least one partition");
+        assertThat(config.description()).isEqualTo("Topics must have at least one partition.");
+        assertThat(config.selector()).isEqualTo(Selector.topic(Expression.cel("true")));
+        assertThat(config.expression()).isEqualTo(Expression.cel("topic.partitions >= 1"));
     }
 }

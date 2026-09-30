@@ -1,22 +1,24 @@
 package io.jonasg.kawa.config;
 
+import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
 import java.util.Map;
 
+import static io.jonasg.kawa.config.GovernanceRuleConfigMother.governanceRule;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class GovernanceConfigTest {
 
     @Test
-    void nullTopicRulesAndExemptionsCoalesceToEmpty() {
+    void nullRulesAndExemptionsCoalesceToEmpty() {
         // when
         GovernanceConfig config = new GovernanceConfig(null, null);
 
         // then
-        assertThat(config.topicRules()).isEmpty();
+        assertThat(config.rules()).isEmpty();
         assertThat(config.exemptions()).isEmpty();
     }
 
@@ -24,7 +26,7 @@ class GovernanceConfigTest {
     void copiesAreImmutable() {
         // given
         Map<String, GovernanceRuleConfig> rules = new HashMap<>(Map.of(
-                "min-partitions", new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1")));
+                "min-partitions", governanceRule().build()));
         Map<String, GovernanceExemptionConfig> exemptions = new HashMap<>(Map.of(
                 "streams-internal", new GovernanceExemptionConfig("^streams-.*", ".*-changelog$")));
 
@@ -32,7 +34,7 @@ class GovernanceConfigTest {
         GovernanceConfig config = new GovernanceConfig(rules, exemptions);
 
         // then
-        assertThatThrownBy(() -> config.topicRules().put("x", null))
+        assertThatThrownBy(() -> config.rules().put("x", null))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> config.exemptions().put("x", null))
                 .isInstanceOf(UnsupportedOperationException.class);
@@ -45,54 +47,58 @@ class GovernanceConfigTest {
 
         // when
         var updated = config.upsertRule("min-partitions",
-                new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1"));
+                governanceRule().build());
 
         // then
-        assertThat(updated.topicRules()).containsEntry("min-partitions",
-                new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1"));
+        assertThat(updated.rules()).containsEntry("min-partitions",
+                governanceRule().build());
     }
 
     @Test
     void upsertRuleOverwritesExisting() {
         // given
         var config = new GovernanceConfig(Map.of("min-partitions",
-                new GovernanceRuleConfig("old", "true")), null);
-        var newRule = new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1");
+                governanceRule().withExpression(Expression.cel("true")).build()), null);
+        var newRule = governanceRule().build();
 
         // when
         var updated = config.upsertRule("min-partitions", newRule);
 
         // then
-        assertThat(updated.topicRules()).containsEntry("min-partitions", newRule);
-        assertThat(updated.topicRules()).hasSize(1);
+        assertThat(updated.rules()).containsEntry("min-partitions", newRule);
+        assertThat(updated.rules()).hasSize(1);
     }
 
     @Test
     void removeRuleRemovesExisting() {
         // given
         var config = new GovernanceConfig(Map.of("min-partitions",
-                new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1")), null);
+                governanceRule().build()), null);
 
         // when
         var updated = config.removeRule("min-partitions");
 
         // then
-        assertThat(updated.topicRules()).isEmpty();
+        assertThat(updated.rules()).isEmpty();
     }
 
     @Test
     void removeRulePreservesOtherRules() {
         // given
         var config = new GovernanceConfig(Map.of(
-                "min-partitions", new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1"),
-                "max-partitions", new GovernanceRuleConfig("too many partitions", "topic.partitions <= 12")), null);
+                "min-partitions", governanceRule().build(),
+                "max-partitions", governanceRule()
+                        .withName("max-partitions")
+                        .withErrorMessage("too many partitions")
+                        .withExpression(Expression.cel("topic.partitions <= 12"))
+                        .build()), null);
 
         // when
         var updated = config.removeRule("min-partitions");
 
         // then
-        assertThat(updated.topicRules()).hasSize(1);
-        assertThat(updated.topicRules()).containsKey("max-partitions");
+        assertThat(updated.rules()).hasSize(1);
+        assertThat(updated.rules()).containsKey("max-partitions");
     }
 
     @Test
@@ -156,15 +162,19 @@ class GovernanceConfigTest {
     void upsertRulePreservesExemptions() {
         // given
         var config = new GovernanceConfig(
-                Map.of("min-partitions", new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1")),
+                Map.of("min-partitions", governanceRule().build()),
                 Map.of("streams-internal", new GovernanceExemptionConfig("^streams-.*", ".*-changelog$")));
 
         // when
         var updated = config.upsertRule("max-partitions",
-                new GovernanceRuleConfig("too many partitions", "topic.partitions <= 12"));
+                governanceRule()
+                        .withName("max-partitions")
+                        .withErrorMessage("too many partitions")
+                        .withExpression(Expression.cel("topic.partitions <= 12"))
+                        .build());
 
         // then
-        assertThat(updated.topicRules()).hasSize(2);
+        assertThat(updated.rules()).hasSize(2);
         assertThat(updated.exemptions()).containsEntry("streams-internal",
                 new GovernanceExemptionConfig("^streams-.*", ".*-changelog$"));
     }

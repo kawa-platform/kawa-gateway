@@ -2,9 +2,9 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
-import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.governance.GovernancePolicy;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -60,12 +60,14 @@ public final class AdminHttpServer {
         var groupService = new RbacGroupService(configRepository);
         var clientService = new AuthClientService(configRepository);
         var governanceService = new GovernanceService(configRepository);
+        var governanceMapper = new GovernanceConfigMapper();
         this.router = new Router()
                 .get("/topics", new GetTopicsHandler(topicService))
                 .post("/topics", new PostTopicHandler(topicService))
                 .put("/topics/{name}", new PutTopicHandler(topicService))
                 .patch("/topics/{name}", new PatchTopicHandler(topicService))
                 .delete("/topics/{name}", new DeleteTopicHandler(topicService))
+
                 .get("/rbac/roles", new GetRbacRolesHandler(roleService))
                 .put("/rbac/roles/{name}", new PutRbacRoleHandler(roleService))
                 .delete("/rbac/roles/{name}", new DeleteRbacRoleHandler(roleService))
@@ -73,12 +75,15 @@ public final class AdminHttpServer {
                 .put("/rbac/groups/{name}", new PutRbacGroupHandler(groupService))
                 .delete("/rbac/groups/{name}", new DeleteRbacGroupHandler(groupService))
                 .patch("/rbac/groups/{name}", new PatchRbacGroupHandler(groupService))
+
                 .get("/auth/clients", new GetAuthClientsHandler(clientService))
                 .put("/auth/clients/{name}", new PutAuthClientHandler(clientService))
                 .patch("/auth/clients/{name}", new PatchAuthClientHandler(clientService))
                 .delete("/auth/clients/{name}", new DeleteAuthClientHandler(clientService))
-                .get("/governance", new GetGovernanceHandler(governanceService))
-                .put("/governance", new PutGovernanceHandler(governanceService))
+
+                .get("/governance/rules", new GetGovernanceHandler(governanceService, governanceMapper))
+                .put("/governance/rules/{name}", new PutGovernanceHandler(governanceService, governanceMapper))
+
                 .get("/docs", new GetDocsHandler());
     }
 

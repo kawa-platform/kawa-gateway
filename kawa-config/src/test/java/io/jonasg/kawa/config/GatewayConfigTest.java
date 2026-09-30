@@ -21,25 +21,9 @@ class GatewayConfigTest {
         assertThat(config.auth().clients()).isEmpty();
         assertThat(config.rbac().roles()).isEmpty();
         assertThat(config.rbac().groups()).isEmpty();
-        assertThat(config.governance().topicRules()).isEmpty();
+        assertThat(config.governance().rules()).isEmpty();
         assertThat(config.governance().exemptions()).isEmpty();
         assertThat(config.configTopic()).isEqualTo("__kawa");
-    }
-
-    @Test
-    void updateGovernanceReplacesGovernanceConfig() {
-        // given
-        var config = new GatewayConfig(null, null, null, null, null, null, null, null, null);
-        var newGovernance = new GovernanceConfig(
-                Map.of("min-partitions",
-                        new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1")),
-                null);
-
-        // when
-        var updated = config.updateGovernance(newGovernance);
-
-        // then
-        assertThat(updated.governance()).isEqualTo(newGovernance);
     }
 
     @Test

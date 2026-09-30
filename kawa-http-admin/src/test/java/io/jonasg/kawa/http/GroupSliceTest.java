@@ -6,8 +6,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
-import static io.jonasg.kawa.http.KawaAssertions.assertThat;
 
 /// Slice tests for the `/rbac/groups` admin surface: real HTTP requests through a booted
 /// [AdminHttpServer], asserting the JSON wire format the admin UI consumes.

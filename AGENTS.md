@@ -30,12 +30,11 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
   in that module. Use `verify` and filter with `-Dit.test=ClassName` (not `-Dtest=`) to run a single IT.
 - The integration tests use **Testcontainers** (Kafka container) — Docker must be running; they are slow and
   network/docker dependent.
-- `kawa-http-admin` has two unit tiers: `RouterTest`/`KafkaTopicAdminTest`
-  (pure plumbing/helper) and the HTTP slice tests (`TopicSliceTest`,
-  `ClientSliceTest`, `RoleSliceTest`, `GroupSliceTest`, `GovernanceSliceTest`,
-  `ServerSliceTest` via `AdminHttpSliceTestBase`) that boot a real
-  `AdminHttpServer` on an ephemeral port and assert the JSON wire format. There are no per-handler unit tests — handler
-  behavior is covered over HTTP.
+- `kawa-http-admin` has two unit tiers: `RouterTest`/`KafkaTopicAdminTest` (pure plumbing/helper) and the HTTP slice
+  tests, one per handler (`PutGovernanceHandler` → `PutGovernanceSliceTest`), plus `ServerSliceTest`, all via
+  `AdminHttpSliceTestBase`, that boot a real `AdminHttpServer` on an ephemeral port and assert
+  the JSON wire format. Handlers, mappers and services are covered through the slice tests; separate unit tests for
+  them are the exception. See `kawa-http-admin/AGENTS.md` for the handler → mapper → service flow.
 
 ## Test style
 
@@ -46,6 +45,10 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
   Prefer the lazy `Supplier<String>` form so the message is only built on failure.
 - `GatewayTestSupport` (kawa-integration-tests) is the shared lifecycle; subclasses override `authConfig()`/
   `rbacConfig()`/`initialTopics()`.
+- Test helpers used by more than one module (custom AssertJ assertions, fixtures, Object Mothers) live in
+  `kawa-test-support`, not in a module's `src/test`. Statically import `assertThat` from
+  `io.jonasg.kawa.test.KawaAssertions` instead of from AssertJ's `Assertions`; it adds `HttpResponseAssert`
+  (`assertThat(response).hasStatusCode(200)` prints the request, headers and body on failure).
 
 ## Modules (dependency direction)
 
@@ -53,7 +56,8 @@ The build dependency direction is: `kawa-config` → `kawa-core` and
 `kawa-protocol-kafka`; `kawa-virtual-topic` depends on core/config; `kawa-rbac` depends on
 core/config/virtual-topic; `kawa-governance` depends on config; `kawa-http-admin` depends on
 core/config/governance/virtual-topic; `kawa-server` assembles the runtime modules; and
-`kawa-integration-tests` depends on `kawa-server`.
+`kawa-integration-tests` depends on `kawa-server`. `kawa-test-support` is consumed with `test` scope only; it may
+depend on production modules such as `kawa-config`, but never on a module that uses it.
 
 - `kawa-config`: `GatewayConfig`/`ResourceConfig`/`RbacConfig` + YAML
   `ConfigLoader` (plain Jackson; no custom `ResourceType` deserializer).
@@ -69,6 +73,8 @@ core/config/governance/virtual-topic; `kawa-server` assembles the runtime module
   (`mainClass=io.jonasg.kawa.server.GatewayLauncher`).
 - `kawa-integration-tests`: real-client + raw-socket wire tests against a broker via
   `GatewayTestSupport`.
+- `kawa-test-support`: shared test helpers (`KawaAssertions`, `HttpResponseAssert`). Its `src/main` is test code
+  for other modules, so AssertJ is a compile dependency there.
 
 ## Code style (repo-specific)
 

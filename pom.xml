@@ -14,6 +14,7 @@
 
     <modules>
         <module>kawa-config</module>
+        <module>kawa-test-support</module>
         <module>kawa-core</module>
         <module>kawa-protocol-kafka</module>
         <module>kawa-virtual-topic</module>

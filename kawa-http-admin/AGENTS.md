@@ -11,16 +11,58 @@ followed by the resource name. Use singular or plural resource names according t
 resource shape. Keep handlers method-specific rather than combining multiple HTTP methods in one
 class.
 
+## Request flow
+
+Every endpoint that writes config follows the same path:
+
+```text
+handler:  parse body -> mapper.toXConfig(pathName, request)  // all input checks; throws -> 400
+          -> service.upsertX(config, consistency)
+          -> mapper.toXView(config)
+service:  updater.update(consistency, cfg -> cfg.upsertX(config))
+```
+
+- **Handlers** own the HTTP concerns: parsing, the path name, status codes, and calling the mapper on both sides.
+- **Mappers** convert between transport types and `kawa-config` records, one mapper per section (e.g.
+  `GovernanceConfigMapper`). A mapper is a stateless instance created once in `AdminHttpServer` and injected into
+  the handlers that need it — never static, never `new`-ed inside a service — so it can take collaborators later
+  without rewiring callers.
+- **Mapper methods are named after the full type they return**: `to` + the simple type name, so a method producing
+  `FooView` is `toFooView`, never a bare `toView` or `toConfig`. Hence `toGovernanceRuleConfig(...)` for the rule
+  config, `toGovernanceRuleConfigView(GovernanceRuleConfig)` for its view and
+  `toGovernanceConfigView(GovernanceConfig)` for the whole section. The name then says what comes back without
+  reading the signature, and a mapper can convert to several types without relying on overloads.
+- **Services** accept and return `kawa-config` records only, never transport types. They own the read-modify-write
+  against the config repository and the requested `Consistency`, nothing else.
+- The name of a `PUT /{name}` entry comes from the path and is passed to the mapper; a body never decides it.
+- `BaseCRUDHandler` sections (roles, groups, clients) convert at its `toConfig` and `listView`/`putView` hooks; those
+  hooks delegate to the section's mapper.
+
+### Validation
+
+- The mapper performs all input validation and throws `IllegalArgumentException`, which the handler turns into a
+  `400`. Fail on the first problem, checking missing/blank fields first, then enum values, then deeper checks such as
+  compiling a CEL expression (`GovernancePolicy.validationError`).
+- Convert strictly. Do not use lenient helpers that swallow bad input — e.g. Kafka's `ResourceType.fromString`
+  returns `UNKNOWN` — nor raw `Enum.valueOf`, which is case-sensitive and leaks an unhelpful message. Match the
+  allowed values explicitly.
+- Error messages name the entry and the field at fault (`governance rule 'x': unsupported resourceType 'FOO'`) and
+  never the parser's internals.
+- Request records stay unvalidated on purpose: a check thrown from a Jackson-invoked constructor surfaces as an
+  unreadable parser message. Validation belongs in the mapper, after parsing.
+- The `kawa-config` record constructors keep their own invariants as a backstop; a user should never see their
+  messages because the mapper rejects first.
+- Test validation through the slice tests: each rejection case is a request with a bad body asserting the `400` and
+  its message (see [HTTP tests](#http-tests)).
+
 ## Transport type naming
 
 Every admin HTTP request and response body is a transport type declared in `io.jonasg.kawa.http`, never a
-`kawa-config` record. The config records stay the domain: the config repository stores them, and handlers convert
-between the two. The role, group and client handlers convert at the `toConfig` and `listView`/`putView` hooks of
-`BaseCRUDHandler<C, R, G, P>`, where `C` is the config record a section stores, `R` the body the endpoint accepts,
-`G` the `GET` list element and `P` the `PUT` response body — the last two named after the method that produces
-them, so neither hook returns an untyped value. A section whose list item and `PUT` body coincide names the same
-type twice. The topic and governance handlers do not extend that base and convert inline, governance through
-`GovernanceConfigMapper`.
+`kawa-config` record. The config records stay the domain: the config repository stores them, and mappers convert
+between the two. For `BaseCRUDHandler<C, R, G, P>`, `C` is the config record a section stores, `R` the body the
+endpoint accepts, `G` the `GET` list element and `P` the `PUT` response body — the last two named after the method
+that produces them, so neither hook returns an untyped value. A section whose list item and `PUT` body coincide names
+the same type twice.
 
 The suffix says which side of the boundary a type sits on, and the set is stable: `*Request` and `*Patch` are bodies
 a client sends, `*View` a response body mirroring the config record it is named after, and `*PutView` the body the
@@ -31,27 +73,28 @@ itself holds no name. Hence `RolePutView` for the `PUT` response alongside `Role
 
 The rule covers the **top-level** body only. Records nested inside a body are left as `kawa-config` types, because
 they are an interior detail of the payload and copying them would duplicate the whole `kawa-config` graph under
-new names. That is why governance has a `GovernanceConfigView` but no rule or exemption view type of its own, and
-why `VirtualTopicConfigView` still exposes `VirtualTopicFilterConfig` and `PayloadFormatConfig`.
-
-Governance is the instance where that carve-out is deliberate rather than incidental, because its nested wire shape
-is frozen and must not move. Its rules and exemptions round-trip through the admin UI unchanged, so a view type could
-only be a copy. `GovernanceConfigView` therefore keeps the `kawa-config` records, and `openapi.yaml` names them on the
-response side. The request side is not carved out: `GovernanceConfigRequest` already carries the unvalidating
-`GovernanceRuleRequest` and `GovernanceExemptionRequest`, so the spec names those instead. The two schema pairs are
-wire-identical by design, which is what makes the body round-trip unchanged.
+new names. That is why `VirtualTopicConfigView` still exposes `VirtualTopicFilterConfig` and `PayloadFormatConfig`.
 
 - A `*View` must never carry a secret. `ClientConfigView` is `(username, mechanism)`; a password belongs only to
   `ClientConfigRequest` and `ClientConfigPatch`.
 - `TopicRequest` is named for its `type` discriminator, which names the route resource (`physical` or `virtual`)
   rather than a config record. Hence `TopicRequest`, not `TopicConfigRequest`.
-- Null-defaulting on a request record must replicate the config record it replaces, exactly. A body the config
-  record accepted as empty must still deserialize, or the accept/reject boundary moves and a client that used to
-  get `200` gets `400`. This is the `BaseCRUDHandler.toConfig` contract, and it is the easiest part of a transport
-  type to get wrong.
+- Null-defaulting in a mapper's `to<Config>` method must replicate the config record it replaces, exactly. A body the config
+  record accepted as empty must still be accepted, or the accept/reject boundary moves and a client that used to
+  get `200` gets `400`. This is the easiest part of a transport type to get wrong.
 
 ## HTTP tests
 
+- Slice tests are the default way to test this module. Handlers, mappers and services are covered through them:
+  drive the real endpoint and assert the status, the JSON body and the persisted snapshot. Do not write separate
+  unit tests for individual mappers or services in most cases — they would repeat what the slice test already
+  proves and pin the internal split between handler, mapper and service.
+- Every handler gets its own slice test, named after the handler with `Handler` replaced by `SliceTest`:
+  `PutGovernanceHandler` → `PutGovernanceSliceTest`, `GetGovernanceHandler` → `GetGovernanceSliceTest`. A slice test
+  covers exactly one HTTP method on one route; it may call other endpoints only to set up state or to read back the
+  result.
+- Add a mapper or service unit test only when a case cannot reasonably be reached or set up over HTTP, and say why
+  in the test.
 - HTTP slice tests must exercise the real `AdminHttpServer` through an ephemeral port, following
   `AdminHttpSliceTestBase`.
 - Assert the JSON wire format and HTTP status codes consumed by the admin UI.

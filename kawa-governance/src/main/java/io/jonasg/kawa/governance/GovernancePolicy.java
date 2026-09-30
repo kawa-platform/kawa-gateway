@@ -112,9 +112,9 @@ public final class GovernancePolicy {
     private static Snapshot compile(GovernanceConfig config) {
         Map<String, CelRuntime.Program> programs = new HashMap<>();
         Map<String, String> messages = new HashMap<>();
-        for (Map.Entry<String, GovernanceRuleConfig> entry : config.topicRules().entrySet()) {
-            programs.put(entry.getKey(), compile(entry.getKey(), entry.getValue().expression()));
-            messages.put(entry.getKey(), entry.getValue().message());
+        for (Map.Entry<String, GovernanceRuleConfig> entry : config.rules().entrySet()) {
+            programs.put(entry.getKey(), compile(entry.getKey(), entry.getValue().expression().value()));
+            messages.put(entry.getKey(), entry.getValue().errorMessage());
         }
         return new Snapshot(Map.copyOf(programs), Map.copyOf(messages), config.exemptions());
     }

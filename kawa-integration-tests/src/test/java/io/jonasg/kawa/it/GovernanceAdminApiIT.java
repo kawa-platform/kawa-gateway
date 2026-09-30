@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
-import static org.assertj.core.api.Assertions.assertThat;
+import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 
 /// End-to-end flow for topic governance: a fresh gateway with an empty config topic gets
 /// governance rules written over HTTP, and topic creation through `POST /topics` is then
@@ -77,6 +77,7 @@ class GovernanceAdminApiIT {
     }
 
     @Test
+    @SuppressWarnings("resource")
     void enforcesGovernanceRulesOnTopicCreation() throws Exception {
         // given - a fresh gateway with an empty config topic and the admin HTTP server enabled
         String base = "http://127.0.0.1:" + gateway.adminBoundPort();
@@ -84,30 +85,52 @@ class GovernanceAdminApiIT {
 
         // when - governance rules and an exemption are written through the admin API
         HttpResponse<String> governancePut = http.send(
-                HttpRequest.newBuilder(URI.create(base + "/governance"))
+                HttpRequest.newBuilder(URI.create(base + "/governance/rules/min-partitions"))
                         .PUT(HttpRequest.BodyPublishers.ofString("""
-                                {"topicRules":{
-                                  "min-partitions":{
-                                    "message":"partitions must be at least 2",
-                                    "expression":"topic.partitions >= 2"
+                                {
+                                  "name": "min-partitions",
+                                  "errorMessage": "partitions must be at least 2",
+                                  "description": "All topics must have at least 2 partitions.",
+                                  "selector": {
+                                    "resourceType": "TOPIC"
+                                  },
+                                  "expression": {
+                                    "type": "CEL",
+                                    "value": "topic.partitions >= 2"
                                   }
-                                },
-                                "exemptions":{
-                                  "changelogs":{"principal":"admin","topicPattern":".*-changelog"}
-                                }}
+                                }
                                 """))
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
 
         // then - the write is persisted and readable
-        assertThat(governancePut.statusCode()).isEqualTo(200);
+        assertThat(governancePut).hasStatusCode(200);
         HttpResponse<String> governanceGet = http.send(
-                HttpRequest.newBuilder(URI.create(base + "/governance")).GET().build(),
+                HttpRequest.newBuilder(URI.create(base + "/governance/rules")).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
-        assertThat(governanceGet.statusCode()).isEqualTo(200);
-        assertThat(governanceGet.body()).contains("\"min-partitions\"", "\"changelogs\"");
+        assertThat(governanceGet).hasStatusCode(200);
+        assertThat(governanceGet).hasBody("""
+                {
+                  "rules": [
+                    {
+                      "name": "min-partitions",
+                      "errorMessage": "partitions must be at least 2",
+                      "description": "All topics must have at least 2 partitions.",
+                      "selector": {
+                        "resourceType": "TOPIC",
+                        "expression": null
+                      },
+                      "expression": {
+                        "type": "CEL",
+                        "value": "topic.partitions >= 2"
+                      }
+                    }
+                  ],
+                  "exemptions": []
+                }
+                """);
 
-        // when - a topic violating the rule is requested (polling until the consumer applies the snapshot)
+        // when - a topic violating the rule is triggered
         Awaitility.await()
                 .atMost(Duration.ofSeconds(30))
                 .pollInterval(Duration.ofMillis(500))
@@ -118,7 +141,7 @@ class GovernanceAdminApiIT {
                                             "{\"type\":\"physical\",\"name\":\"orders\",\"partitions\":1,\"replicationFactor\":1}"))
                                     .build(),
                             HttpResponse.BodyHandlers.ofString());
-                    assertThat(rejected.statusCode()).isEqualTo(403);
+                    assertThat(rejected).hasStatusCode(403);
                     assertThat(rejected.body()).contains("partitions must be at least 2");
                 });
 
@@ -129,7 +152,7 @@ class GovernanceAdminApiIT {
                                 "{\"type\":\"physical\",\"name\":\"orders-changelog\",\"partitions\":3,\"replicationFactor\":1}"))
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
-        assertThat(exempt.statusCode()).isEqualTo(201);
+        assertThat(exempt).hasStatusCode(201);
 
         // and - a compliant topic is admitted
         HttpResponse<String> admitted = http.send(
@@ -138,6 +161,6 @@ class GovernanceAdminApiIT {
                                 "{\"type\":\"physical\",\"name\":\"orders\",\"partitions\":3,\"replicationFactor\":1}"))
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
-        assertThat(admitted.statusCode()).isEqualTo(201);
+        assertThat(admitted).hasStatusCode(201);
     }
 }

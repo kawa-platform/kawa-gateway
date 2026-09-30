@@ -381,13 +381,13 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalError'
-  /governance:
+  /governance/rules:
     get:
       summary: Read the governance configuration
-      description: The whole governance section (named CEL rules and exemptions).
+      description: Every governance rule and exemption from the dynamic config.
       responses:
         '200':
-          description: The governance configuration
+          description: The governance rules and exemptions
           content:
             application/json:
               schema:
@@ -398,29 +398,30 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalError'
+  /governance/rules/{name}:
     put:
-      summary: Replace the governance configuration
+      summary: Upsert a governance rule
       description: |
-        Replaces the whole governance section (rules + exemptions). Rule expressions are
-        validated before the new snapshot is persisted, so a bad expression is rejected
-        here instead of failing the config-topic consumer later. A malformed exemption regex
-        and a CEL expression that does not compile are both rejected with `400` and a message
-        naming the rule or exemption and the field at fault, without the regex parser's
-        diagnostics; where a body is defective in both, the topic rules are reported before
-        the exemptions.
+        Adds or replaces the governance rule `name` and persists the new config snapshot. The
+        name always comes from the path: the body's `name` is optional, and when present it must
+        equal the path name. Both expressions are compiled before anything is written, so an
+        invalid rule is rejected here with `400` and a message naming the rule and the field at
+        fault, instead of failing the config-topic consumer later.
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GovernanceConfigRequest'
+              $ref: '#/components/schemas/GovernanceRuleRequest'
       responses:
         '200':
-          description: The stored governance configuration
+          description: The stored governance rule
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GovernanceConfigView'
+                $ref: '#/components/schemas/GovernanceRuleConfigView'
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -442,7 +443,7 @@ components:
       name: name
       in: path
       required: true
-      description: The config entry name (role, group, or username).
+      description: The config entry name (role, group, username, or governance rule).
       schema:
         type: string
   responses:
@@ -715,47 +716,36 @@ components:
           type: object
           additionalProperties:
             type: string
-    GovernanceConfigRequest:
-      type: object
-      properties:
-        topicRules:
-          type: object
-          additionalProperties:
-            $ref: '#/components/schemas/GovernanceRuleRequest'
-          description: Named rules, each a message plus a CEL expression.
-        exemptions:
-          type: object
-          additionalProperties:
-            $ref: '#/components/schemas/GovernanceExemptionRequest'
-          description: Named exemptions, each a principal regex plus a topic pattern regex.
     GovernanceConfigView:
       type: object
       properties:
-        topicRules:
-          type: object
-          additionalProperties:
-            $ref: '#/components/schemas/GovernanceRuleConfig'
-          description: Named rules, each a message plus a CEL expression.
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceRuleConfigView'
         exemptions:
-          type: object
-          additionalProperties:
-            $ref: '#/components/schemas/GovernanceExemptionConfig'
-          description: Named exemptions, each a principal regex plus a topic pattern regex.
-    GovernanceRuleConfig:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceExemptionConfigView'
+    GovernanceRuleConfigView:
       type: object
-      required:
-        - expression
       properties:
-        message:
+        name:
           type: string
+          description: Unique, human-readable name of the rule.
+        errorMessage:
+          type: string
+          description: Message shown when the rule rejects a resource.
+        description:
+          type: string
+          nullable: true
+          description: Longer explanation of what the rule enforces.
+        selector:
+          $ref: '#/components/schemas/GovernanceSelector'
         expression:
-          type: string
-          description: The CEL expression new topics must satisfy.
-    GovernanceExemptionConfig:
+          $ref: '#/components/schemas/GovernanceExpression'
+    GovernanceExemptionConfigView:
       type: object
-      required:
-        - principal
-        - topicPattern
       properties:
         principal:
           type: string
@@ -766,25 +756,52 @@ components:
     GovernanceRuleRequest:
       type: object
       required:
+        - errorMessage
+        - selector
         - expression
       properties:
-        message:
+        name:
           type: string
+          description: Optional; when present it must equal the path name.
+        errorMessage:
+          type: string
+          description: Message shown when the rule rejects a resource.
+        description:
+          type: string
+          description: Longer explanation of what the rule enforces.
+        selector:
+          $ref: '#/components/schemas/GovernanceSelector'
         expression:
-          type: string
-          description: The CEL expression new topics must satisfy.
-    GovernanceExemptionRequest:
+          $ref: '#/components/schemas/GovernanceExpression'
+    GovernanceSelector:
       type: object
       required:
-        - principal
-        - topicPattern
+        - resourceType
       properties:
-        principal:
+        resourceType:
           type: string
-          description: Principal regex; matching principals skip governance evaluation.
-        topicPattern:
+          enum: [TOPIC]
+          description: Kafka resource type the rule targets; only `TOPIC` is supported today.
+        expression:
+          allOf:
+            - $ref: '#/components/schemas/GovernanceExpression'
+          nullable: true
+          description: Narrows the selected resources; absent or `null` selects them all.
+    GovernanceExpression:
+      type: object
+      required:
+        - type
+        - value
+      properties:
+        type:
           type: string
-          description: Topic pattern regex the exemption applies to.
+          enum: [CEL]
+          description: Expression language; only `CEL` is supported today.
+        value:
+          type: string
+          description: |
+            The expression source. Bindings: `principal`, `service`, `topic.name`,
+            `topic.partitions`, `topic.replicationFactor` and `topic.configs`.
     ClientConfigRequest:
       type: object
       required:

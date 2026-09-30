@@ -1,31 +1,32 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GovernanceConfig;
 import tools.jackson.databind.json.JsonMapper;
 
-/// Serves `PUT /governance`.
+/// Serves `PUT /governance/rules/{name}`.
 public final class PutGovernanceHandler implements Router.Handler {
 
     private final GovernanceService service;
-    private final GovernanceConfigMapper mapper = new GovernanceConfigMapper();
+    private final GovernanceConfigMapper mapper;
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
-    public PutGovernanceHandler(GovernanceService service) {
+    public PutGovernanceHandler(GovernanceService service, GovernanceConfigMapper mapper) {
         this.service = service;
+        this.mapper = mapper;
     }
 
     @Override
     public Router.Response<?> handle(Router.Request request) {
-        GovernanceConfigRequest body;
+        GovernanceRuleRequest govRuleReq;
         try {
-            body = jsonMapper.readValue(request.body(), GovernanceConfigRequest.class);
+            govRuleReq = jsonMapper.readValue(request.body(), GovernanceRuleRequest.class);
         } catch (Exception e) {
-            return Router.Response.badRequest("invalid governance body: " + e.getMessage());
+            return Router.Response.badRequest("invalid governance rule body: " + e.getMessage());
         }
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            GovernanceConfig value = service.updateGovernance(body, consistency);
-            return Router.Response.ok(mapper.toView(value));
+            var name = request.pathParams().get("name");
+            var govRuleCfg = service.upsertRule(mapper.toGovernanceRuleConfig(name, govRuleReq), consistency);
+            return Router.Response.ok(mapper.toGovernanceRuleConfigView(govRuleCfg));
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }

@@ -4,6 +4,8 @@ import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceExemptionConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
+import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
+import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
@@ -145,7 +147,7 @@ class TopicServiceTest {
         // given
         governance = new GovernancePolicy(new GovernanceConfig(
                 Map.of("min-replication",
-                        new GovernanceRuleConfig("replication factor must be at least 3", "topic.replicationFactor >= 3")),
+                        minReplicationRule()),
                 Map.of()));
         TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
         var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null);
@@ -162,7 +164,7 @@ class TopicServiceTest {
         // given
         governance = new GovernancePolicy(new GovernanceConfig(
                 Map.of("min-replication",
-                        new GovernanceRuleConfig("replication factor must be at least 3", "topic.replicationFactor >= 3")),
+                        minReplicationRule()),
                 Map.of("ops", new GovernanceExemptionConfig("admin", ".*"))));
         TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
         var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null);
@@ -185,6 +187,15 @@ class TopicServiceTest {
         assertThatThrownBy(() -> service.createPhysicalTopic(request))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("already exists");
+    }
+
+    private static GovernanceRuleConfig minReplicationRule() {
+        return new GovernanceRuleConfig(
+                "min-replication",
+                "replication factor must be at least 3",
+                "Topics need at least 3 replicas to survive a broker loss.",
+                Selector.topic(Expression.cel("true")),
+                Expression.cel("topic.replicationFactor >= 3"));
     }
 
     private void cacheWith(TopicMetadata... topics) {

@@ -106,6 +106,11 @@ public record GatewayConfig(
         return copyWith(virtualTopics, auth, rbac, governance);
     }
 
+    public GatewayConfig upsertGovernanceRule(GovernanceRuleConfig governanceRuleConfig) {
+        var governance = governance().upsertRule(governanceRuleConfig.name(), governanceRuleConfig);
+        return copyWith(virtualTopics, auth, rbac, governance);
+    }
+
     /// Returns a new [GatewayConfig] with the virtual topics map replaced.
     public GatewayConfig updateVirtualTopics(Map<String, VirtualTopicConfig> virtualTopics) {
         return copyWith(virtualTopics, auth, rbac, governance);

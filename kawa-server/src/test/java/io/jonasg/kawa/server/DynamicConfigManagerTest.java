@@ -7,6 +7,8 @@ import io.jonasg.kawa.config.GatewayConfigRepository;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceExemptionConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
+import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
+import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.OffsetAwareGatewayConfigRepository;
 import io.jonasg.kawa.config.RbacConfig;
@@ -66,6 +68,15 @@ class DynamicConfigManagerTest {
     private static AuthConfig plainAuth() {
         return new AuthConfig(Set.of("PLAIN"), Map.of("alice", new ClientConfig("PLAIN",
                 HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"))), null);
+    }
+
+    private static GovernanceRuleConfig rule(String name, String message, String expression) {
+        return new GovernanceRuleConfig(
+                name,
+                message,
+                message,
+                Selector.topic(Expression.cel("true")),
+                Expression.cel(expression));
     }
 
     private static GovernancePolicy emptyGovernance() {
@@ -255,7 +266,7 @@ class DynamicConfigManagerTest {
                 new SaslAuthenticator(),
                 governancePolicy);
         var governance = new GovernanceConfig(Map.of(
-                "min-partitions", new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1")), null);
+                "min-partitions", rule("min-partitions", "must have partitions", "topic.partitions >= 1")), null);
 
         // when
         manager.apply(config(Map.of(), new RbacConfig(Map.of(), Map.of()), plainAuth(), governance));
@@ -278,11 +289,11 @@ class DynamicConfigManagerTest {
                 governancePolicy);
         var good = config(Map.of(), new RbacConfig(Map.of(), Map.of()), plainAuth(),
                 new GovernanceConfig(Map.of(
-                        "min-partitions", new GovernanceRuleConfig("must have partitions", "topic.partitions >= 1")), null));
+                        "min-partitions", rule("min-partitions", "must have partitions", "topic.partitions >= 1")), null));
         manager.apply(good);
         var broken = config(Map.of(), new RbacConfig(Map.of(), Map.of()), plainAuth(),
                 new GovernanceConfig(Map.of(
-                        "broken", new GovernanceRuleConfig("broken rule", "topic.partitions >=")), null));
+                        "broken", rule("broken", "broken rule", "topic.partitions >=")), null));
 
         // when / then
         assertThatThrownBy(() -> manager.apply(broken))

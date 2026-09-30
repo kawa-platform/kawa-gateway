@@ -2,6 +2,7 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.GatewayConfigRepository;
 import io.jonasg.kawa.config.GovernanceConfig;
+import io.jonasg.kawa.config.GovernanceRuleConfig;
 
 /// Owns reading and writing the governance config snapshot.
 final class GovernanceService {
@@ -18,10 +19,11 @@ final class GovernanceService {
         return repository.getActiveConfigOrEmpty().governance();
     }
 
-    GovernanceConfig updateGovernance(GovernanceConfigRequest request, Consistency consistency) {
-        GovernanceConfigMapper mapper = new GovernanceConfigMapper();
-        GovernanceConfig value = mapper.toConfig(request);
-        updater.update(consistency, config -> config.updateGovernance(value));
-        return value;
+    GovernanceRuleConfig upsertRule(
+            GovernanceRuleConfig governanceRuleConfig,
+            Consistency consistency
+    ) {
+        updater.update(consistency, gatewayCfg -> gatewayCfg.upsertGovernanceRule(governanceRuleConfig));
+        return governanceRuleConfig;
     }
 }

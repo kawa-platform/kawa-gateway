@@ -1,7 +1,7 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.ClientConfig;
+import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
-import static io.jonasg.kawa.http.KawaAssertions.assertThat;
 
 /// Slice tests for the `/auth/clients` admin surface: real HTTP requests through a booted
 /// [AdminHttpServer], asserting the JSON wire format the admin UI consumes.
