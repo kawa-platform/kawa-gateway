@@ -1,12 +1,15 @@
 package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.GovernanceConfig;
-import io.jonasg.kawa.config.GovernanceExemptionConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import org.apache.kafka.common.resource.ResourceType;
 import org.jspecify.annotations.NullUnmarked;
 import org.jspecify.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 
 /// Converts between the `/governance` transport types and the `kawa-config` governance records,
 /// in both directions, and owns all input validation for governance requests: a rule request is
@@ -24,9 +27,6 @@ final class GovernanceConfigMapper {
         return new GovernanceConfigView(
                 config.rules().values().stream()
                         .map(this::toGovernanceRuleConfigView)
-                        .toList(),
-                config.exemptions().values().stream()
-                        .map(this::toGovernanceExemptionConfigView)
                         .toList()
         );
     }
@@ -38,12 +38,8 @@ final class GovernanceConfigMapper {
                 config.errorMessage(),
                 config.description(),
                 config.selector(),
-                config.expression());
-    }
-
-    /// A single governance exemption as the response body.
-    GovernanceExemptionConfigView toGovernanceExemptionConfigView(GovernanceExemptionConfig config) {
-        return new GovernanceExemptionConfigView(config.principal(), config.topicPattern());
+                config.expression(),
+                config.exemptions());
     }
 
     /// A single rule request as a [GovernanceRuleConfig]. Checks run in a fixed order and fail on
@@ -74,12 +70,47 @@ final class GovernanceConfigMapper {
         var selectorExpression = req.selector().expression() == null
                 ? null
                 : expression(name, "selector.expression", req.selector().expression());
+        var ruleExpression = expression(name, "expression", req.expression());
         return new GovernanceRuleConfig(
                 name,
                 req.errorMessage(),
                 req.description(),
                 new GovernanceRuleConfig.Selector(resourceType, selectorExpression),
-                expression(name, "expression", req.expression()));
+                ruleExpression,
+                exemptions(name, req.exemptions()));
+    }
+
+    /// Checks each exemption in order: not null, a non-blank name unique within the rule, and a
+    /// supported, compiling expression. A `null` list means the rule has no exemptions.
+    private static List<GovernanceRuleConfig.Exemption> exemptions(
+            String rule, @Nullable List<GovernanceRuleRequest.Exemption> raw) {
+        if (raw == null) {
+            return List.of();
+        }
+        var names = new HashSet<String>();
+        var exemptions = new ArrayList<GovernanceRuleConfig.Exemption>();
+        for (var exemption : raw) {
+            if (exemption == null) {
+                throw new IllegalArgumentException("governance rule '" + rule + "': exemption must not be null");
+            }
+            var name = exemption.name();
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("governance rule '" + rule + "': exemption name must not be blank");
+            }
+            if (!names.add(name)) {
+                throw new IllegalArgumentException(
+                        "governance rule '" + rule + "': duplicate exemption name '" + name + "'");
+            }
+            if (exemption.expression() == null) {
+                throw new IllegalArgumentException(
+                        "governance rule '" + rule + "': exemption '" + name + "': expression must not be null");
+            }
+            exemptions.add(new GovernanceRuleConfig.Exemption(
+                    name,
+                    exemption.description(),
+                    expression(rule, "exemption '" + name + "' expression", exemption.expression())));
+        }
+        return List.copyOf(exemptions);
     }
 
     private static void requireFields(String name, GovernanceRuleRequest req) {

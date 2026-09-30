@@ -2,6 +2,8 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 
+import java.util.List;
+
 /// A single governance rule in an admin `/governance/rules` response. The nested selector and
 /// expression stay `kawa-config` records: only the top-level body is a transport type.
 ///
@@ -10,10 +12,12 @@ import io.jonasg.kawa.config.GovernanceRuleConfig;
 /// @param description  longer explanation of what the rule enforces
 /// @param selector     which Kafka resources the rule applies to
 /// @param expression   expression that must evaluate to `true` for the resource to be compliant
+/// @param exemptions   named cases the rule does not apply to; empty when there are none
 public record GovernanceRuleConfigView(
         String name,
         String errorMessage,
         String description,
         GovernanceRuleConfig.Selector selector,
-        GovernanceRuleConfig.Expression expression) {
+        GovernanceRuleConfig.Expression expression,
+        List<GovernanceRuleConfig.Exemption> exemptions) {
 }

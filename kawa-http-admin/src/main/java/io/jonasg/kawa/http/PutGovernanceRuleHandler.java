@@ -3,13 +3,13 @@ package io.jonasg.kawa.http;
 import tools.jackson.databind.json.JsonMapper;
 
 /// Serves `PUT /governance/rules/{name}`.
-public final class PutGovernanceHandler implements Router.Handler {
+public final class PutGovernanceRuleHandler implements Router.Handler {
 
     private final GovernanceService service;
     private final GovernanceConfigMapper mapper;
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
-    public PutGovernanceHandler(GovernanceService service, GovernanceConfigMapper mapper) {
+    public PutGovernanceRuleHandler(GovernanceService service, GovernanceConfigMapper mapper) {
         this.service = service;
         this.mapper = mapper;
     }

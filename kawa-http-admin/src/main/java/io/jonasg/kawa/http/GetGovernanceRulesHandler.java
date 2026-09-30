@@ -1,12 +1,12 @@
 package io.jonasg.kawa.http;
 
 /// Serves `GET /governance/rules`.
-public final class GetGovernanceHandler implements Router.Handler {
+public final class GetGovernanceRulesHandler implements Router.Handler {
 
     private final GovernanceService service;
     private final GovernanceConfigMapper mapper;
 
-    public GetGovernanceHandler(GovernanceService service, GovernanceConfigMapper mapper) {
+    public GetGovernanceRulesHandler(GovernanceService service, GovernanceConfigMapper mapper) {
         this.service = service;
         this.mapper = mapper;
     }

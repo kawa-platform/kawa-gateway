@@ -3,17 +3,23 @@ package io.jonasg.kawa.http;
 import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.GovernanceConfig;
+import io.jonasg.kawa.config.GovernanceRuleConfig;
+import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
+import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
 import io.jonasg.kawa.config.HeaderContainsFilterConfig;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.HeaderMatchesFilterConfig;
 import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
+import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.governance.TopicSpec;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
@@ -366,40 +372,36 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void rejectsTopicViolatingGovernance() throws Exception {
         // given
-//        governance = new GovernancePolicy(new GovernanceConfig(
-//                Map.of("min-replication",
-//                        new GovernanceRuleConfig("replication factor must be at least 3",
-//                                "topic.replicationFactor >= 3")),
-//                Map.of()));
-//        startServer();
-//
-//        // when
-//        var response = send("POST", "/topics",
-//                "{\"type\":\"physical\",\"name\":\"orders\",\"partitions\":3,\"replicationFactor\":1}");
-//
-//        // then
-//        assertThat(response.statusCode()).isEqualTo(403);
-//        assertThat(response.body()).contains("replication factor must be at least 3");
-//        assertThat(topicAdmin.created).isEmpty();
+        governance = new GovernancePolicy(new GovernanceConfig(Map.of("min-replication", minReplicationRule())));
+        startServer();
+
+        // when
+        var response = send("POST", "/topics",
+                "{\"type\":\"physical\",\"name\":\"orders\",\"partitions\":3,\"replicationFactor\":1}");
+
+        // then
+        assertThat(response).hasStatusCode(403);
+        assertThat(response.body()).contains("[min-replication] replication factor must be at least 3");
+        assertThat(topicAdmin.created).isEmpty();
     }
 
     @Test
     void acceptsExemptTopicAndCreatesOnBroker() throws Exception {
-        // given
-//        governance = new GovernancePolicy(new GovernanceConfig(
-//                Map.of("min-replication",
-//                        new GovernanceRuleConfig("replication factor must be at least 3",
-//                                "topic.replicationFactor >= 3")),
-//                Map.of("ops", new GovernanceExemptionConfig("admin", ".*"))));
-//        startServer();
-//
-//        // when
-//        var response = send("POST", "/topics",
-//                "{\"type\":\"physical\",\"name\":\"orders\",\"partitions\":3,\"replicationFactor\":1}");
-//
-//        // then
-//        assertThat(response.statusCode()).isEqualTo(201);
-//        assertThat(topicAdmin.created).hasSize(1);
+        // given - the admin API's placeholder principal is `admin`
+        governance = new GovernancePolicy(new GovernanceConfig(Map.of("min-replication", minReplicationRule(
+                new GovernanceRuleConfig.Exemption(
+                        "ops",
+                        "Operators may create under-replicated topics.",
+                        Expression.cel("principal == 'admin'"))))));
+        startServer();
+
+        // when
+        var response = send("POST", "/topics",
+                "{\"type\":\"physical\",\"name\":\"orders\",\"partitions\":3,\"replicationFactor\":1}");
+
+        // then
+        assertThat(response).hasStatusCode(201);
+        assertThat(topicAdmin.created).hasSize(1);
     }
 
     @Test
@@ -952,5 +954,15 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(patchResp.statusCode()).isEqualTo(200);
         assertThat(patchResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat");
+    }
+
+    private static GovernanceRuleConfig minReplicationRule(GovernanceRuleConfig.Exemption... exemptions) {
+        return new GovernanceRuleConfig(
+                "min-replication",
+                "replication factor must be at least 3",
+                "Topics need at least 3 replicas to survive a broker loss.",
+                Selector.topic(),
+                Expression.cel("topic.replicationFactor >= 3"),
+                List.of(exemptions));
     }
 }

@@ -19,6 +19,17 @@ final class GovernanceService {
         return repository.getActiveConfigOrEmpty().governance();
     }
 
+    /// The rule stored under `name`.
+    ///
+    /// @throws NotFoundException if no rule has that name
+    GovernanceRuleConfig getRule(String name) {
+        var rule = get().rules().get(name);
+        if (rule == null) {
+            throw new NotFoundException("governance rule '" + name + "' not found");
+        }
+        return rule;
+    }
+
     GovernanceRuleConfig upsertRule(
             GovernanceRuleConfig governanceRuleConfig,
             Consistency consistency

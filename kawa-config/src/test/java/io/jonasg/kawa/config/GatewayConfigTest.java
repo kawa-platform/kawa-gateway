@@ -22,7 +22,6 @@ class GatewayConfigTest {
         assertThat(config.rbac().roles()).isEmpty();
         assertThat(config.rbac().groups()).isEmpty();
         assertThat(config.governance().rules()).isEmpty();
-        assertThat(config.governance().exemptions()).isEmpty();
         assertThat(config.configTopic()).isEqualTo("__kawa");
     }
 

@@ -2,7 +2,6 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
-import io.jonasg.kawa.config.GovernanceExemptionConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
@@ -30,7 +29,7 @@ class TopicServiceTest {
     private final MetadataCache cache = new MetadataCache();
     private final FakeGatewayConfigRepository repository = new FakeGatewayConfigRepository(GatewayConfig.empty());
     private final FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
-    private GovernancePolicy governance = new GovernancePolicy(new GovernanceConfig(null, null));
+    private GovernancePolicy governance = new GovernancePolicy(new GovernanceConfig(null));
     private final TopicService service = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
 
     @Test
@@ -147,8 +146,7 @@ class TopicServiceTest {
         // given
         governance = new GovernancePolicy(new GovernanceConfig(
                 Map.of("min-replication",
-                        minReplicationRule()),
-                Map.of()));
+                        minReplicationRule())));
         TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
         var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null);
 
@@ -161,11 +159,16 @@ class TopicServiceTest {
 
     @Test
     void acceptsExemptTopicAndCreatesOnBroker() throws Exception {
-        // given
-        governance = new GovernancePolicy(new GovernanceConfig(
-                Map.of("min-replication",
-                        minReplicationRule()),
-                Map.of("ops", new GovernanceExemptionConfig("admin", ".*"))));
+        // given - the admin API's placeholder principal is `admin`
+        var rule = minReplicationRule();
+        governance = new GovernancePolicy(new GovernanceConfig(Map.of("min-replication", new GovernanceRuleConfig(
+                rule.name(),
+                rule.errorMessage(),
+                rule.description(),
+                rule.selector(),
+                rule.expression(),
+                List.of(new GovernanceRuleConfig.Exemption(
+                        "ops", "Operators may create under-replicated topics.", Expression.cel("principal == 'admin'")))))));
         TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
         var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null);
 

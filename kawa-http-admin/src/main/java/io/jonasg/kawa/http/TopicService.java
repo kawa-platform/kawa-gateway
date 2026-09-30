@@ -140,15 +140,13 @@ final class TopicService {
                 request.partitions() == null ? -1 : request.partitions(),
                 request.replicationFactor() == null ? -1 : request.replicationFactor(),
                 request.configs());
-        if (!governance.exempt(PRINCIPAL, spec.name())) {
-            List<Violation> violations = governance.evaluate(PRINCIPAL, SERVICE, spec);
-            if (!violations.isEmpty()) {
-                String detail = violations.stream()
-                        .map(v -> "[" + v.rule() + "] " + v.message())
-                        .collect(Collectors.joining("; "));
-                throw new ForbiddenException(
-                        "topic '" + spec.name() + "' rejected by governance: " + detail);
-            }
+        List<Violation> violations = governance.evaluate(PRINCIPAL, SERVICE, spec);
+        if (!violations.isEmpty()) {
+            String detail = violations.stream()
+                    .map(v -> "[" + v.rule() + "] " + v.message())
+                    .collect(Collectors.joining("; "));
+            throw new ForbiddenException(
+                    "topic '" + spec.name() + "' rejected by governance: " + detail);
         }
         try {
             topicAdmin.createTopic(spec);

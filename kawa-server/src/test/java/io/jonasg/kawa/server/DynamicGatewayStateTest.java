@@ -3,7 +3,6 @@ package io.jonasg.kawa.server;
 import io.jonasg.kawa.config.AclConfig;
 import io.jonasg.kawa.config.AuthConfig;
 import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
@@ -49,14 +48,12 @@ class DynamicGatewayStateTest {
                 .updateAuth(new AuthConfig(Set.of("PLAIN"),
                         Map.of("alice", new ClientConfig("PLAIN",
                                 HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"))), null))
-                .updateGovernance(new GovernanceConfig(
-                        Map.of("no-delete", new GovernanceRuleConfig(
-                                "no-delete",
-                                "must not delete",
-                                "Topics must not be named 'deleted'.",
-                                Selector.topic(Expression.cel("true")),
-                                Expression.cel("topic.name != 'deleted'"))),
-                        Map.of()));
+                .upsertGovernanceRule(new GovernanceRuleConfig(
+                        "no-delete",
+                        "must not delete",
+                        "Topics must not be named 'deleted'.",
+                        Selector.topic(Expression.cel("true")),
+                        Expression.cel("topic.name != 'deleted'")));
 
         // when
         state.configManager().apply(config);

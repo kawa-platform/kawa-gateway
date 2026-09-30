@@ -10,7 +10,6 @@ import dev.cel.runtime.CelEvaluationException;
 import dev.cel.runtime.CelRuntime;
 import dev.cel.runtime.CelRuntimeFactory;
 import io.jonasg.kawa.config.GovernanceConfig;
-import io.jonasg.kawa.config.GovernanceExemptionConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 
 import java.util.ArrayList;
@@ -19,11 +18,11 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Pattern;
 
 /// Evaluates topic governance rules against new topic requests. Rules are CEL expressions
 /// compiled eagerly on [reload], so a bad expression fails the config load instead of the
-/// first request. Exemptions skip evaluation for matching principal + topic pairs.
+/// first request. Each rule carries its own exemptions, compiled alongside it: when any of a
+/// rule's exemptions evaluates to `true` for a request, that rule alone is skipped.
 ///
 /// The compiled snapshot is an immutable object replaced atomically via [reload]: a reader on
 /// the hot path sees either the previous or the new snapshot, never a partially-applied one.
@@ -55,6 +54,9 @@ public final class GovernancePolicy {
     /// Evaluates all rules against a topic creation request. Returns every violation, sorted
     /// by rule name; an empty list means the topic is compliant.
     ///
+    /// A rule is skipped when one of its exemptions evaluates to `true`; other rules still apply.
+    /// An exemption that throws or does not return `true` does not apply, so the rule is enforced.
+    ///
     /// Fail-closed: a rule that throws during evaluation raises [IllegalStateException] so the
     /// request is rejected, and a rule that does not return `true` counts as a violation.
     public List<Violation> evaluate(String principal, String service, TopicSpec topic) {
@@ -70,29 +72,34 @@ public final class GovernancePolicy {
         bindings.put("topic", topicBindings);
 
         List<Violation> violations = new ArrayList<>();
-        for (Map.Entry<String, CelRuntime.Program> entry : current.programs().entrySet()) {
+        for (CompiledRule rule : current.rules()) {
+            if (exempted(rule, bindings)) {
+                continue;
+            }
             try {
-                Object result = entry.getValue().eval(bindings);
+                Object result = rule.program().eval(bindings);
                 if (!Boolean.TRUE.equals(result)) {
-                    violations.add(new Violation(entry.getKey(), current.messages().get(entry.getKey())));
+                    violations.add(new Violation(rule.name(), rule.message()));
                 }
             } catch (CelEvaluationException e) {
                 throw new IllegalStateException(
-                        "Failed to evaluate governance rule '" + entry.getKey() + "': " + e.getMessage(), e);
+                        "Failed to evaluate governance rule '" + rule.name() + "': " + e.getMessage(), e);
             }
         }
         violations.sort(Comparator.comparing(Violation::rule));
         return List.copyOf(violations);
     }
 
-    /// Whether the principal + topic pair is exempt from governance evaluation. Both the
-    /// principal and the topic pattern must match for an exemption to apply.
-    public boolean exempt(String principal, String topicName) {
-        Snapshot current = snapshot;
-        for (GovernanceExemptionConfig exemption : current.exemptions().values()) {
-            if (Pattern.matches(exemption.principal(), principal)
-                && Pattern.matches(exemption.topicPattern(), topicName)) {
-                return true;
+    /// Whether any of `rule`'s exemptions evaluates to `true`. An exemption that throws is treated
+    /// as not applying, so a broken exemption can never switch a rule off.
+    private static boolean exempted(CompiledRule rule, Map<String, Object> bindings) {
+        for (CelRuntime.Program exemption : rule.exemptions()) {
+            try {
+                if (Boolean.TRUE.equals(exemption.eval(bindings))) {
+                    return true;
+                }
+            } catch (CelEvaluationException e) {
+                // does not apply: the rule stays enforced
             }
         }
         return false;
@@ -110,21 +117,30 @@ public final class GovernancePolicy {
     }
 
     private static Snapshot compile(GovernanceConfig config) {
-        Map<String, CelRuntime.Program> programs = new HashMap<>();
-        Map<String, String> messages = new HashMap<>();
+        List<CompiledRule> rules = new ArrayList<>();
         for (Map.Entry<String, GovernanceRuleConfig> entry : config.rules().entrySet()) {
-            programs.put(entry.getKey(), compile(entry.getKey(), entry.getValue().expression().value()));
-            messages.put(entry.getKey(), entry.getValue().errorMessage());
+            String ruleName = entry.getKey();
+            GovernanceRuleConfig rule = entry.getValue();
+            List<CelRuntime.Program> exemptions = new ArrayList<>();
+            for (GovernanceRuleConfig.Exemption exemption : rule.exemptions()) {
+                exemptions.add(compile(ruleName, "exemption '" + exemption.name() + "': ",
+                        exemption.expression().value()));
+            }
+            rules.add(new CompiledRule(
+                    ruleName,
+                    rule.errorMessage(),
+                    compile(ruleName, "", rule.expression().value()),
+                    List.copyOf(exemptions)));
         }
-        return new Snapshot(Map.copyOf(programs), Map.copyOf(messages), config.exemptions());
+        return new Snapshot(List.copyOf(rules));
     }
 
-    private static CelRuntime.Program compile(String ruleName, String expression) {
+    private static CelRuntime.Program compile(String ruleName, String what, String expression) {
         try {
             return compileExpression(expression);
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(
-                    "Invalid governance rule '" + ruleName + "': " + e.getMessage(), e);
+                    "Invalid governance rule '" + ruleName + "': " + what + e.getMessage(), e);
         }
     }
 
@@ -138,10 +154,14 @@ public final class GovernancePolicy {
         }
     }
 
-    private record Snapshot(
-            Map<String, CelRuntime.Program> programs,
-            Map<String, String> messages,
-            Map<String, GovernanceExemptionConfig> exemptions
+    private record Snapshot(List<CompiledRule> rules) {
+    }
+
+    private record CompiledRule(
+            String name,
+            String message,
+            CelRuntime.Program program,
+            List<CelRuntime.Program> exemptions
     ) {
     }
 

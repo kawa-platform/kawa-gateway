@@ -81,8 +81,9 @@ public final class AdminHttpServer {
                 .patch("/auth/clients/{name}", new PatchAuthClientHandler(clientService))
                 .delete("/auth/clients/{name}", new DeleteAuthClientHandler(clientService))
 
-                .get("/governance/rules", new GetGovernanceHandler(governanceService, governanceMapper))
-                .put("/governance/rules/{name}", new PutGovernanceHandler(governanceService, governanceMapper))
+                .get("/governance/rules", new GetGovernanceRulesHandler(governanceService, governanceMapper))
+                .get("/governance/rules/{name}", new GetGovernanceRuleHandler(governanceService, governanceMapper))
+                .put("/governance/rules/{name}", new PutGovernanceRuleHandler(governanceService, governanceMapper))
 
                 .get("/docs", new GetDocsHandler());
     }

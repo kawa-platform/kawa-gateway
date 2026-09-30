@@ -33,7 +33,7 @@ abstract class AdminHttpSliceTestBase {
     protected VirtualTopicManager virtualTopics = new VirtualTopicManager(Map.of());
     protected MetadataCache cache = new MetadataCache();
     protected FakeGatewayConfigRepository repository = new FakeGatewayConfigRepository(GatewayConfig.empty());
-    protected GovernancePolicy governance = new GovernancePolicy(new GovernanceConfig(null, null));
+    protected GovernancePolicy governance = new GovernancePolicy(new GovernanceConfig(null));
     protected FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
     protected CorsConfig cors;
 

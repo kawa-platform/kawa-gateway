@@ -1,10 +1,10 @@
 package io.jonasg.kawa.governance;
 
 import io.jonasg.kawa.config.GovernanceConfig;
-import io.jonasg.kawa.config.GovernanceExemptionConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 
 import static io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
@@ -27,7 +27,7 @@ class GovernancePolicyTest {
                                 Expression.cel("topic.partitions >= 1")
                         ),
                         Expression.cel("topic.partitions >= 1")
-                )), null);
+                )));
 
         // when / then
         assertThatCode(() -> new GovernancePolicy(config)).doesNotThrowAnyException();
@@ -45,7 +45,7 @@ class GovernancePolicyTest {
                                 Expression.cel("topic.partitions >= 1")
                         ),
                         Expression.cel("topic.partitions >=")
-                )), null);
+                )));
 
         // when / then
         assertThatThrownBy(() -> new GovernancePolicy(config))
@@ -62,7 +62,7 @@ class GovernancePolicyTest {
                         "partitions must be at least 2",
                         "All topics must have at least 2 partitions.",
                         Selector.topic(Expression.cel("true")),
-                        Expression.cel("topic.partitions >= 2"))), null));
+                        Expression.cel("topic.partitions >= 2")))));
 
         // when
         var violations = policy.evaluate("alice", "payments", new TopicSpec("orders", 1, 3, Map.of()));
@@ -78,7 +78,7 @@ class GovernancePolicyTest {
         var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
                 "min-partitions", rule("min-partitions", "too few partitions", "topic.partitions >= 12"),
                 "max-partitions", rule("max-partitions", "too many partitions", "topic.partitions <= 3"),
-                "cleanup", rule("cleanup", "must be compact", "topic.configs['cleanup.policy'] == 'compact'")), null));
+                "cleanup", rule("cleanup", "must be compact", "topic.configs['cleanup.policy'] == 'compact'"))));
 
         // when
         var violations = policy.evaluate("alice", "payments", new TopicSpec("orders", 6, 3, Map.of()));
@@ -96,7 +96,7 @@ class GovernancePolicyTest {
         var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
                 "zeta", rule("zeta", "z", "false"),
                 "alpha", rule("alpha", "a", "false"),
-                "mid", rule("mid", "m", "false")), null));
+                "mid", rule("mid", "m", "false"))));
 
         // when
         var violations = policy.evaluate("alice", "payments", new TopicSpec("orders", 6, 3, Map.of()));
@@ -110,7 +110,7 @@ class GovernancePolicyTest {
     void throwingRuleFailsClosed() {
         // given
         var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
-                "broken", rule("broken", "broken rule", "topic.nonexistent == 'x'")), null));
+                "broken", rule("broken", "broken rule", "topic.nonexistent == 'x'"))));
 
         // when / then
         assertThatThrownBy(() -> policy.evaluate("alice", "payments", new TopicSpec("orders", 6, 3, Map.of())))
@@ -122,7 +122,7 @@ class GovernancePolicyTest {
     void nonBooleanResultIsAViolation() {
         // given
         var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
-                "returns-name", rule("returns-name", "must return boolean", "topic.name")), null));
+                "returns-name", rule("returns-name", "must return boolean", "topic.name"))));
 
         // when
         var violations = policy.evaluate("alice", "payments", new TopicSpec("orders", 6, 3, Map.of()));
@@ -134,7 +134,7 @@ class GovernancePolicyTest {
     @Test
     void emptyRulesProduceNoViolations() {
         // given
-        var policy = new GovernancePolicy(new GovernanceConfig(null, null));
+        var policy = new GovernancePolicy(new GovernanceConfig(null));
 
         // when
         var violations = policy.evaluate("alice", "payments", new TopicSpec("orders", 6, 3, Map.of()));
@@ -148,7 +148,7 @@ class GovernancePolicyTest {
         // given
         var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
                 "default-partitions", rule("default-partitions", "partitions must be default", "topic.partitions == -1"),
-                "default-replication", rule("default-replication", "replication must be default", "topic.replicationFactor == -1")), null));
+                "default-replication", rule("default-replication", "replication must be default", "topic.replicationFactor == -1"))));
 
         // when
         var violations = policy.evaluate("alice", "payments", new TopicSpec("orders", -1, -1, Map.of()));
@@ -162,7 +162,7 @@ class GovernancePolicyTest {
         // given
         var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
                 "principal", rule("principal", "must be alice", "principal == 'alice'"),
-                "service", rule("service", "must be payments", "service == 'payments'")), null));
+                "service", rule("service", "must be payments", "service == 'payments'"))));
 
         // when
         var violations = policy.evaluate("bob", "payments", new TopicSpec("orders", 6, 3, Map.of()));
@@ -175,7 +175,7 @@ class GovernancePolicyTest {
     void inOperatorWorksOnConfigs() {
         // given
         var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
-                "has-cleanup", rule("has-cleanup", "must set cleanup.policy", "'cleanup.policy' in topic.configs")), null));
+                "has-cleanup", rule("has-cleanup", "must set cleanup.policy", "'cleanup.policy' in topic.configs"))));
 
         // when
         var violations = policy.evaluate("alice", "payments",
@@ -189,9 +189,9 @@ class GovernancePolicyTest {
     void failedReloadLeavesPreviousSnapshotIntact() {
         // given
         var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
-                "min-partitions", rule("min-partitions", "must have partitions", "topic.partitions >= 1")), null));
+                "min-partitions", rule("min-partitions", "must have partitions", "topic.partitions >= 1"))));
         var broken = new GovernanceConfig(Map.of(
-                "broken", rule("broken", "broken rule", "topic.partitions >=")), null);
+                "broken", rule("broken", "broken rule", "topic.partitions >=")));
 
         // when / then
         assertThatThrownBy(() -> policy.reload(broken))
@@ -202,42 +202,104 @@ class GovernancePolicyTest {
     }
 
     @Test
-    void exemptsWhenBothPatternsMatch() {
+    void matchingExemptionSkipsItsRule() {
         // given
-        var policy = new GovernancePolicy(new GovernanceConfig(null, Map.of(
-                "streams-internal", new GovernanceExemptionConfig("^streams-.*", ".*-changelog$"))));
+        var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
+                "min-partitions", rule("min-partitions", "too few partitions", "topic.partitions >= 3",
+                        exemption("streams-internal",
+                                "principal.startsWith('streams-') && topic.name.endsWith('-changelog')")))));
 
-        // when / then
-        assertThat(policy.exempt("streams-app", "orders-changelog")).isTrue();
+        // when
+        var violations = policy.evaluate("streams-app", "payments", new TopicSpec("orders-changelog", 1, 3, Map.of()));
+
+        // then
+        assertThat(violations).isEmpty();
     }
 
     @Test
-    void nonMatchingPrincipalIsNotExempt() {
+    void exemptionOnlySkipsItsOwnRule() {
         // given
-        var policy = new GovernancePolicy(new GovernanceConfig(null, Map.of(
-                "streams-internal", new GovernanceExemptionConfig("^streams-.*", ".*-changelog$"))));
+        var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
+                "min-partitions", rule("min-partitions", "too few partitions", "topic.partitions >= 3",
+                        exemption("streams-internal", "principal.startsWith('streams-')")),
+                "min-replication", rule("min-replication", "too few replicas", "topic.replicationFactor >= 3"))));
 
-        // when / then
-        assertThat(policy.exempt("other-app", "orders-changelog")).isFalse();
+        // when
+        var violations = policy.evaluate("streams-app", "payments", new TopicSpec("orders-changelog", 1, 1, Map.of()));
+
+        // then
+        assertThat(violations).extracting(Violation::rule).containsExactly("min-replication");
     }
 
     @Test
-    void nonMatchingTopicIsNotExempt() {
+    void nonMatchingExemptionKeepsRuleEnforced() {
         // given
-        var policy = new GovernancePolicy(new GovernanceConfig(null, Map.of(
-                "streams-internal", new GovernanceExemptionConfig("^streams-.*", ".*-changelog$"))));
+        var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
+                "min-partitions", rule("min-partitions", "too few partitions", "topic.partitions >= 3",
+                        exemption("streams-internal", "principal.startsWith('streams-')")))));
 
-        // when / then
-        assertThat(policy.exempt("streams-app", "orders")).isFalse();
+        // when
+        var violations = policy.evaluate("other-app", "payments", new TopicSpec("orders", 1, 3, Map.of()));
+
+        // then
+        assertThat(violations).extracting(Violation::rule).containsExactly("min-partitions");
     }
 
     @Test
-    void noExemptionsMeansNothingIsExempt() {
+    void anyMatchingExemptionSkipsTheRule() {
         // given
-        var policy = new GovernancePolicy(new GovernanceConfig(null, null));
+        var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
+                "min-partitions", rule("min-partitions", "too few partitions", "topic.partitions >= 3",
+                        exemption("streams-internal", "principal.startsWith('streams-')"),
+                        exemption("mirror-maker", "principal == 'mm2'")))));
+
+        // when
+        var violations = policy.evaluate("mm2", "payments", new TopicSpec("orders", 1, 3, Map.of()));
+
+        // then
+        assertThat(violations).isEmpty();
+    }
+
+    @Test
+    void throwingExemptionDoesNotApply() {
+        // given
+        var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
+                "min-partitions", rule("min-partitions", "too few partitions", "topic.partitions >= 3",
+                        exemption("broken", "topic.nonexistent == 'x'")))));
+
+        // when
+        var violations = policy.evaluate("alice", "payments", new TopicSpec("orders", 1, 3, Map.of()));
+
+        // then
+        assertThat(violations).extracting(Violation::rule).containsExactly("min-partitions");
+    }
+
+    @Test
+    void nonBooleanExemptionDoesNotApply() {
+        // given
+        var policy = new GovernancePolicy(new GovernanceConfig(Map.of(
+                "min-partitions", rule("min-partitions", "too few partitions", "topic.partitions >= 3",
+                        exemption("returns-name", "topic.name")))));
+
+        // when
+        var violations = policy.evaluate("alice", "payments", new TopicSpec("orders", 1, 3, Map.of()));
+
+        // then
+        assertThat(violations).extracting(Violation::rule).containsExactly("min-partitions");
+    }
+
+    @Test
+    void reloadRejectsInvalidExemptionExpression() {
+        // given
+        var config = new GovernanceConfig(Map.of(
+                "min-partitions", rule("min-partitions", "too few partitions", "topic.partitions >= 3",
+                        exemption("broken", "principal =="))));
 
         // when / then
-        assertThat(policy.exempt("streams-app", "orders-changelog")).isFalse();
+        assertThatThrownBy(() -> new GovernancePolicy(config))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Invalid governance rule 'min-partitions': exemption 'broken': "
+                        + "Invalid CEL expression 'principal =='");
     }
 
     @Test
@@ -254,12 +316,18 @@ class GovernancePolicyTest {
                 .hasValueSatisfying(message -> assertThat(message).contains("topic.partitions >="));
     }
 
-    private static GovernanceRuleConfig rule(String name, String message, String expression) {
+    private static GovernanceRuleConfig rule(
+            String name, String message, String expression, GovernanceRuleConfig.Exemption... exemptions) {
         return new GovernanceRuleConfig(
                 name,
                 message,
                 message,
                 Selector.topic(Expression.cel("true")),
-                Expression.cel(expression));
+                Expression.cel(expression),
+                List.of(exemptions));
+    }
+
+    private static GovernanceRuleConfig.Exemption exemption(String name, String expression) {
+        return new GovernanceRuleConfig.Exemption(name, "test exemption", Expression.cel(expression));
     }
 }

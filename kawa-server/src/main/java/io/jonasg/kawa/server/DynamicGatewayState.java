@@ -37,7 +37,7 @@ public final class DynamicGatewayState implements AutoCloseable {
         virtualTopics = new VirtualTopicManager(Map.of());
         authorizer = new RbacAuthorizer(new RbacConfig(Map.of(), Map.of()));
         saslAuthenticator = new SaslAuthenticator();
-        governance = new GovernancePolicy(new GovernanceConfig(null, null));
+        governance = new GovernancePolicy(new GovernanceConfig(null));
         // Direct partition assignment: the config consumer re-reads the full topic from the
         // earliest offset on every boot, so no consumer group is needed (and none is
         // registered in the cluster).

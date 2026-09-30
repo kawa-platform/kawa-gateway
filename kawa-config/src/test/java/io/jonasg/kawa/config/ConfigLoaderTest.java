@@ -437,7 +437,6 @@ class ConfigLoaderTest {
                 """);
 
         assertThat(config.governance().rules()).isEmpty();
-        assertThat(config.governance().exemptions()).isEmpty();
     }
 
     @Test

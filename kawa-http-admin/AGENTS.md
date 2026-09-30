@@ -61,15 +61,21 @@ Every admin HTTP request and response body is a transport type declared in `io.j
 `kawa-config` record. The config records stay the domain: the config repository stores them, and mappers convert
 between the two. For `BaseCRUDHandler<C, R, G, P>`, `C` is the config record a section stores, `R` the body the
 endpoint accepts, `G` the `GET` list element and `P` the `PUT` response body — the last two named after the method
-that produces them, so neither hook returns an untyped value. A section whose list item and `PUT` body coincide names
-the same type twice.
+that produces them, so neither hook returns an untyped value. Because a `PUT` response is the same view as a list
+element (see below), `G` and `P` are the same type.
 
 The suffix says which side of the boundary a type sits on, and the set is stable: `*Request` and `*Patch` are bodies
-a client sends, `*View` a response body mirroring the config record it is named after, and `*PutView` the body the
-`PUT /{name}` endpoint writes back — one stored entry whose name the path already carries, which is why the record
-itself holds no name. Hence `RolePutView` for the `PUT` response alongside `RoleConfigView` for the same role in the
-`GET` list. A section whose list item and `PUT` body coincide names the same type for both — the client section uses
-`ClientConfigView` in each slot, so it has no `*PutView` of its own.
+a client sends, and `*View` a response body mirroring the config record it is named after.
+
+Every view of a named entry includes its `name`, including the one a `PUT /{name}` endpoint writes back: a response
+must be self-describing without the request path next to it. A `PUT /{name}` therefore returns the same `*View` as
+that entry's element in the `GET` list — `ClientConfigView` for both `GET /auth/clients` and
+`PUT /auth/clients/{name}`, `GovernanceRuleConfigView` for both `GET /governance/rules` and
+`PUT /governance/rules/{name}`. There is no separate `*PutView`; `RolePutView` and `GroupPutView` predate this rule
+and are to be replaced by `RoleConfigView` and `GroupConfigView`.
+
+The name in a response always comes from the stored entry; on the request side it comes from the path (see
+[Request flow](#request-flow)).
 
 The rule covers the **top-level** body only. Records nested inside a body are left as `kawa-config` types, because
 they are an interior detail of the payload and copying them would duplicate the whole `kawa-config` graph under
@@ -90,9 +96,9 @@ new names. That is why `VirtualTopicConfigView` still exposes `VirtualTopicFilte
   unit tests for individual mappers or services in most cases — they would repeat what the slice test already
   proves and pin the internal split between handler, mapper and service.
 - Every handler gets its own slice test, named after the handler with `Handler` replaced by `SliceTest`:
-  `PutGovernanceHandler` → `PutGovernanceSliceTest`, `GetGovernanceHandler` → `GetGovernanceSliceTest`. A slice test
-  covers exactly one HTTP method on one route; it may call other endpoints only to set up state or to read back the
-  result.
+  `PutGovernanceRuleHandler` → `PutGovernanceRuleSliceTest`,
+  `GetGovernanceRulesHandler` → `GetGovernanceRulesSliceTest`. A slice test covers exactly one HTTP method on one
+  route; it may call other endpoints only to set up state or to read back the result.
 - Add a mapper or service unit test only when a case cannot reasonably be reached or set up over HTTP, and say why
   in the test.
 - HTTP slice tests must exercise the real `AdminHttpServer` through an ephemeral port, following

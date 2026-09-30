@@ -2,6 +2,8 @@ package io.jonasg.kawa.config;
 
 import org.apache.kafka.common.resource.ResourceType;
 
+import java.util.List;
+
 /// A single topic governance rule: a human-readable unique [name],
 /// an [errorMessage] shown when the rules are violated, a [description] explaining the rule
 /// in more detail, a [selector] that determines the Kafka Resource(s) the rule applies to and
@@ -12,13 +14,39 @@ import org.apache.kafka.common.resource.ResourceType;
 /// @param description  human-readable description of the rule
 /// @param selector     determines the Kafka Resource(s) the rule applies to
 /// @param expression   expression that evaluates to `true` when the topic is compliant
+/// @param exemptions   named cases this rule does not apply to; never `null`, empty when there are none
 public record GovernanceRuleConfig(
         String name,
         String errorMessage,
         String description,
         Selector selector,
-        Expression expression
+        Expression expression,
+        List<Exemption> exemptions
 ) {
+
+    /// A rule without exemptions.
+    public GovernanceRuleConfig(
+            String name,
+            String errorMessage,
+            String description,
+            Selector selector,
+            Expression expression
+    ) {
+        this(name, errorMessage, description, selector, expression, List.of());
+    }
+
+    /// A named case the rule does not apply to: when [#expression] evaluates to `true` for a
+    /// request, the rule is skipped for that request.
+    ///
+    /// @param name        unique name of the exemption within its rule
+    /// @param description why the exemption exists
+    /// @param expression  expression that evaluates to `true` when the rule should be skipped
+    public record Exemption(
+            String name,
+            String description,
+            Expression expression
+    ) {
+    }
 
     public record Selector(
             ResourceType resourceType,
@@ -53,5 +81,6 @@ public record GovernanceRuleConfig(
         if (expression == null) {
             throw new IllegalArgumentException("expression must not be null or blank");
         }
+        exemptions = exemptions == null ? List.of() : List.copyOf(exemptions);
     }
 }

@@ -31,7 +31,7 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
 - The integration tests use **Testcontainers** (Kafka container) — Docker must be running; they are slow and
   network/docker dependent.
 - `kawa-http-admin` has two unit tiers: `RouterTest`/`KafkaTopicAdminTest` (pure plumbing/helper) and the HTTP slice
-  tests, one per handler (`PutGovernanceHandler` → `PutGovernanceSliceTest`), plus `ServerSliceTest`, all via
+  tests, one per handler (`PutGovernanceRuleHandler` → `PutGovernanceRuleSliceTest`), plus `ServerSliceTest`, all via
   `AdminHttpSliceTestBase`, that boot a real `AdminHttpServer` on an ephemeral port and assert
   the JSON wire format. Handlers, mappers and services are covered through the slice tests; separate unit tests for
   them are the exception. See `kawa-http-admin/AGENTS.md` for the handler → mapper → service flow.

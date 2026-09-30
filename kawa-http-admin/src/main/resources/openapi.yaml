@@ -383,11 +383,11 @@ paths:
           $ref: '#/components/responses/InternalError'
   /governance/rules:
     get:
-      summary: Read the governance configuration
-      description: Every governance rule and exemption from the dynamic config.
+      summary: List governance rules
+      description: Every governance rule from the dynamic config, each with its own exemptions.
       responses:
         '200':
-          description: The governance rules and exemptions
+          description: The governance rules
           content:
             application/json:
               schema:
@@ -399,6 +399,24 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
   /governance/rules/{name}:
+    get:
+      summary: Read a governance rule
+      description: The governance rule `name`, including its exemptions.
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      responses:
+        '200':
+          description: The governance rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GovernanceRuleConfigView'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
     put:
       summary: Upsert a governance rule
       description: |
@@ -723,10 +741,6 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/GovernanceRuleConfigView'
-        exemptions:
-          type: array
-          items:
-            $ref: '#/components/schemas/GovernanceExemptionConfigView'
     GovernanceRuleConfigView:
       type: object
       properties:
@@ -744,15 +758,10 @@ components:
           $ref: '#/components/schemas/GovernanceSelector'
         expression:
           $ref: '#/components/schemas/GovernanceExpression'
-    GovernanceExemptionConfigView:
-      type: object
-      properties:
-        principal:
-          type: string
-          description: Principal regex; matching principals skip governance evaluation.
-        topicPattern:
-          type: string
-          description: Topic pattern regex the exemption applies to.
+        exemptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceExemption'
     GovernanceRuleRequest:
       type: object
       required:
@@ -771,6 +780,28 @@ components:
           description: Longer explanation of what the rule enforces.
         selector:
           $ref: '#/components/schemas/GovernanceSelector'
+        expression:
+          $ref: '#/components/schemas/GovernanceExpression'
+        exemptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceExemption'
+          description: |
+            Named cases the rule does not apply to; absent means none. When any exemption
+            evaluates to `true` for a request, the rule is skipped for that request only.
+    GovernanceExemption:
+      type: object
+      required:
+        - name
+        - expression
+      properties:
+        name:
+          type: string
+          description: Unique name of the exemption within its rule.
+        description:
+          type: string
+          nullable: true
+          description: Why the exemption exists.
         expression:
           $ref: '#/components/schemas/GovernanceExpression'
     GovernanceSelector:

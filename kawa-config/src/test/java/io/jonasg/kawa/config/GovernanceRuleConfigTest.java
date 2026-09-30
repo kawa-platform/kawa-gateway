@@ -49,4 +49,19 @@ class GovernanceRuleConfigTest {
         assertThat(config.selector()).isEqualTo(Selector.topic(Expression.cel("true")));
         assertThat(config.expression()).isEqualTo(Expression.cel("topic.partitions >= 1"));
     }
+
+    @Test
+    void nullExemptionsCoalesceToEmpty() {
+        // when
+        var config = new GovernanceRuleConfig(
+                "min-partitions",
+                "must have at least one partition",
+                null,
+                Selector.topic(),
+                Expression.cel("topic.partitions >= 1"),
+                null);
+
+        // then
+        assertThat(config.exemptions()).isEmpty();
+    }
 }

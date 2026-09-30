@@ -83,7 +83,8 @@ class GovernanceAdminApiIT {
         String base = "http://127.0.0.1:" + gateway.adminBoundPort();
         var http = HttpClient.newHttpClient();
 
-        // when - governance rules and an exemption are written through the admin API
+        // when - a governance rule with an exemption is written through the admin API. The admin
+        // API's placeholder principal is `admin`, so the exemption covers its changelog topics.
         HttpResponse<String> governancePut = http.send(
                 HttpRequest.newBuilder(URI.create(base + "/governance/rules/min-partitions"))
                         .PUT(HttpRequest.BodyPublishers.ofString("""
@@ -97,7 +98,17 @@ class GovernanceAdminApiIT {
                                   "expression": {
                                     "type": "CEL",
                                     "value": "topic.partitions >= 2"
-                                  }
+                                  },
+                                  "exemptions": [
+                                    {
+                                      "name": "admin-changelogs",
+                                      "description": "Changelog topics are sized by their stream.",
+                                      "expression": {
+                                        "type": "CEL",
+                                        "value": "principal == 'admin' && topic.name.endsWith('-changelog')"
+                                      }
+                                    }
+                                  ]
                                 }
                                 """))
                         .build(),
@@ -123,10 +134,19 @@ class GovernanceAdminApiIT {
                       "expression": {
                         "type": "CEL",
                         "value": "topic.partitions >= 2"
-                      }
+                      },
+                      "exemptions": [
+                        {
+                          "name": "admin-changelogs",
+                          "description": "Changelog topics are sized by their stream.",
+                          "expression": {
+                            "type": "CEL",
+                            "value": "principal == 'admin' && topic.name.endsWith('-changelog')"
+                          }
+                        }
+                      ]
                     }
-                  ],
-                  "exemptions": []
+                  ]
                 }
                 """);
 
@@ -149,7 +169,7 @@ class GovernanceAdminApiIT {
         HttpResponse<String> exempt = http.send(
                 HttpRequest.newBuilder(URI.create(base + "/topics"))
                         .POST(HttpRequest.BodyPublishers.ofString(
-                                "{\"type\":\"physical\",\"name\":\"orders-changelog\",\"partitions\":3,\"replicationFactor\":1}"))
+                                "{\"type\":\"physical\",\"name\":\"orders-changelog\",\"partitions\":1,\"replicationFactor\":1}"))
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(exempt).hasStatusCode(201);

@@ -13,13 +13,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class GovernanceConfigTest {
 
     @Test
-    void nullRulesAndExemptionsCoalesceToEmpty() {
+    void nullRulesCoalesceToEmpty() {
         // when
-        GovernanceConfig config = new GovernanceConfig(null, null);
+        GovernanceConfig config = new GovernanceConfig(null);
 
         // then
         assertThat(config.rules()).isEmpty();
-        assertThat(config.exemptions()).isEmpty();
     }
 
     @Test
@@ -27,23 +26,19 @@ class GovernanceConfigTest {
         // given
         Map<String, GovernanceRuleConfig> rules = new HashMap<>(Map.of(
                 "min-partitions", governanceRule().build()));
-        Map<String, GovernanceExemptionConfig> exemptions = new HashMap<>(Map.of(
-                "streams-internal", new GovernanceExemptionConfig("^streams-.*", ".*-changelog$")));
 
         // when
-        GovernanceConfig config = new GovernanceConfig(rules, exemptions);
+        GovernanceConfig config = new GovernanceConfig(rules);
 
         // then
         assertThatThrownBy(() -> config.rules().put("x", null))
-                .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> config.exemptions().put("x", null))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
     void upsertRuleAddsNewRule() {
         // given
-        var config = new GovernanceConfig(null, null);
+        var config = new GovernanceConfig(null);
 
         // when
         var updated = config.upsertRule("min-partitions",
@@ -58,7 +53,7 @@ class GovernanceConfigTest {
     void upsertRuleOverwritesExisting() {
         // given
         var config = new GovernanceConfig(Map.of("min-partitions",
-                governanceRule().withExpression(Expression.cel("true")).build()), null);
+                governanceRule().withExpression(Expression.cel("true")).build()));
         var newRule = governanceRule().build();
 
         // when
@@ -73,7 +68,7 @@ class GovernanceConfigTest {
     void removeRuleRemovesExisting() {
         // given
         var config = new GovernanceConfig(Map.of("min-partitions",
-                governanceRule().build()), null);
+                governanceRule().build()));
 
         // when
         var updated = config.removeRule("min-partitions");
@@ -91,7 +86,7 @@ class GovernanceConfigTest {
                         .withName("max-partitions")
                         .withErrorMessage("too many partitions")
                         .withExpression(Expression.cel("topic.partitions <= 12"))
-                        .build()), null);
+                        .build()));
 
         // when
         var updated = config.removeRule("min-partitions");
@@ -102,68 +97,10 @@ class GovernanceConfigTest {
     }
 
     @Test
-    void upsertExemptionAddsNewExemption() {
-        // given
-        var config = new GovernanceConfig(null, null);
-
-        // when
-        var updated = config.upsertExemption("streams-internal",
-                new GovernanceExemptionConfig("^streams-.*", ".*-changelog$"));
-
-        // then
-        assertThat(updated.exemptions()).containsEntry("streams-internal",
-                new GovernanceExemptionConfig("^streams-.*", ".*-changelog$"));
-    }
-
-    @Test
-    void upsertExemptionOverwritesExisting() {
-        // given
-        var config = new GovernanceConfig(null, Map.of("streams-internal",
-                new GovernanceExemptionConfig("^old-.*", ".*")));
-        var newExemption = new GovernanceExemptionConfig("^streams-.*", ".*-changelog$");
-
-        // when
-        var updated = config.upsertExemption("streams-internal", newExemption);
-
-        // then
-        assertThat(updated.exemptions()).containsEntry("streams-internal", newExemption);
-        assertThat(updated.exemptions()).hasSize(1);
-    }
-
-    @Test
-    void removeExemptionRemovesExisting() {
-        // given
-        var config = new GovernanceConfig(null, Map.of("streams-internal",
-                new GovernanceExemptionConfig("^streams-.*", ".*-changelog$")));
-
-        // when
-        var updated = config.removeExemption("streams-internal");
-
-        // then
-        assertThat(updated.exemptions()).isEmpty();
-    }
-
-    @Test
-    void removeExemptionPreservesOtherExemptions() {
-        // given
-        var config = new GovernanceConfig(null, Map.of(
-                "streams-internal", new GovernanceExemptionConfig("^streams-.*", ".*-changelog$"),
-                "mirror-maker", new GovernanceExemptionConfig("^mm2-.*", ".*")));
-
-        // when
-        var updated = config.removeExemption("streams-internal");
-
-        // then
-        assertThat(updated.exemptions()).hasSize(1);
-        assertThat(updated.exemptions()).containsKey("mirror-maker");
-    }
-
-    @Test
-    void upsertRulePreservesExemptions() {
+    void upsertRulePreservesOtherRules() {
         // given
         var config = new GovernanceConfig(
-                Map.of("min-partitions", governanceRule().build()),
-                Map.of("streams-internal", new GovernanceExemptionConfig("^streams-.*", ".*-changelog$")));
+                Map.of("min-partitions", governanceRule().build()));
 
         // when
         var updated = config.upsertRule("max-partitions",
@@ -174,8 +111,6 @@ class GovernanceConfigTest {
                         .build());
 
         // then
-        assertThat(updated.rules()).hasSize(2);
-        assertThat(updated.exemptions()).containsEntry("streams-internal",
-                new GovernanceExemptionConfig("^streams-.*", ".*-changelog$"));
+        assertThat(updated.rules()).containsOnlyKeys("min-partitions", "max-partitions");
     }
 }

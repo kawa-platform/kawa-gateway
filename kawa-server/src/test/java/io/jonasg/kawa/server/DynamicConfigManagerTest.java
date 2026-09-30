@@ -5,7 +5,6 @@ import io.jonasg.kawa.config.AuthConfig;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
 import io.jonasg.kawa.config.GovernanceConfig;
-import io.jonasg.kawa.config.GovernanceExemptionConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
@@ -80,7 +79,7 @@ class DynamicConfigManagerTest {
     }
 
     private static GovernancePolicy emptyGovernance() {
-        return new GovernancePolicy(new GovernanceConfig(null, null));
+        return new GovernancePolicy(new GovernanceConfig(null));
     }
 
     @Test
@@ -259,14 +258,14 @@ class DynamicConfigManagerTest {
     @Test
     void appliesGovernanceConfigToPolicy() {
         // given
-        var governancePolicy = new GovernancePolicy(new GovernanceConfig(null, null));
+        var governancePolicy = new GovernancePolicy(new GovernanceConfig(null));
         var manager = new DynamicConfigManager("localhost:9092", "__kawa",
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
                 new SaslAuthenticator(),
                 governancePolicy);
         var governance = new GovernanceConfig(Map.of(
-                "min-partitions", rule("min-partitions", "must have partitions", "topic.partitions >= 1")), null);
+                "min-partitions", rule("min-partitions", "must have partitions", "topic.partitions >= 1")));
 
         // when
         manager.apply(config(Map.of(), new RbacConfig(Map.of(), Map.of()), plainAuth(), governance));
@@ -281,7 +280,7 @@ class DynamicConfigManagerTest {
     @Test
     void rejectedGovernanceSnapshotLeavesPreviousStateIntact() {
         // given
-        var governancePolicy = new GovernancePolicy(new GovernanceConfig(null, null));
+        var governancePolicy = new GovernancePolicy(new GovernanceConfig(null));
         var manager = new DynamicConfigManager("localhost:9092", "__kawa",
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
@@ -289,11 +288,11 @@ class DynamicConfigManagerTest {
                 governancePolicy);
         var good = config(Map.of(), new RbacConfig(Map.of(), Map.of()), plainAuth(),
                 new GovernanceConfig(Map.of(
-                        "min-partitions", rule("min-partitions", "must have partitions", "topic.partitions >= 1")), null));
+                        "min-partitions", rule("min-partitions", "must have partitions", "topic.partitions >= 1"))));
         manager.apply(good);
         var broken = config(Map.of(), new RbacConfig(Map.of(), Map.of()), plainAuth(),
                 new GovernanceConfig(Map.of(
-                        "broken", rule("broken", "broken rule", "topic.partitions >=")), null));
+                        "broken", rule("broken", "broken rule", "topic.partitions >="))));
 
         // when / then
         assertThatThrownBy(() -> manager.apply(broken))
@@ -305,23 +304,34 @@ class DynamicConfigManagerTest {
     }
 
     @Test
-    void appliesExemptionsToPolicy() {
+    void appliesRuleExemptionsToPolicy() {
         // given
-        var governancePolicy = new GovernancePolicy(new GovernanceConfig(null, null));
+        var governancePolicy = new GovernancePolicy(new GovernanceConfig(null));
         var manager = new DynamicConfigManager("localhost:9092", "__kawa",
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
                 new SaslAuthenticator(),
                 governancePolicy);
-        var governance = new GovernanceConfig(null, Map.of(
-                "streams-internal", new GovernanceExemptionConfig("^streams-.*", ".*-changelog$")));
+        var governance = new GovernanceConfig(Map.of("min-partitions", new GovernanceRuleConfig(
+                "min-partitions",
+                "must have partitions",
+                "must have partitions",
+                Selector.topic(Expression.cel("true")),
+                Expression.cel("topic.partitions >= 1"),
+                List.of(new GovernanceRuleConfig.Exemption(
+                        "streams-internal",
+                        "Kafka Streams manages its own changelog topics.",
+                        Expression.cel("principal.startsWith('streams-') && topic.name.endsWith('-changelog')"))))));
 
         // when
         manager.apply(config(Map.of(), new RbacConfig(Map.of(), Map.of()), plainAuth(), governance));
 
         // then
-        assertThat(governancePolicy.exempt("streams-app", "orders-changelog")).isTrue();
-        assertThat(governancePolicy.exempt("other-app", "orders-changelog")).isFalse();
+        assertThat(governancePolicy.evaluate("streams-app", "payments", new TopicSpec("orders-changelog", 0, 3, Map.of())))
+                .isEmpty();
+        assertThat(governancePolicy.evaluate("other-app", "payments", new TopicSpec("orders-changelog", 0, 3, Map.of())))
+                .extracting(Violation::rule)
+                .containsExactly("min-partitions");
     }
 
     @Test

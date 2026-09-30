@@ -346,28 +346,28 @@ the CORS spec.
 Dynamic, and **managed only through the [Admin API](#config-endpoints)** — governance is never read from the YAML
 file. A `governance` section in the file is dropped at load time: it is neither applied nor validated.
 
-Topic governance: named CEL rules that new topics must satisfy, and named exemptions that skip evaluation for matching
-principal + topic pairs. When no rules are configured, every topic creation is admitted.
+Topic governance: named CEL rules that new topics must satisfy. Each rule carries its own exemptions — named cases the
+rule does not apply to. When no rules are configured, every topic creation is admitted.
 
-| Field        | Type | Default   | Description                                                         |
-|--------------|------|-----------|---------------------------------------------------------------------|
-| `rules`      | map  | *(empty)* | Named rules, see below                                              |
-| `exemptions` | map  | *(empty)* | Named exemptions, each a principal regex plus a topic pattern regex |
+| Field   | Type | Default   | Description            |
+|---------|------|-----------|------------------------|
+| `rules` | map  | *(empty)* | Named rules, see below |
 
 These tables and the example below describe the governance section as it is **stored in the config topic snapshot**:
-`rules` and `exemptions` are maps keyed by name. The Admin API presents the same data differently —
-`GET /governance/rules` returns both as **lists**, each rule carrying its own `name` — and writes one rule at a time
-through `PUT /governance/rules/{name}` (see [Config endpoints](#config-endpoints)).
+`rules` is a map keyed by name. The Admin API presents the same data differently — `GET /governance/rules` returns the
+rules as a **list**, each rule carrying its own `name` — and reads and writes one rule at a time through
+`GET` and `PUT /governance/rules/{name}` (see [Config endpoints](#config-endpoints)).
 
 #### `governance.rules.<name>`
 
-| Field          | Type                    | Description                                                               |
-|----------------|-------------------------|---------------------------------------------------------------------------|
-| `name`         | string                  | Unique, human-readable name of the rule (required)                        |
-| `errorMessage` | string                  | Message shown when the rule rejects a topic                               |
-| `description`  | string                  | Longer explanation of what the rule enforces                              |
-| `selector`     | [selector](#selector)   | Which Kafka resources the rule applies to                                 |
-| `expression`   | [expression](#expression) | Must evaluate to `true` for the resource to be compliant (required)     |
+| Field          | Type                        | Description                                                           |
+|----------------|-----------------------------|-----------------------------------------------------------------------|
+| `name`         | string                      | Unique, human-readable name of the rule (required)                    |
+| `errorMessage` | string                      | Message shown when the rule rejects a topic                           |
+| `description`  | string                      | Longer explanation of what the rule enforces                          |
+| `selector`     | [selector](#selector)       | Which Kafka resources the rule applies to                             |
+| `expression`   | [expression](#expression)   | Must evaluate to `true` for the resource to be compliant (required)   |
+| `exemptions`   | list of [exemption](#exemption) | Named cases the rule does not apply to; empty or absent means none |
 
 ##### `selector`
 
@@ -378,10 +378,24 @@ through `PUT /governance/rules/{name}` (see [Config endpoints](#config-endpoints
 
 ##### `expression`
 
-| Field   | Type   | Description                         |
-|---------|--------|-------------------------------------|
+| Field   | Type   | Description                          |
+|---------|--------|--------------------------------------|
 | `type`  | string | Expression language; currently `CEL` |
 | `value` | string | The expression source                |
+
+##### `exemption`
+
+| Field         | Type                      | Description                                                  |
+|---------------|---------------------------|--------------------------------------------------------------|
+| `name`        | string                    | Unique name of the exemption within its rule (required)      |
+| `description` | string                    | Why the exemption exists                                     |
+| `expression`  | [expression](#expression) | When it evaluates to `true`, the rule is skipped (required)  |
+
+An exemption only switches off **its own rule**; every other rule still applies. When any of a rule's exemptions
+evaluates to `true` for a request, that rule is skipped. An exemption that fails to evaluate, or does not return
+`true`, does not apply, so the rule stays enforced. Exemptions use the same bindings as rules, so they can match on the
+principal, the service, the topic, or any combination — a topic-only exemption such as
+`topic.name.endsWith('-changelog')` is allowed and exempts every principal from that one rule.
 
 ```json
 {
@@ -391,17 +405,21 @@ through `PUT /governance/rules/{name}` (see [Config endpoints](#config-endpoints
       "errorMessage": "replication factor must be at least 3",
       "description": "Topics need at least 3 replicas to survive a broker loss.",
       "selector": {"resourceType": "TOPIC", "expression": {"type": "CEL", "value": "true"}},
-      "expression": {"type": "CEL", "value": "topic.replicationFactor >= 3"}
+      "expression": {"type": "CEL", "value": "topic.replicationFactor >= 3"},
+      "exemptions": [
+        {
+          "name": "ops-changelogs",
+          "description": "Operators manage changelog topics by hand.",
+          "expression": {"type": "CEL", "value": "principal.startsWith('ops-') && topic.name.endsWith('-changelog')"}
+        }
+      ]
     }
-  },
-  "exemptions": {
-    "ops-internal": {"principal": "ops-.*", "topicPattern": ".*-changelog"}
   }
 }
 ```
 
-CEL expressions are compiled eagerly when the config is applied — a bad expression rejects the config instead of
-failing the first request. They have access to these bindings:
+CEL expressions — rules and exemptions alike — are compiled eagerly when the config is applied: a bad expression
+rejects the config instead of failing the first request. They have access to these bindings:
 
 | Binding                   | Type                    | Notes                                                               |
 |---------------------------|-------------------------|---------------------------------------------------------------------|
@@ -411,16 +429,6 @@ failing the first request. They have access to these bindings:
 | `topic.partitions`        | int                     | Requested partitions, or `-1` for the broker default                |
 | `topic.replicationFactor` | int                     | Requested replication factor, or `-1` for the broker default        |
 | `topic.configs`           | map of string to string | Topic configs; a missing key resolves to `""` (falsy, not an error) |
-
-#### `governance.exemptions.<name>`
-
-| Field          | Type   | Description                                    |
-|----------------|--------|------------------------------------------------|
-| `principal`    | string | Regex matched against the requesting principal |
-| `topicPattern` | string | Regex matched against the topic name           |
-
-Both patterns must match for the exemption to apply. Two patterns rather than a name-only one: a topic-only exemption
-would be a bypass, because anyone could name a topic `...-changelog` to skip enforcement.
 
 ## Dynamic config
 
@@ -500,13 +508,15 @@ and governance). `GET` lists a section, `PUT /{name}` upserts one entry,
 | `/auth/clients`        | GET    | List clients                                     |
 | `/auth/clients/{name}` | PUT    | Add or replace a client                          |
 | `/auth/clients/{name}` | DELETE | Remove a client                                  |
-| `/governance/rules`         | GET    | List the governance rules and exemptions |
+| `/governance/rules`         | GET    | List the governance rules                |
+| `/governance/rules/{name}`  | GET    | Read one governance rule                 |
 | `/governance/rules/{name}`  | PUT    | Add or replace a governance rule         |
 
 The request body for a `PUT` is the entry's JSON object, using the same fields as the reference above — e.g.
 `{"acls": [...]}` for a role, `{"clients": [...], "roles": [...]}`
 for a group, `{"mechanism": "PLAIN", "password": "..."}` for a client, or a rule object
-(`errorMessage`, `description`, `selector`, `expression`; see [`governance`](#governance)) for a governance rule.
+(`errorMessage`, `description`, `selector`, `expression`, `exemptions`; see [`governance`](#governance)) for a
+governance rule.
 
 Adding a client via `PUT /auth/clients/{name}` auto-expands the advertised SASL mechanisms to include the client's
 mechanism, so the first client can be added to an empty config. The client's `mechanism` is required — a `PUT` without
@@ -522,8 +532,10 @@ part of the delete.
 
 A governance rule's name always comes from the path: the body's `name` is optional, and when present it must equal
 the path name, or the `PUT` is rejected with `400`. Both the rule's and the selector's CEL expressions are compiled
-before the snapshot is persisted — an invalid rule is rejected with `400` and nothing is written. Exemptions are
-listed by `GET /governance/rules` but have no write endpoint yet.
+before the snapshot is persisted — an invalid rule is rejected with `400` and nothing is written. A rule's exemptions
+are part of the rule: they are written with it (their names must be unique within the rule, and each expression is
+compiled too) and a `PUT` replaces them along with the rest of the rule. `GET /governance/rules/{name}` returns `404`
+for an unknown rule.
 
 `PUT` returns `200` with the stored entry, `DELETE` returns `204`, a missing entry on
 `DELETE` returns `404`, and an invalid body returns `400`.

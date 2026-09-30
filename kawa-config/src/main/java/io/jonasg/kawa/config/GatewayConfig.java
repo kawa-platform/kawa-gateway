@@ -52,7 +52,7 @@ public record GatewayConfig(
             configTopic = "__kawa";
         }
         if (governance == null) {
-            governance = new GovernanceConfig(null, null);
+            governance = new GovernanceConfig(null);
         }
         if (advertised == null) {
             ListenerConfig first = listeners.getFirst();
@@ -98,11 +98,6 @@ public record GatewayConfig(
 
     /// Returns a new [GatewayConfig] with the [RbacConfig] section replaced.
     public GatewayConfig updateRbac(RbacConfig rbac) {
-        return copyWith(virtualTopics, auth, rbac, governance);
-    }
-
-    /// Returns a new [GatewayConfig] with the [GovernanceConfig] section replaced.
-    public GatewayConfig updateGovernance(GovernanceConfig governance) {
         return copyWith(virtualTopics, auth, rbac, governance);
     }
 

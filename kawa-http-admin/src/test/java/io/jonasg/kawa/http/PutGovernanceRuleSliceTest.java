@@ -15,9 +15,9 @@ import java.util.stream.Stream;
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 
-/// Slice tests for [PutGovernanceHandler]: real HTTP requests through a booted [AdminHttpServer],
+/// Slice tests for [PutGovernanceRuleHandler]: real HTTP requests through a booted [AdminHttpServer],
 /// asserting the JSON wire format the admin UI consumes and the snapshot that gets persisted.
-class PutGovernanceSliceTest extends AdminHttpSliceTestBase {
+class PutGovernanceRuleSliceTest extends AdminHttpSliceTestBase {
 
     @Test
     void addsRuleAndPersistsSnapshot() throws Exception {
@@ -44,7 +44,8 @@ class PutGovernanceSliceTest extends AdminHttpSliceTestBase {
                   "errorMessage": "Event topics should start with event.",
                   "description": "Event topics are expected to start with event.",
                   "selector": {"resourceType": "TOPIC", "expression": {"type": "CEL", "value": "true"}},
-                  "expression": {"type": "CEL", "value": "topic.name.startsWith('event.')"}
+                  "expression": {"type": "CEL", "value": "topic.name.startsWith('event.')"},
+                  "exemptions": []
                 }
                 """);
         assertThat(repository.getActiveConfig().governance().rules())
@@ -79,11 +80,132 @@ class PutGovernanceSliceTest extends AdminHttpSliceTestBase {
                   "errorMessage": "replication factor must be at least 3",
                   "description": null,
                   "selector": {"resourceType": "TOPIC", "expression": null},
-                  "expression": {"type": "CEL", "value": "topic.replicationFactor >= 3"}
+                  "expression": {"type": "CEL", "value": "topic.replicationFactor >= 3"},
+                  "exemptions": []
                 }
                 """);
         assertThat(repository.getActiveConfig().governance().rules().get("min-replication").selector())
                 .isEqualTo(Selector.topic());
+    }
+
+    @Test
+    void addsRuleWithExemptionsAndPersistsSnapshot() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var response = send("PUT", rulePath("min-partitions"), """
+                {
+                  "errorMessage": "partitions must be at least 2",
+                  "selector": {"resourceType": "TOPIC"},
+                  "expression": {"type": "CEL", "value": "topic.partitions >= 2"},
+                  "exemptions": [
+                    {
+                      "name": "streams-internal",
+                      "description": "Kafka Streams manages its own changelog topics.",
+                      "expression": {"type": "CEL", "value": "principal.startsWith('streams-')"}
+                    }
+                  ]
+                }
+                """);
+
+        // then
+        assertThat(response)
+                .hasStatusCode(200)
+                .hasBody("""
+                        {
+                          "name": "min-partitions",
+                          "errorMessage": "partitions must be at least 2",
+                          "description": null,
+                          "selector": {
+                            "resourceType": "TOPIC",
+                            "expression": null
+                          },
+                          "expression": {
+                            "type": "CEL",
+                            "value": "topic.partitions >= 2"
+                          },
+                          "exemptions": [
+                            {
+                              "name": "streams-internal",
+                              "description": "Kafka Streams manages its own changelog topics.",
+                              "expression": {
+                                "type": "CEL",
+                                "value": "principal.startsWith('streams-')"
+                              }
+                            }
+                          ]
+                        }
+                        """);
+        assertThat(repository.getActiveConfig().governance().rules().get("min-partitions").exemptions())
+                .containsExactly(new GovernanceRuleConfig.Exemption(
+                        "streams-internal",
+                        "Kafka Streams manages its own changelog topics.",
+                        Expression.cel("principal.startsWith('streams-')")));
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidExemptions")
+    void rejectsInvalidExemption(String description, String exemptions, String expectedError) throws Exception {
+        // given
+        startServer();
+
+        // when
+        var response = send("PUT", rulePath("r"), """
+                {
+                  "errorMessage": "msg",
+                  "selector": {"resourceType": "TOPIC"},
+                  "expression": {"type": "CEL", "value": "true"},
+                  "exemptions": %s
+                }
+                """.formatted(exemptions));
+
+        // then
+        assertThat(response)
+                .hasStatusCode(400)
+                .hasBody("{\"error\": \"" + expectedError + "\"}");
+        assertThat(repository.getActiveConfig().governance().rules()).isEmpty();
+    }
+
+    static Stream<Arguments> invalidExemptions() {
+        var ok = "{\"type\": \"CEL\", \"value\": \"true\"}";
+        return Stream.of(
+                Arguments.of("null exemption", "[null]",
+                        "governance rule 'r': exemption must not be null"),
+                Arguments.of("blank exemption name",
+                        "[{\"name\": \" \", \"expression\": " + ok + "}]",
+                        "governance rule 'r': exemption name must not be blank"),
+                Arguments.of("duplicate exemption name",
+                        "[{\"name\": \"e\", \"expression\": " + ok + "}, {\"name\": \"e\", \"expression\": " + ok + "}]",
+                        "governance rule 'r': duplicate exemption name 'e'"),
+                Arguments.of("missing exemption expression",
+                        "[{\"name\": \"e\"}]",
+                        "governance rule 'r': exemption 'e': expression must not be null"),
+                Arguments.of("unsupported exemption expression type",
+                        "[{\"name\": \"e\", \"expression\": {\"type\": \"SPEL\", \"value\": \"true\"}}]",
+                        "governance rule 'r': unsupported exemption 'e' expression.type 'SPEL'"));
+    }
+
+    @Test
+    void rejectsNonCompilingExemptionExpression() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var response = send("PUT", rulePath("r"), """
+                {
+                  "errorMessage": "msg",
+                  "selector": {"resourceType": "TOPIC"},
+                  "expression": {"type": "CEL", "value": "true"},
+                  "exemptions": [{"name": "e", "expression": {"type": "CEL", "value": "principal =="}}]
+                }
+                """);
+
+        // then
+        assertThat(response).hasStatusCode(400);
+        assertThatJson(response.body()).inPath("error").isString()
+                .startsWith("governance rule 'r': exemption 'e' expression: Invalid CEL expression 'principal =='");
+        assertThat(repository.getActiveConfig().governance().rules()).isEmpty();
     }
 
     @Test

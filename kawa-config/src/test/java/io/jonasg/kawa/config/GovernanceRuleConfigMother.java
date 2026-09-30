@@ -3,6 +3,8 @@ package io.jonasg.kawa.config;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
 
+import java.util.List;
+
 /// Object Mother for [GovernanceRuleConfig]: `governanceRule().build()` returns a valid rule with
 /// sensible defaults; override only what a test cares about via the `withX` methods.
 public final class GovernanceRuleConfigMother {
@@ -21,6 +23,7 @@ public final class GovernanceRuleConfigMother {
         private String description = "Topics must have at least one partition.";
         private Selector selector = Selector.topic(Expression.cel("true"));
         private Expression expression = Expression.cel("topic.partitions >= 1");
+        private List<GovernanceRuleConfig.Exemption> exemptions = List.of();
 
         private Builder() {
         }
@@ -50,8 +53,13 @@ public final class GovernanceRuleConfigMother {
             return this;
         }
 
+        public Builder withExemptions(GovernanceRuleConfig.Exemption... exemptions) {
+            this.exemptions = List.of(exemptions);
+            return this;
+        }
+
         public GovernanceRuleConfig build() {
-            return new GovernanceRuleConfig(name, errorMessage, description, selector, expression);
+            return new GovernanceRuleConfig(name, errorMessage, description, selector, expression, exemptions);
         }
     }
 }
