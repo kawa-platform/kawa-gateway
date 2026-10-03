@@ -66,5 +66,7 @@ services:
     ports:
       - "9092:9092"
       - "8080:8080"
+    environment:
+      KAWA_LOG_LEVEL: DEBUG
     volumes:
       - ./docker/gateway-sasl.yaml:/etc/kawa/config.yaml:ro
