@@ -430,13 +430,16 @@ class ConfigLoaderTest {
                       expression: topic.partitions >= 1
                   exemptions:
                     streams-internal:
-                      principal: ^streams-.*
-                      topicPattern: .*-changelog$
+                      expression: {type: CEL, value: "principal.startsWith('streams-')"}
+                  variables:
+                    tiers: {type: "list<int>", value: "[1, 4]"}
                 listeners:
                   - port: 9092
                 """);
 
         assertThat(config.governance().rules()).isEmpty();
+        assertThat(config.governance().exemptions()).isEmpty();
+        assertThat(config.governance().variables()).isEmpty();
     }
 
     @Test

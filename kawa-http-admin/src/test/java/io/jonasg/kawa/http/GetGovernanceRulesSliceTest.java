@@ -43,8 +43,16 @@ class GetGovernanceRulesSliceTest extends AdminHttpSliceTestBase {
                           "name": "min-partitions",
                           "errorMessage": "partitions must be at least 2",
                           "description": "All topics must have at least 2 partitions.",
-                          "selector": {"resourceType": "TOPIC", "expression": null},
-                          "expression": {"type": "CEL", "value": "topic.partitions >= 2"},
+                          "selector": {"resourceType": "TOPIC", "expression": null, "scope": "BOTH", "operations": ["CREATE"]},
+                          "match": "ALL",
+                          "subRules": [
+                            {
+                              "kind": "check",
+                              "name": "min-partitions",
+                              "errorMessage": null,
+                              "expression": {"type": "CEL", "value": "topic.partitions >= 2"}
+                            }
+                          ],
                           "exemptions": [
                             {
                               "name": "streams-internal",

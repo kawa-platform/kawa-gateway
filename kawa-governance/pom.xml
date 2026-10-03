@@ -11,13 +11,22 @@
 
     <artifactId>kawa-governance</artifactId>
     <name>Kawa Governance</name>
-    <description>Topic governance policy engine: CEL rules evaluated against new topic requests.</description>
+    <description>Governance policy engine: CEL rules evaluated against topic requests, and the interceptor enforcing them on the Kafka protocol.</description>
 
     <dependencies>
         <dependency>
             <groupId>io.jonasg</groupId>
             <artifactId>kawa-config</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jonasg</groupId>
+            <artifactId>kawa-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
         </dependency>
         <dependency>
             <groupId>dev.cel</groupId>

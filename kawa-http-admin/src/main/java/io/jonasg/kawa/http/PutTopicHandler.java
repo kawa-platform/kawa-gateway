@@ -29,6 +29,8 @@ public final class PutTopicHandler implements Router.Handler {
                     value.filter(),
                     value.exposePhysicalTopic(),
                     value.valueFormat()));
+        } catch (ForbiddenException e) {
+            return Router.Response.forbidden(e.getMessage());
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }

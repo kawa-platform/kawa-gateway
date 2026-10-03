@@ -3,6 +3,7 @@ package io.jonasg.kawa.rbac;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.ShortCircuitResult;
 import org.apache.kafka.common.acl.AclOperation;
+import org.apache.kafka.common.message.ConsumerGroupHeartbeatResponseData;
 import org.apache.kafka.common.message.CreateAclsRequestData;
 import org.apache.kafka.common.message.CreateAclsResponseData;
 import org.apache.kafka.common.message.CreateTopicsRequestData;
@@ -25,8 +26,8 @@ import java.util.function.Function;
 
 /// Gates a whole-request API on a single resource: CLUSTER-resource APIs (CreateTopics,
 /// DeleteTopics) on the principal's CLUSTER CREATE/DELETE permission, and group-management
-/// APIs (JoinGroup, SyncGroup, Heartbeat, LeaveGroup) on GROUP READ for the single groupId
-/// they carry. A request that reaches this check without an authenticated principal is denied
+/// APIs (JoinGroup, SyncGroup, Heartbeat, LeaveGroup, ConsumerGroupHeartbeat) on GROUP READ
+/// for the single groupId they carry. A request that reaches this check without an authenticated principal is denied
 /// rather than passed through, so skipping SASL cannot bypass RBAC.
 public final class WholeRequestAuthorizationCheck implements AuthorizationCheck<Object, Object> {
 
@@ -117,6 +118,9 @@ public final class WholeRequestAuthorizationCheck implements AuthorizationCheck<
         }
         if (apiKey == ApiKeys.LEAVE_GROUP.id) {
             return new LeaveGroupResponseData().setErrorCode(error.code());
+        }
+        if (apiKey == ApiKeys.CONSUMER_GROUP_HEARTBEAT.id) {
+            return new ConsumerGroupHeartbeatResponseData().setErrorCode(error.code()).setErrorMessage(error.message());
         }
         throw new IllegalArgumentException("unsupported api key " + apiKey);
     }

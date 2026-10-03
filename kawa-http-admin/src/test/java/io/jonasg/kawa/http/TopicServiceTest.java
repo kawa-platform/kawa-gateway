@@ -12,13 +12,16 @@ import io.jonasg.kawa.core.cluster.MetadataSnapshot;
 import io.jonasg.kawa.core.cluster.PartitionMetadata;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
 import io.jonasg.kawa.governance.GovernancePolicy;
+import io.jonasg.kawa.governance.TopicDescriber.TopicState;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.errors.TopicExistsException;
+import org.apache.kafka.common.resource.ResourceType;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -116,6 +119,37 @@ class TopicServiceTest {
     }
 
     @Test
+    void refusesDeletingAProtectedPhysicalTopic() {
+        // given - compacted topics are kept
+        cacheWith(topic("orders", 1, 1));
+        topicAdmin.states.put("orders", new TopicState(1, 1, Map.of("cleanup.policy", "compact")));
+        governance = new GovernancePolicy(new GovernanceConfig(Map.of("keep-compacted", keepCompactedRule())));
+        TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
+
+        // when / then
+        assertThatThrownBy(() -> governedService.deleteTopic("orders", Consistency.PERSISTED))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("topic 'orders' rejected by governance: [keep-compacted] compacted topics are kept");
+        assertThat(topicAdmin.deleted).isEmpty();
+    }
+
+    @Test
+    void refusesRemovingAProtectedVirtualTopic() {
+        // given - views of orders are kept
+        repository.update(base -> base.upsertVirtualTopic("orders-view", new VirtualTopicConfig("orders")));
+        governance = new GovernancePolicy(new GovernanceConfig(Map.of("keep-views", new GovernanceRuleConfig(
+                "keep-views", "views of orders are kept", null,
+                new Selector(ResourceType.TOPIC, null, GovernanceRuleConfig.TopicScope.VIRTUAL, Set.of(GovernanceRuleConfig.Operation.DELETE)),
+                Expression.cel("topic.physicalTopic != 'orders'")))));
+        TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
+
+        // when / then
+        assertThatThrownBy(() -> governedService.deleteTopic("orders-view", Consistency.PERSISTED))
+                .isInstanceOf(ForbiddenException.class);
+        assertThat(repository.getActiveConfig().virtualTopics()).containsKey("orders-view");
+    }
+
+    @Test
     void rejectsPatchForPhysicalTopic() {
         // given
         cacheWith(topic("orders", 1, 1));
@@ -158,6 +192,37 @@ class TopicServiceTest {
     }
 
     @Test
+    void rejectsVirtualTopicViolatingGovernance() {
+        // given - virtual topics must be named after their physical topic
+        governance = new GovernancePolicy(new GovernanceConfig(Map.of("aliases", virtualAliasRule())));
+        TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
+        var request = new TopicRequest("virtual", "orders", null, null, null, "payments-v2", null, null, null);
+
+        // when / then
+        assertThatThrownBy(() -> governedService.upsertVirtualTopic("orders", request, Consistency.PERSISTED))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessage("topic 'orders' rejected by governance: [aliases] virtual topics alias a topic of their own name");
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "A refused virtual topic was stored")
+                .doesNotContainKey("orders");
+    }
+
+    @Test
+    void judgesARetargetedVirtualTopicOnAlter() {
+        // given - the rule runs on create and alter
+        repository.update(base -> base.upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1")));
+        governance = new GovernancePolicy(new GovernanceConfig(Map.of("aliases", virtualAliasRule())));
+        TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
+
+        // when / then
+        assertThatThrownBy(() -> governedService.updateVirtualTopic("orders",
+                new VirtualTopicConfigPatch(null, "payments-v1", null, null, null), Consistency.PERSISTED))
+                .isInstanceOf(ForbiddenException.class);
+        governedService.updateVirtualTopic("orders", new VirtualTopicConfigPatch(null, "orders-v2", null, null, null), Consistency.PERSISTED);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders").topic()).isEqualTo("orders-v2");
+    }
+
+    @Test
     void acceptsExemptTopicAndCreatesOnBroker() throws Exception {
         // given - the admin API's placeholder principal is `admin`
         var rule = minReplicationRule();
@@ -190,6 +255,19 @@ class TopicServiceTest {
         assertThatThrownBy(() -> service.createPhysicalTopic(request))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("already exists");
+    }
+
+    private static GovernanceRuleConfig keepCompactedRule() {
+        return new GovernanceRuleConfig("keep-compacted", "compacted topics are kept", null,
+                new Selector(ResourceType.TOPIC, null, GovernanceRuleConfig.TopicScope.PHYSICAL, Set.of(GovernanceRuleConfig.Operation.DELETE)),
+                Expression.cel("!('cleanup.policy' in topic.configs) || topic.configs['cleanup.policy'] != 'compact'"));
+    }
+
+    private static GovernanceRuleConfig virtualAliasRule() {
+        return new GovernanceRuleConfig("aliases", "virtual topics alias a topic of their own name", null,
+                new Selector(ResourceType.TOPIC, null, GovernanceRuleConfig.TopicScope.VIRTUAL,
+                        Set.of(GovernanceRuleConfig.Operation.CREATE, GovernanceRuleConfig.Operation.ALTER)),
+                Expression.cel("topic.physicalTopic.startsWith(topic.name)"));
     }
 
     private static GovernanceRuleConfig minReplicationRule() {

@@ -25,7 +25,7 @@ public final class PutGovernanceRuleHandler implements Router.Handler {
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
             var name = request.pathParams().get("name");
-            var govRuleCfg = service.upsertRule(mapper.toGovernanceRuleConfig(name, govRuleReq), consistency);
+            var govRuleCfg = service.upsertRule(mapper.toGovernanceRuleConfig(name, govRuleReq, service.get().variables().values()), consistency);
             return Router.Response.ok(mapper.toGovernanceRuleConfigView(govRuleCfg));
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());

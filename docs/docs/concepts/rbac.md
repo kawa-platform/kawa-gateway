@@ -77,10 +77,9 @@ Each ACL has three parts:
 - `CLUSTER` matches the cluster regardless of name — `pattern` is not used.
 - `TOPIC`, `GROUP` and `TRANSACTIONAL_ID` match by name. `LITERAL` requires an exact match;
   `PREFIXED` matches any name starting with `pattern`.
-- `TRANSACTIONAL_ID` gates FindCoordinator's TRANSACTION lookups (`keyType == 1`), DescribeTransactions, and the
-  transactional produce/commit APIs `AddPartitionsToTxn` and
-  `TxnOffsetCommit`. The remaining transactional APIs (`InitProducerId`, `AddOffsetsToTxn`,
-  `EndTxn`) are not gated yet.
+- `TRANSACTIONAL_ID` gates FindCoordinator's TRANSACTION lookups (`keyType == 1`), DescribeTransactions,
+  `InitProducerId` with a transactional id, and the transactional produce/commit APIs `AddPartitionsToTxn` and
+  `TxnOffsetCommit`. The remaining transactional APIs (`AddOffsetsToTxn`, `EndTxn`) are not gated yet.
 
 ### Operation
 
@@ -89,7 +88,7 @@ The operation being checked. The most relevant values are:
 | Operation | Used for                                                                |
 |-----------|-------------------------------------------------------------------------|
 | `WRITE`   | Producing to a topic                                                    |
-| `READ`    | Consumer group management (JoinGroup, SyncGroup, Heartbeat, LeaveGroup) |
+| `READ`    | Consumer group management (JoinGroup, SyncGroup, Heartbeat, LeaveGroup, ConsumerGroupHeartbeat) |
 | `CREATE`  | Creating topics                                                         |
 | `DELETE`  | Deleting topics                                                         |
 | `ALL`     | Matches any operation                                                   |
@@ -115,6 +114,7 @@ RBAC currently gates these APIs:
 | DeleteAcls                                     | `CLUSTER`                                                                 | `ALTER`           |
 | DescribeLogDirs                                | `CLUSTER`                                                                 | `DESCRIBE`        |
 | JoinGroup / SyncGroup / Heartbeat / LeaveGroup | `GROUP` (the groupId)                                                     | `READ`            |
+| ConsumerGroupHeartbeat                         | `GROUP` (the groupId)                                                     | `READ`            |
 | DescribeGroups                                 | `GROUP` (per group)                                                       | `DESCRIBE`        |
 | ListGroups                                     | `GROUP` (response filter)                                                 | `DESCRIBE`        |
 | OffsetCommit                                   | `GROUP` (the groupId) + `TOPIC` (per topic)                               | `READ`            |
@@ -123,6 +123,7 @@ RBAC currently gates these APIs:
 | FindCoordinator (GROUP lookup)                 | `GROUP` (the key)                                                         | `DESCRIBE`        |
 | FindCoordinator (TRANSACTION lookup)           | `TRANSACTIONAL_ID` (the key)                                              | `DESCRIBE`        |
 | DescribeTransactions                           | `TRANSACTIONAL_ID` (per id)                                               | `DESCRIBE`        |
+| InitProducerId (transactional)                 | `TRANSACTIONAL_ID` (the id)                                               | `WRITE`           |
 | AddPartitionsToTxn                             | `TRANSACTIONAL_ID` (the id) + `TOPIC` (per topic)                         | `WRITE`           |
 | TxnOffsetCommit                                | `TRANSACTIONAL_ID` (the id) + `GROUP` (the groupId) + `TOPIC` (per topic) | `WRITE` / `READ`  |
 | DescribeTopicPartitions                        | `TOPIC` (per topic)                                                       | `DESCRIBE`        |

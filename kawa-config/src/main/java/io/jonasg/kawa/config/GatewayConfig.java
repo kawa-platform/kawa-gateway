@@ -106,6 +106,26 @@ public record GatewayConfig(
         return copyWith(virtualTopics, auth, rbac, governance);
     }
 
+    /// Returns a new [GatewayConfig] with the governance rule `name` removed.
+    public GatewayConfig removeGovernanceRule(String name) {
+        return copyWith(virtualTopics, auth, rbac, governance().removeRule(name));
+    }
+
+    /// Returns a new [GatewayConfig] with the given global governance exemption added or replaced.
+    public GatewayConfig upsertGovernanceExemption(GovernanceRuleConfig.Exemption exemption) {
+        return copyWith(virtualTopics, auth, rbac, governance().upsertExemption(exemption.name(), exemption));
+    }
+
+    /// Returns a new [GatewayConfig] with the governance section replaced.
+    public GatewayConfig updateGovernance(GovernanceConfig governance) {
+        return copyWith(virtualTopics, auth, rbac, governance);
+    }
+
+    /// Returns a new [GatewayConfig] with the global governance exemption `name` removed.
+    public GatewayConfig removeGovernanceExemption(String name) {
+        return copyWith(virtualTopics, auth, rbac, governance().removeExemption(name));
+    }
+
     /// Returns a new [GatewayConfig] with the virtual topics map replaced.
     public GatewayConfig updateVirtualTopics(Map<String, VirtualTopicConfig> virtualTopics) {
         return copyWith(virtualTopics, auth, rbac, governance);

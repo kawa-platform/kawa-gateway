@@ -23,6 +23,8 @@ import org.apache.kafka.common.message.SaslHandshakeRequestData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.CompletionStage;
+
 /// Handles a single decoded client frame: answers ApiVersions and SASL bootstrap APIs locally,
 /// otherwise runs the interceptor pipeline, routes to the right broker and forwards the request.
 public final class KafkaClientRequestHandler {
@@ -80,6 +82,35 @@ public final class KafkaClientRequestHandler {
             KafkaClientRequest request
     ) {
         var context = new GatewayContext(session, System.nanoTime(), session.principal());
+        CompletionStage<Void> prepared = pipeline.prepare(context, request);
+        if (prepared == null) {
+            intercept(session, request, context);
+            return;
+        }
+        // An interceptor is waiting on a lookup (e.g. governance reading a topic's current
+        // configs): carry on back on this connection's event loop once it is done.
+        var eventLoop = session.channel().eventLoop();
+        prepared.whenComplete((_, _) -> eventLoop.execute(() -> {
+            if (!session.channel().isActive()) {
+                if (request.rawBody() != null) {
+                    request.rawBody().release();
+                }
+                return;
+            }
+            try {
+                intercept(session, request, context);
+            } catch (Exception e) {
+                log.warn("Error dispatching request; closing client connection", e);
+                session.close();
+            }
+        }));
+    }
+
+    private void intercept(
+            ClientSession session,
+            KafkaClientRequest request,
+            GatewayContext context
+    ) {
         pipeline.onRequest(context, request);
         if (context.isShortCircuited()) {
             writeShortCircuit(session, request, context.shortCircuitResult());

@@ -2,12 +2,15 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.GovernanceRuleConfig.Operation;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
 import io.jonasg.kawa.governance.GovernancePolicy;
+import io.jonasg.kawa.governance.GovernanceRequest;
+import io.jonasg.kawa.governance.TopicDescriber.TopicState;
 import io.jonasg.kawa.governance.TopicSpec;
 import io.jonasg.kawa.governance.Violation;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
@@ -16,6 +19,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /// Owns the admin topic surface: virtual topic config CRUD, physical topic listing,
@@ -24,6 +30,7 @@ final class TopicService {
 
     private static final String PRINCIPAL = "admin";
     private static final String SERVICE = "kawa";
+    private static final int DESCRIBE_TIMEOUT_SECONDS = 10;
 
     private final VirtualTopicManager virtualTopics;
     private final MetadataCache cache;
@@ -71,6 +78,8 @@ final class TopicService {
         if (request.topic() == null || request.topic().isBlank()) {
             throw new IllegalArgumentException("virtual topic requires a physical 'topic'");
         }
+        var operation = repository.getActiveConfigOrEmpty().virtualTopics().containsKey(name) ? Operation.ALTER : Operation.CREATE;
+        admit(name, GovernanceRequest.virtualTopic(PRINCIPAL, SERVICE, operation, name, request.topic()));
         var value = new VirtualTopicConfig(
                 request.topic(),
                 request.filter(),
@@ -102,6 +111,7 @@ final class TopicService {
         if (topic == null || topic.isBlank()) {
             throw new IllegalArgumentException("virtual topic requires a physical 'topic'");
         }
+        admit(newName, GovernanceRequest.virtualTopic(PRINCIPAL, SERVICE, Operation.ALTER, newName, topic));
         var updated = new VirtualTopicConfig(
                 topic,
                 patch.filter(),
@@ -113,13 +123,23 @@ final class TopicService {
 
     void deleteTopic(String name, Consistency consistency) {
         GatewayConfig base = repository.getActiveConfigOrEmpty();
-        if (base.virtualTopics().containsKey(name)) {
+        VirtualTopicConfig virtual = base.virtualTopics().get(name);
+        if (virtual != null) {
+            admit(name, GovernanceRequest.virtualTopic(PRINCIPAL, SERVICE, Operation.DELETE, name, virtual.topic()));
             updater.update(consistency, config -> config.removeVirtualTopic(name));
             return;
         }
         boolean physicalExists = cache.topics().stream().anyMatch(t -> t.name().equals(name));
         if (!physicalExists) {
             throw new NotFoundException("topic '" + name + "' not found");
+        }
+        if (governance.hasPhysicalTopicRules(Operation.DELETE)) {
+            TopicState current = currentState(name);
+            if (current == null) {
+                throw new NotFoundException("topic '" + name + "' not found");
+            }
+            admit(name, GovernanceRequest.topicDelete(PRINCIPAL, SERVICE,
+                    new TopicSpec(name, current.partitions(), current.replicationFactor(), current.configs())));
         }
         try {
             topicAdmin.deleteTopic(name);
@@ -140,14 +160,7 @@ final class TopicService {
                 request.partitions() == null ? -1 : request.partitions(),
                 request.replicationFactor() == null ? -1 : request.replicationFactor(),
                 request.configs());
-        List<Violation> violations = governance.evaluate(PRINCIPAL, SERVICE, spec);
-        if (!violations.isEmpty()) {
-            String detail = violations.stream()
-                    .map(v -> "[" + v.rule() + "] " + v.message())
-                    .collect(Collectors.joining("; "));
-            throw new ForbiddenException(
-                    "topic '" + spec.name() + "' rejected by governance: " + detail);
-        }
+        admit(spec.name(), GovernanceRequest.topic(PRINCIPAL, SERVICE, spec));
         try {
             topicAdmin.createTopic(spec);
         } catch (Exception e) {
@@ -157,6 +170,31 @@ final class TopicService {
             throw new IllegalStateException("failed to create topic '" + spec.name() + "': " + e.getMessage(), e);
         }
         return spec;
+    }
+
+    /// The topic's current state from the broker, or `null` when the broker does not know it.
+    private TopicState currentState(String name) {
+        try {
+            return topicAdmin.describe(List.of(name)).toCompletableFuture()
+                    .get(DESCRIBE_TIMEOUT_SECONDS, TimeUnit.SECONDS).get(name);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted reading topic '" + name + "'", e);
+        } catch (ExecutionException | TimeoutException e) {
+            throw new IllegalStateException("governance could not read the current state of topic '" + name + "': "
+                    + (e.getCause() == null ? e.getMessage() : e.getCause().getMessage()), e);
+        }
+    }
+
+    /// Refuses the request with `403` and every violation when governance does not allow it.
+    private void admit(String name, GovernanceRequest request) {
+        List<Violation> violations = governance.evaluate(request);
+        if (!violations.isEmpty()) {
+            String detail = violations.stream()
+                    .map(Violation::describe)
+                    .collect(Collectors.joining("; "));
+            throw new ForbiddenException("topic '" + name + "' rejected by governance: " + detail);
+        }
     }
 
     int partitionCount(String physicalTopic) {

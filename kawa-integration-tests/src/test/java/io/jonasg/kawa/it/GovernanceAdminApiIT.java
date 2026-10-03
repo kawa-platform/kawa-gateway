@@ -93,7 +93,8 @@ class GovernanceAdminApiIT {
                                   "errorMessage": "partitions must be at least 2",
                                   "description": "All topics must have at least 2 partitions.",
                                   "selector": {
-                                    "resourceType": "TOPIC"
+                                    "resourceType": "TOPIC",
+                                    "scope": "PHYSICAL"
                                   },
                                   "expression": {
                                     "type": "CEL",
@@ -129,12 +130,22 @@ class GovernanceAdminApiIT {
                       "description": "All topics must have at least 2 partitions.",
                       "selector": {
                         "resourceType": "TOPIC",
-                        "expression": null
+                        "expression": null,
+                        "scope": "PHYSICAL",
+                        "operations": ["CREATE"]
                       },
-                      "expression": {
-                        "type": "CEL",
-                        "value": "topic.partitions >= 2"
-                      },
+                      "match": "ALL",
+                      "subRules": [
+                        {
+                          "kind": "check",
+                          "name": "min-partitions",
+                          "errorMessage": null,
+                          "expression": {
+                            "type": "CEL",
+                            "value": "topic.partitions >= 2"
+                          }
+                        }
+                      ],
                       "exemptions": [
                         {
                           "name": "admin-changelogs",
@@ -146,7 +157,9 @@ class GovernanceAdminApiIT {
                         }
                       ]
                     }
-                  ]
+                  ],
+                  "exemptions": [],
+                  "variables": []
                 }
                 """);
 
@@ -182,5 +195,57 @@ class GovernanceAdminApiIT {
                         .build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(admitted).hasStatusCode(201);
+    }
+
+    @Test
+    void enforcesGovernanceRulesOnVirtualTopics() throws Exception {
+        // given - virtual topics must be named <physical>-view
+        String base = "http://127.0.0.1:" + gateway.adminBoundPort();
+        var http = HttpClient.newHttpClient();
+        HttpResponse<String> governancePut = http.send(
+                HttpRequest.newBuilder(URI.create(base + "/governance/rules/view-naming?consistency=applied"))
+                        .PUT(HttpRequest.BodyPublishers.ofString("""
+                                {
+                                  "errorMessage": "virtual topics are named <physical>-view",
+                                  "selector": {"resourceType": "TOPIC", "scope": "VIRTUAL", "operations": ["CREATE", "ALTER"]},
+                                  "match": "ALL",
+                                  "subRules": [{"kind": "check", "name": "view-suffix",
+                                                "expression": {"type": "CEL", "value": "topic.name == topic.physicalTopic + '-view'"}}]
+                                }
+                                """))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(governancePut).hasStatusCode(200);
+
+        // when / then - a badly named virtual topic is refused and not stored
+        HttpResponse<String> rejected = http.send(
+                HttpRequest.newBuilder(URI.create(base + "/topics"))
+                        .POST(HttpRequest.BodyPublishers.ofString("{\"type\":\"virtual\",\"name\":\"stock\",\"topic\":\"inventory\"}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(rejected).hasStatusCode(403);
+        assertThat(rejected.body()).contains("[view-naming > view-suffix] virtual topics are named <physical>-view");
+
+        // and - a well named one is stored
+        HttpResponse<String> admitted = http.send(
+                HttpRequest.newBuilder(URI.create(base + "/topics"))
+                        .POST(HttpRequest.BodyPublishers.ofString("{\"type\":\"virtual\",\"name\":\"inventory-view\",\"topic\":\"inventory\"}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(admitted).hasStatusCode(201);
+
+        // and - retargeting it so the name no longer fits is refused on alter
+        HttpResponse<String> retarget = http.send(
+                HttpRequest.newBuilder(URI.create(base + "/topics/inventory-view"))
+                        .method("PATCH", HttpRequest.BodyPublishers.ofString("{\"topic\":\"warehouse\"}"))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(retarget).hasStatusCode(403);
+
+        // cleanup - the rule list is asserted verbatim by the other test
+        HttpResponse<String> deleted = http.send(
+                HttpRequest.newBuilder(URI.create(base + "/governance/rules/view-naming?consistency=applied")).DELETE().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(deleted.statusCode()).isBetween(200, 204);
     }
 }

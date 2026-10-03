@@ -346,35 +346,101 @@ the CORS spec.
 Dynamic, and **managed only through the [Admin API](#config-endpoints)** — governance is never read from the YAML
 file. A `governance` section in the file is dropped at load time: it is neither applied nor validated.
 
-Topic governance: named CEL rules that new topics must satisfy. Each rule carries its own exemptions — named cases the
-rule does not apply to. When no rules are configured, every topic creation is admitted.
+Governance: named CEL rules that resources must satisfy, global exemptions that skip every rule, and typed variables
+every expression can read. When no rules are configured, every request is admitted.
 
-| Field   | Type | Default   | Description            |
-|---------|------|-----------|------------------------|
-| `rules` | map  | *(empty)* | Named rules, see below |
+| Field        | Type | Default   | Description                                        |
+|--------------|------|-----------|----------------------------------------------------|
+| `rules`      | map  | *(empty)* | Named rules, see below                             |
+| `exemptions` | map  | *(empty)* | Named global [exemptions](#exemption); each skips every rule |
+| `variables`  | map  | *(empty)* | Named [variables](#variable)                       |
 
-These tables and the example below describe the governance section as it is **stored in the config topic snapshot**:
-`rules` is a map keyed by name. The Admin API presents the same data differently — `GET /governance/rules` returns the
-rules as a **list**, each rule carrying its own `name` — and reads and writes one rule at a time through
-`GET` and `PUT /governance/rules/{name}` (see [Config endpoints](#config-endpoints)).
+These tables describe the governance section as it is **stored in the config topic snapshot**: each section is a map
+keyed by name. The Admin API lists them as arrays of objects carrying their own `name`, and reads and writes one entry
+at a time (see [Config endpoints](#config-endpoints)).
+
+#### What is enforced today
+
+| Request                                                                              | Enforced as                                        | Refused with                                   |
+|--------------------------------------------------------------------------------------|----------------------------------------------------|------------------------------------------------|
+| `CreateTopics` (Kafka protocol) and `POST /topics` with `type: physical` (Admin API) | `TOPIC` rules on `CREATE` covering physical topics | `POLICY_VIOLATION` per topic                   |
+| `AlterConfigs`, `IncrementalAlterConfigs` on topics                                   | `TOPIC` rules on `ALTER` covering physical topics  | `POLICY_VIOLATION` per resource                |
+| `CreatePartitions`                                                                    | `TOPIC` rules on `ALTER` covering physical topics  | `POLICY_VIOLATION` per topic                   |
+| `POST /topics` with `type: virtual`, `PUT /topics/{name}` (Admin API)                 | `TOPIC` rules covering virtual topics, on `CREATE` for a new virtual topic and `ALTER` for an existing one | `403` with the violations |
+| `PATCH /topics/{name}` on a virtual topic (Admin API)                                 | `TOPIC` rules covering virtual topics on `ALTER`, under the new name | `403` with the violations |
+| `DeleteTopics`                                                                        | `TOPIC` rules on `DELETE` covering physical topics | `POLICY_VIOLATION` per topic                   |
+| `DELETE /topics/{name}` (Admin API)                                                   | `TOPIC` rules on `DELETE` covering the topic's kind | `403` with the violations                     |
+| `JoinGroup`, `ConsumerGroupHeartbeat`                                                 | `GROUP` rules                                      | `INVALID_GROUP_ID`                             |
+| `OffsetCommit`, `TxnOffsetCommit`                                                     | `GROUP` rules                                      | `INVALID_GROUP_ID` per partition               |
+| `InitProducerId` with a transactional id                                              | `TRANSACTIONAL_ID` rules                           | `TRANSACTIONAL_ID_AUTHORIZATION_FAILED`        |
+
+The governance message, e.g. `[model > compaction > compact] model topics must be compacted`, is sent in the
+response's error message where the API has one (`CreateTopics`, the alter configs APIs, `CreatePartitions`, `DeleteTopics`,
+`ConsumerGroupHeartbeat`), so
+clients usually only see the error code for groups and transactional ids. Every refusal is logged by the gateway with
+the full message. For requests with per-entry results the rest of the request goes through.
+
+A consumer that is not allowed to use its group fails on `poll()` with `InvalidGroupIdException`; a transactional
+producer fails on `initTransactions()` with `TransactionalIdAuthorizationException`. A `ConsumerGroupHeartbeat` that
+leaves the group is never refused. Group and transactional-id verdicts are cached until the governance config changes.
+
+On `ALTER` a rule sees the topic **as it will be after the change**: the gateway reads its current partitions,
+replication factor and configs from the broker and applies the change on top. `AlterConfigs` replaces every config set
+on the topic; `IncrementalAlterConfigs` sets, deletes, appends to or subtracts from them (appending to a config the topic
+does not set starts from an empty list, not the broker default); `CreatePartitions` sets the partition count. So a
+change to a topic that already breaks a rule is refused unless it fixes it. A change to a topic the broker does not
+know is left for the broker to answer, and when the topic's state cannot be read the change is refused. The broker is
+only asked while some rule runs on `ALTER`.
+
+On `DELETE` a rule sees the topic **as it is**, read from the broker the same way (a virtual topic: its name and
+physical topic). A `DeleteTopics` entry that names a topic by id only cannot be judged and is refused while some rule
+runs on `DELETE`; delete by name instead.
+
+A virtual topic is judged with `topic.name`, `topic.virtual == true` and `topic.physicalTopic`. A change through a
+virtual topic's name on the Kafka protocol (an alter or `CreatePartitions`) changes its physical topic, so it is judged
+as a change to that physical topic. Snapshots written straight to the config topic bypass the Admin API and are not
+judged.
 
 #### `governance.rules.<name>`
 
-| Field          | Type                        | Description                                                           |
-|----------------|-----------------------------|-----------------------------------------------------------------------|
-| `name`         | string                      | Unique, human-readable name of the rule (required)                    |
-| `errorMessage` | string                      | Message shown when the rule rejects a topic                           |
-| `description`  | string                      | Longer explanation of what the rule enforces                          |
-| `selector`     | [selector](#selector)       | Which Kafka resources the rule applies to                             |
-| `expression`   | [expression](#expression)   | Must evaluate to `true` for the resource to be compliant (required)   |
-| `exemptions`   | list of [exemption](#exemption) | Named cases the rule does not apply to; empty or absent means none |
+| Field          | Type                                | Description                                                         |
+|----------------|-------------------------------------|---------------------------------------------------------------------|
+| `name`         | string                              | Unique, human-readable name of the rule (required)                  |
+| `errorMessage` | string                              | Message shown when the rule rejects a request                       |
+| `description`  | string                              | Longer explanation of what the rule enforces                        |
+| `selector`     | [selector](#selector)               | Which requests the rule applies to                                  |
+| `match`        | `ALL` \| `ANY`                      | How `subRules` combine: every one must hold, or at least one        |
+| `subRules`     | list of [sub-rule](#sub-rule)       | The checks and groups making up the rule (required, non-empty)      |
+| `exemptions`   | list of [exemption](#exemption)     | Named cases this rule does not apply to; empty or absent means none |
+
+A snapshot written before sub-rules existed, with a single top-level `expression`, is still read: it becomes one check
+named after the rule.
 
 ##### `selector`
 
-| Field          | Type                      | Description                                             |
-|----------------|---------------------------|---------------------------------------------------------|
-| `resourceType` | string                    | Kafka resource type the rule targets, e.g. `TOPIC`      |
-| `expression`   | [expression](#expression) | Narrows the selected resources; `true` selects them all |
+| Field          | Type                      | Default    | Description                                                        |
+|----------------|---------------------------|------------|--------------------------------------------------------------------|
+| `resourceType` | string                    |            | `TOPIC`, `GROUP` or `TRANSACTIONAL_ID`; decides the bound variable |
+| `expression`   | [expression](#expression) | `null`     | Narrows the selected resources; `null` selects them all            |
+| `scope`        | string                    | `BOTH`     | Topics only: `PHYSICAL`, `VIRTUAL` or `BOTH`                       |
+| `operations`   | list of string            | `[CREATE]` | Topics only: `CREATE`, `ALTER` (config changes, `CreatePartitions`) and/or `DELETE`; ignored for other types |
+
+##### `sub-rule`
+
+A check (`kind: check`) or a group of checks (`kind: group`). Groups hold checks only, never other groups.
+
+| Field          | Type                      | Description                                                            |
+|----------------|---------------------------|------------------------------------------------------------------------|
+| `kind`         | string                    | `check` or `group`                                                     |
+| `name`         | string                    | Unique among its siblings                                              |
+| `errorMessage` | string                    | Optional; when absent the nearest group's or the rule's message is used |
+| `expression`   | [expression](#expression) | A check's expression                                                   |
+| `match`        | `ALL` \| `ANY`            | How a group's checks combine                                           |
+| `checks`       | list of sub-rule          | A group's checks                                                       |
+
+Sub-rules are evaluated left to right and stop early like `&&` / `||`. When a rule fails, the message is the most
+specific one along the failing path: under `ALL` the failing check's own message, else its group's, else the rule's;
+under `ANY` (no branch held) the group's or rule's.
 
 ##### `expression`
 
@@ -387,48 +453,66 @@ rules as a **list**, each rule carrying its own `name` — and reads and writes 
 
 | Field         | Type                      | Description                                                  |
 |---------------|---------------------------|--------------------------------------------------------------|
-| `name`        | string                    | Unique name of the exemption within its rule (required)      |
+| `name`        | string                    | Unique name of the exemption (required)                      |
 | `description` | string                    | Why the exemption exists                                     |
 | `expression`  | [expression](#expression) | When it evaluates to `true`, the rule is skipped (required)  |
 
-An exemption only switches off **its own rule**; every other rule still applies. When any of a rule's exemptions
-evaluates to `true` for a request, that rule is skipped. An exemption that fails to evaluate, or does not return
-`true`, does not apply, so the rule stays enforced. Exemptions use the same bindings as rules, so they can match on the
-principal, the service, the topic, or any combination — a topic-only exemption such as
-`topic.name.endsWith('-changelog')` is allowed and exempts every principal from that one rule.
+A rule's own exemption switches off **that rule** only. A global exemption (`governance.exemptions`) switches off
+**every** rule; it may read any resource variable, but only the requested resource is bound, so `topic.name…` never
+matches a consumer group request. An exemption that fails to evaluate, or does not return `true`, does not apply.
+
+##### `variable`
+
+| Field   | Type   | Description                                                                         |
+|---------|--------|-------------------------------------------------------------------------------------|
+| `name`  | string | A CEL identifier; not `principal`, `service`, `topic`, `group` or `transaction`     |
+| `type`  | string | `string`, `int`, `double`, `bool`, `list<string>` or `list<int>`                    |
+| `value` | string | The literal in JSON syntax, e.g. `"[1, 4, 6, 12]"`                                  |
+| `note`  | string | What the variable is for                                                            |
+
+`samples`, `notes` and `extraExamples` are admin UI display hints; the gateway stores them and never reads them. A
+`string` variable holding a regex may use named groups (also display hints); they are evaluated as plain groups.
 
 ```json
 {
   "rules": {
-    "min-replication": {
-      "name": "min-replication",
-      "errorMessage": "replication factor must be at least 3",
-      "description": "Topics need at least 3 replicas to survive a broker loss.",
-      "selector": {"resourceType": "TOPIC", "expression": {"type": "CEL", "value": "true"}},
-      "expression": {"type": "CEL", "value": "topic.replicationFactor >= 3"},
+    "partition-tier": {
+      "name": "partition-tier",
+      "errorMessage": "Partition count must match a tier.",
+      "selector": {"resourceType": "TOPIC", "expression": null, "scope": "PHYSICAL", "operations": ["CREATE"]},
+      "match": "ALL",
+      "subRules": [
+        {"kind": "check", "name": "tier", "expression": {"type": "CEL", "value": "topic.partitions in partitionTiers"}}
+      ],
       "exemptions": [
-        {
-          "name": "ops-changelogs",
-          "description": "Operators manage changelog topics by hand.",
-          "expression": {"type": "CEL", "value": "principal.startsWith('ops-') && topic.name.endsWith('-changelog')"}
-        }
+        {"name": "platform", "description": "Sized by hand.", "expression": {"type": "CEL", "value": "principal.startsWith('User:platform-')"}}
       ]
     }
+  },
+  "exemptions": {},
+  "variables": {
+    "partitionTiers": {"name": "partitionTiers", "type": "list<int>", "value": "[1, 4, 6, 12]", "note": "single, low, medium, high."}
   }
 }
 ```
 
-CEL expressions — rules and exemptions alike — are compiled eagerly when the config is applied: a bad expression
-rejects the config instead of failing the first request. They have access to these bindings:
+CEL expressions — rules, selectors and exemptions alike — are compiled eagerly when the config is applied: a bad
+expression rejects the config instead of failing the first request. Removing or retyping a variable a rule still reads
+is refused by the Admin API. Expressions have access to these bindings:
 
 | Binding                   | Type                    | Notes                                                               |
 |---------------------------|-------------------------|---------------------------------------------------------------------|
-| `principal`               | string                  | The principal requesting the topic                                  |
-| `service`                 | string                  | The service the topic is created on                                 |
-| `topic.name`              | string                  | Topic name                                                          |
-| `topic.partitions`        | int                     | Requested partitions, or `-1` for the broker default                |
-| `topic.replicationFactor` | int                     | Requested replication factor, or `-1` for the broker default        |
-| `topic.configs`           | map of string to string | Topic configs; a missing key resolves to `""` (falsy, not an error) |
+| `principal`               | string                  | The requesting principal                                            |
+| `service`                 | string                  | `kafka` on the Kafka listener, `kawa` on the Admin API              |
+| `topic.name`              | string                  | `TOPIC` rules: topic name                                           |
+| `topic.virtual`           | bool                    | `TOPIC` rules: whether the topic is virtual                         |
+| `topic.partitions`        | int                     | Physical topics: partitions; on `CREATE` `-1` for the broker default |
+| `topic.replicationFactor` | int                     | Physical topics: replication factor; on `CREATE` `-1` for the broker default |
+| `topic.configs`           | map of string to string | Physical topics: configs set on the topic (not broker defaults). Test presence with `'key' in topic.configs`; reading a key that is not set fails the check |
+| `topic.physicalTopic`     | string                  | Virtual topics: the physical topic it maps onto                     |
+| `group.id`                | string                  | `GROUP` rules: consumer group id                                    |
+| `transaction.id`          | string                  | `TRANSACTIONAL_ID` rules: the transactional id                      |
+| *variable name*           | its declared type       | Every governance variable                                           |
 
 ## Dynamic config
 
@@ -470,8 +554,8 @@ The unified topic creation surface. The request body carries a `type` discrimina
 A `physical` topic runs the governance admission check and then creates the topic on the broker: an exempt principal +
 topic pair is admitted without evaluation, otherwise every rule must pass. A compliant topic returns `201` with the
 stored spec; a topic that violates one or more rules returns `403` with the violation messages; a topic that already
-exists returns `409`. A `virtual` topic writes the virtual topic config (no governance applies)
-and returns `201` with the stored config. An invalid body, unknown `type`, or a virtual topic without a physical `topic`
+exists returns `409`. A `virtual` topic is judged by the rules covering virtual topics (`403` with the violations when
+refused), then writes the virtual topic config and returns `201` with the stored config. An invalid body, unknown `type`, or a virtual topic without a physical `topic`
 returns `400`.
 
 The admin HTTP layer has no authentication yet, so the requesting principal is a placeholder (`admin`) until real admin
@@ -508,14 +592,20 @@ and governance). `GET` lists a section, `PUT /{name}` upserts one entry,
 | `/auth/clients`        | GET    | List clients                                     |
 | `/auth/clients/{name}` | PUT    | Add or replace a client                          |
 | `/auth/clients/{name}` | DELETE | Remove a client                                  |
-| `/governance/rules`         | GET    | List the governance rules                |
+| `/governance/rules`         | GET    | The governance section: rules, global exemptions and variables |
 | `/governance/rules/{name}`  | GET    | Read one governance rule                 |
 | `/governance/rules/{name}`  | PUT    | Add or replace a governance rule         |
+| `/governance/rules/{name}`  | DELETE | Remove a governance rule                 |
+| `/governance/exemptions`         | GET    | List the global exemptions          |
+| `/governance/exemptions/{name}`  | GET, PUT, DELETE | Read, add or replace, remove a global exemption |
+| `/governance/variables`          | GET    | List the variables                  |
+| `/governance/variables/{name}`   | PUT, DELETE | Add or replace, remove a variable (refused while a rule reads it) |
+| `/governance/dry-run`            | POST   | Evaluate a request (or one unsaved rule) and return the full trace |
 
 The request body for a `PUT` is the entry's JSON object, using the same fields as the reference above — e.g.
 `{"acls": [...]}` for a role, `{"clients": [...], "roles": [...]}`
 for a group, `{"mechanism": "PLAIN", "password": "..."}` for a client, or a rule object
-(`errorMessage`, `description`, `selector`, `expression`, `exemptions`; see [`governance`](#governance)) for a
+(`errorMessage`, `description`, `selector`, `match`, `subRules`, `exemptions`; see [`governance`](#governance)) for a
 governance rule.
 
 Adding a client via `PUT /auth/clients/{name}` auto-expands the advertised SASL mechanisms to include the client's

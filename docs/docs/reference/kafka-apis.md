@@ -21,6 +21,7 @@ rewriting, consume filtering). Requests for any **unregistered API pass through 
 |      19 | CreateTopics            | 0–7                |
 |      20 | DeleteTopics            | 0–6                |
 |      21 | DeleteRecords           | 0–2                |
+|      22 | InitProducerId          | all¹               |
 |      24 | AddPartitionsToTxn      | 0–3                |
 |      28 | TxnOffsetCommit         | 0–4                |
 |      29 | DescribeAcls            | 0–3                |
@@ -32,6 +33,9 @@ rewriting, consume filtering). Requests for any **unregistered API pass through 
 |      44 | IncrementalAlterConfigs | 0–1                |
 |      47 | OffsetDelete            | 0–0                |
 |      65 | DescribeTransactions    | 0–0                |
+|      68 | ConsumerGroupHeartbeat  | all¹               |
+
+¹ Every stable version of the bundled Kafka client library.
 
 The supported version range is what kawa can *decode*; it does not restrict which protocol versions clients may
 negotiate. Within these ranges kawa rewrites topic names in both directions — e.g. Produce, Fetch, Metadata,

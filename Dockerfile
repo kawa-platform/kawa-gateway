@@ -20,6 +20,7 @@ COPY .mvn .mvn
 COPY pom.xml ./
 COPY checkstyle.xml ./
 COPY kawa-config/pom.xml kawa-config/
+COPY kawa-test-support/pom.xml kawa-test-support/
 COPY kawa-core/pom.xml kawa-core/
 COPY kawa-protocol-kafka/pom.xml kawa-protocol-kafka/
 COPY kawa-virtual-topic/pom.xml kawa-virtual-topic/
@@ -33,6 +34,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     ./mvnw -B -pl kawa-server -am dependency:go-offline || true
 
 COPY kawa-config/src kawa-config/src
+COPY kawa-test-support/src kawa-test-support/src
 COPY kawa-core/src kawa-core/src
 COPY kawa-protocol-kafka/src kawa-protocol-kafka/src
 COPY kawa-virtual-topic/src kawa-virtual-topic/src

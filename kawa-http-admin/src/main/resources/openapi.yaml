@@ -39,9 +39,10 @@ paths:
     post:
       summary: Create a topic
       description: |
-        Unified topic creation. A `"type": "virtual"` body writes a virtual topic config
-        through the config repository; a `"type": "physical"` body runs the governance
-        admission check and creates the topic on the broker.
+        Unified topic creation. Both kinds run the governance admission check first (`403`
+        with the violations when refused). A `"type": "virtual"` body then writes a virtual
+        topic config through the config repository, judged on `CREATE` or, when it already
+        exists, `ALTER`; a `"type": "physical"` body creates the topic on the broker.
       requestBody:
         required: true
         content:
@@ -75,7 +76,8 @@ paths:
       description: |
         Upserts the virtual topic config for `name`. The body uses the same `type`
         discriminator as `POST /topics`; only `"type": "virtual"` is supported (physical
-        topic alteration is not implemented).
+        topic alteration is not implemented). Governance judges it on `CREATE` for a new
+        virtual topic and on `ALTER` for an existing one (`403` when refused).
       parameters:
         - $ref: '#/components/parameters/TopicName'
       requestBody:
@@ -93,6 +95,8 @@ paths:
                 $ref: '#/components/schemas/VirtualTopicConfigView'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '405':
@@ -105,6 +109,7 @@ paths:
         Partially updates the virtual topic identified by `name`. Omitted fields retain their
         current values; an omitted or null `filter` produces no filter. The optional `name`
         field atomically renames the virtual topic and must not collide with an existing topic.
+        Governance judges the result on `ALTER`, under the new name (`403` when refused).
       parameters:
         - $ref: '#/components/parameters/TopicName'
       requestBody:
@@ -122,6 +127,8 @@ paths:
                 $ref: '#/components/schemas/VirtualTopicConfigView'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '409':
@@ -135,12 +142,15 @@ paths:
       description: |
         Removes a virtual topic's config when `name` is a virtual topic, otherwise deletes
         the physical topic on the broker. A name that is both virtual and physical resolves
-        to the virtual config removal (the safer operation - no broker data loss).
+        to the virtual config removal (the safer operation - no broker data loss). Governance
+        judges the topic as it is on `DELETE` first (`403` when refused).
       parameters:
         - $ref: '#/components/parameters/TopicName'
       responses:
         '204':
           description: Topic deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '405':
@@ -384,7 +394,7 @@ paths:
   /governance/rules:
     get:
       summary: List governance rules
-      description: Every governance rule from the dynamic config, each with its own exemptions.
+      description: The governance section - every rule, each with its own exemptions, and every global exemption.
       responses:
         '200':
           description: The governance rules
@@ -422,9 +432,10 @@ paths:
       description: |
         Adds or replaces the governance rule `name` and persists the new config snapshot. The
         name always comes from the path: the body's `name` is optional, and when present it must
-        equal the path name. Both expressions are compiled before anything is written, so an
-        invalid rule is rejected here with `400` and a message naming the rule and the field at
-        fault, instead of failing the config-topic consumer later.
+        equal the path name. Every expression is compiled against the rule's resource type before
+        anything is written, so an invalid rule is rejected here with `400` and a message naming
+        the rule and the field at fault, instead of failing the config-topic consumer later.
+        A body with only a top-level `expression` (no `subRules`) is accepted and becomes one check.
       parameters:
         - $ref: '#/components/parameters/ConfigEntryName'
       requestBody:
@@ -444,6 +455,183 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      summary: Delete a governance rule
+      description: Removes the governance rule `name` and persists the new config snapshot.
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      responses:
+        '204':
+          description: Rule deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /governance/exemptions:
+    get:
+      summary: List global governance exemptions
+      description: Every global exemption. Each skips every rule when its expression is `true` for a request.
+      responses:
+        '200':
+          description: The global exemptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GovernanceExemption'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /governance/exemptions/{name}:
+    get:
+      summary: Read a global governance exemption
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      responses:
+        '200':
+          description: The global exemption
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GovernanceExemption'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      summary: Upsert a global governance exemption
+      description: |
+        Adds or replaces the global exemption `name`. The name comes from the path; the body's
+        `name` is optional and must equal it. The expression may read `principal`, `service` and
+        any resource variable (`topic`, `group`, `transaction`); only the requested resource is
+        bound, and an exemption that fails to evaluate does not apply.
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceExemption'
+      responses:
+        '200':
+          description: The stored global exemption
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GovernanceExemption'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      summary: Delete a global governance exemption
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      responses:
+        '204':
+          description: Exemption deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /governance/variables:
+    get:
+      summary: List governance variables
+      description: Every governance variable. Expressions read them by name.
+      responses:
+        '200':
+          description: The variables
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GovernanceVariable'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /governance/variables/{name}:
+    put:
+      summary: Upsert a governance variable
+      description: |
+        Adds or replaces the variable `name`. The value must be a JSON literal of the declared
+        type. The whole governance section is compiled with the change first, so a type change
+        that breaks a rule reading the variable is refused with `400`.
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceVariable'
+      responses:
+        '200':
+          description: The stored variable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GovernanceVariable'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      summary: Delete a governance variable
+      description: Removes the variable `name`; refused with `400` while a rule or exemption still reads it.
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      responses:
+        '204':
+          description: Variable deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /governance/dry-run:
+    post:
+      summary: Dry-run governance for a request
+      description: |
+        Evaluates a request the way the gateway would, without creating or storing anything,
+        and returns every rule's trace down to each check. With `rule`, evaluates that unsaved
+        rule alone against the stored variables (global exemptions are not consulted).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceDryRunRequest'
+      responses:
+        '200':
+          description: The decision and its trace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GovernanceDryRunView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -741,6 +929,15 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/GovernanceRuleConfigView'
+        exemptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceExemption'
+          description: Global exemptions; each skips every rule.
+        variables:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceVariable'
     GovernanceRuleConfigView:
       type: object
       properties:
@@ -756,8 +953,12 @@ components:
           description: Longer explanation of what the rule enforces.
         selector:
           $ref: '#/components/schemas/GovernanceSelector'
-        expression:
-          $ref: '#/components/schemas/GovernanceExpression'
+        match:
+          $ref: '#/components/schemas/GovernanceMatch'
+        subRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceSubRule'
         exemptions:
           type: array
           items:
@@ -767,7 +968,6 @@ components:
       required:
         - errorMessage
         - selector
-        - expression
       properties:
         name:
           type: string
@@ -780,8 +980,17 @@ components:
           description: Longer explanation of what the rule enforces.
         selector:
           $ref: '#/components/schemas/GovernanceSelector'
+        match:
+          $ref: '#/components/schemas/GovernanceMatch'
+        subRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceSubRule'
+          description: The checks and groups making up the rule; required unless `expression` is set.
         expression:
-          $ref: '#/components/schemas/GovernanceExpression'
+          allOf:
+            - $ref: '#/components/schemas/GovernanceExpression'
+          description: Legacy single expression; becomes one check. Mutually exclusive with `subRules`.
         exemptions:
           type: array
           items:
@@ -804,6 +1013,167 @@ components:
           description: Why the exemption exists.
         expression:
           $ref: '#/components/schemas/GovernanceExpression'
+    GovernanceVariable:
+      type: object
+      required:
+        - type
+        - value
+      properties:
+        name:
+          type: string
+          description: A CEL identifier; optional in a PUT body, where it must equal the path name.
+        type:
+          type: string
+          enum: [string, int, double, bool, list<string>, list<int>]
+        value:
+          type: string
+          description: The literal in JSON syntax, e.g. `"[1, 4, 6, 12]"` or `"\"^app\\\\..+$\""`.
+        note:
+          type: string
+          nullable: true
+        samples:
+          type: object
+          additionalProperties:
+            type: string
+          description: Admin UI pattern-table hints; stored, never read by the gateway.
+        notes:
+          type: object
+          additionalProperties:
+            type: string
+          description: Admin UI pattern-table hints; stored, never read by the gateway.
+        extraExamples:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: Admin UI pattern-table hints; stored, never read by the gateway.
+    GovernanceDryRunRequest:
+      type: object
+      required:
+        - resourceType
+        - resource
+      properties:
+        resourceType:
+          type: string
+          enum: [TOPIC, GROUP, TRANSACTIONAL_ID]
+        operation:
+          type: string
+          enum: [CREATE, ALTER, DELETE]
+          description: "Default `CREATE`. On `ALTER`, describe the topic as it will be after the change - its partitions, replication factor and configs (overrides) with the change applied. On `DELETE`, describe it as it is."
+        virtual:
+          type: boolean
+          description: Topics only; evaluate as a virtual topic. Default false.
+        resource:
+          type: object
+          additionalProperties: true
+          description: |
+            Physical topic - `name`, `partitions`, `replicationFactor`, `configs`; virtual topic -
+            `name`, `physicalTopic`; group and transactional id - `id`.
+        principal:
+          type: string
+        service:
+          type: string
+        rule:
+          allOf:
+            - $ref: '#/components/schemas/GovernanceRuleRequest'
+          description: Optional unsaved rule to evaluate instead of the stored rules.
+    GovernanceDryRunView:
+      type: object
+      properties:
+        allowed:
+          type: boolean
+        exemptedBy:
+          type: string
+          nullable: true
+          description: The global exemption that matched; no rule ran.
+        rules:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceRuleTrace'
+    GovernanceOutcome:
+      type: string
+      enum: [PASS, FAIL, ERROR, SKIPPED, EXEMPTED]
+      description: |
+        `SKIPPED` - a rule whose selector is false, or a sub-rule an earlier sibling already
+        decided. `EXEMPTED` - one of the rule's own exemptions matched.
+    GovernanceRuleTrace:
+      type: object
+      properties:
+        rule:
+          type: string
+        outcome:
+          $ref: '#/components/schemas/GovernanceOutcome'
+        detail:
+          type: string
+          nullable: true
+          description: The evaluation error, for `ERROR`.
+        exemptedBy:
+          type: string
+          nullable: true
+        path:
+          type: array
+          items:
+            type: string
+          description: On failure, the sub-rule names leading to the decisive failure.
+        message:
+          type: string
+          nullable: true
+          description: On failure, the most specific error message along `path`.
+        subRules:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceNodeTrace'
+    GovernanceNodeTrace:
+      type: object
+      properties:
+        name:
+          type: string
+        outcome:
+          $ref: '#/components/schemas/GovernanceOutcome'
+        detail:
+          type: string
+          nullable: true
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceNodeTrace'
+    GovernanceMatch:
+      type: string
+      enum: [ALL, ANY]
+      description: How sub-rules combine - every one must hold (`ALL`) or at least one (`ANY`).
+    GovernanceSubRule:
+      type: object
+      required:
+        - kind
+        - name
+      description: |
+        A check (`kind: check`, with `expression`) or a group of checks (`kind: group`, with
+        `match` and `checks`). A group holds checks only, never another group.
+      properties:
+        kind:
+          type: string
+          enum: [check, group]
+        name:
+          type: string
+          description: Unique among its siblings.
+        errorMessage:
+          type: string
+          nullable: true
+          description: Optional; falls back to the nearest ancestor's message.
+        expression:
+          allOf:
+            - $ref: '#/components/schemas/GovernanceExpression'
+          description: A check's expression.
+        match:
+          allOf:
+            - $ref: '#/components/schemas/GovernanceMatch'
+          description: How a group's checks combine.
+        checks:
+          type: array
+          items:
+            $ref: '#/components/schemas/GovernanceSubRule'
+          description: A group's checks; each has `kind` `check`.
     GovernanceSelector:
       type: object
       required:
@@ -811,8 +1181,27 @@ components:
       properties:
         resourceType:
           type: string
-          enum: [TOPIC]
-          description: Kafka resource type the rule targets; only `TOPIC` is supported today.
+          enum: [TOPIC, GROUP, TRANSACTIONAL_ID]
+          description: |
+            Kafka resource type the rule targets. Expressions read `topic`, `group` or
+            `transaction` accordingly.
+        scope:
+          type: string
+          enum: [BOTH, PHYSICAL, VIRTUAL]
+          description: |
+            Topics only: physical topics, virtual topics or both (default).
+        operations:
+          type: array
+          items:
+            type: string
+            enum: [CREATE, ALTER, DELETE]
+          description: |
+            Topics only: the requests the rule runs on - CreateTopics (`CREATE`, the default),
+            AlterConfigs, IncrementalAlterConfigs and CreatePartitions (`ALTER`), and DeleteTopics
+            (`DELETE`); on the Admin API creating, changing and deleting topics. On alter the rule
+            sees the topic as it will be after the change: its current partitions, replication
+            factor and configs (overrides) with the change applied. On delete it sees the topic
+            as it is.
         expression:
           allOf:
             - $ref: '#/components/schemas/GovernanceExpression'
@@ -831,8 +1220,10 @@ components:
         value:
           type: string
           description: |
-            The expression source. Bindings: `principal`, `service`, `topic.name`,
-            `topic.partitions`, `topic.replicationFactor` and `topic.configs`.
+            The expression source. Bindings: `principal`, `service`, and the resource - for
+            topics `topic.name`, `topic.virtual`, `topic.partitions`, `topic.replicationFactor`
+            and `topic.configs`; for groups `group.id`; for transactional ids `transaction.id`.
+            Every governance variable is available by name.
     ClientConfigRequest:
       type: object
       required:

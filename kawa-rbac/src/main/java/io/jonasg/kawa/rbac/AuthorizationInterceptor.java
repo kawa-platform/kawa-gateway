@@ -9,6 +9,7 @@ import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.message.AlterConfigsRequestData;
 import org.apache.kafka.common.message.AlterConfigsResponseData;
+import org.apache.kafka.common.message.ConsumerGroupHeartbeatRequestData;
 import org.apache.kafka.common.message.HeartbeatRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
@@ -56,6 +57,10 @@ public final class AuthorizationInterceptor implements Interceptor {
                 new WholeRequestAuthorizationCheck(ApiKeys.LEAVE_GROUP.id,
                         ResourceType.GROUP, AclOperation.READ,
                         body -> ((LeaveGroupRequestData) body).groupId(), authorizer),
+                new WholeRequestAuthorizationCheck(ApiKeys.CONSUMER_GROUP_HEARTBEAT.id,
+                        ResourceType.GROUP, AclOperation.READ,
+                        body -> ((ConsumerGroupHeartbeatRequestData) body).groupId(), authorizer),
+                new InitProducerIdAuthorizationCheck(authorizer),
                 new ProduceAuthorizationCheck(authorizer),
                 new FetchAuthorizationCheck(authorizer),
                 new ListOffsetsAuthorizationCheck(authorizer),

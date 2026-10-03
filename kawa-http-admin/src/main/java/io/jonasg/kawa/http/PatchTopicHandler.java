@@ -33,6 +33,8 @@ public final class PatchTopicHandler implements Router.Handler {
             return Router.Response.conflict(e.getMessage());
         } catch (NotFoundException e) {
             return Router.Response.notFound(e.getMessage());
+        } catch (ForbiddenException e) {
+            return Router.Response.forbidden(e.getMessage());
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }

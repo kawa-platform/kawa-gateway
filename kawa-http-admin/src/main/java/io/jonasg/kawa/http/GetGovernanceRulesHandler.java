@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-/// Serves `GET /governance/rules`.
+/// Serves `GET /governance/rules`: the whole governance section, rules and global exemptions.
 public final class GetGovernanceRulesHandler implements Router.Handler {
 
     private final GovernanceService service;
@@ -13,6 +13,6 @@ public final class GetGovernanceRulesHandler implements Router.Handler {
 
     @Override
     public Router.Response<?> handle(Router.Request request) {
-        return Router.Response.ok(mapper.toGovernanceRuleConfigView(service.get()));
+        return Router.Response.ok(mapper.toGovernanceConfigView(service.get()));
     }
 }

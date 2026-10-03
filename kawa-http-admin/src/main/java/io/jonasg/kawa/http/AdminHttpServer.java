@@ -84,6 +84,15 @@ public final class AdminHttpServer {
                 .get("/governance/rules", new GetGovernanceRulesHandler(governanceService, governanceMapper))
                 .get("/governance/rules/{name}", new GetGovernanceRuleHandler(governanceService, governanceMapper))
                 .put("/governance/rules/{name}", new PutGovernanceRuleHandler(governanceService, governanceMapper))
+                .delete("/governance/rules/{name}", new DeleteGovernanceRuleHandler(governanceService))
+                .get("/governance/exemptions", new GetGovernanceExemptionsHandler(governanceService, governanceMapper))
+                .get("/governance/exemptions/{name}", new GetGovernanceExemptionHandler(governanceService, governanceMapper))
+                .put("/governance/exemptions/{name}", new PutGovernanceExemptionHandler(governanceService, governanceMapper))
+                .delete("/governance/exemptions/{name}", new DeleteGovernanceExemptionHandler(governanceService))
+                .post("/governance/dry-run", new PostGovernanceDryRunHandler(governance, governanceService, governanceMapper))
+                .get("/governance/variables", new GetGovernanceVariablesHandler(governanceService, governanceMapper))
+                .put("/governance/variables/{name}", new PutGovernanceVariableHandler(governanceService, governanceMapper))
+                .delete("/governance/variables/{name}", new DeleteGovernanceVariableHandler(governanceService))
 
                 .get("/docs", new GetDocsHandler());
     }

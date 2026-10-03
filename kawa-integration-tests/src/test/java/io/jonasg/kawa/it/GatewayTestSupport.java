@@ -6,6 +6,7 @@ import io.jonasg.kawa.config.AclConfig;
 import io.jonasg.kawa.config.AuthConfig;
 import io.jonasg.kawa.config.ClusterConfig;
 import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.ListenerConfig;
@@ -230,6 +231,12 @@ abstract class GatewayTestSupport {
                 Map.of("it-defaults", new GroupConfig(List.of(DEFAULT_PRINCIPAL), List.of("allow-all"))));
     }
 
+    /// The gateway's governance configuration, written to the config topic with the rest of
+    /// the dynamic config. Defaults to none: every request is admitted.
+    protected GovernanceConfig governanceConfig() {
+        return null;
+    }
+
     /// The gateway's admin HTTP server configuration.
     protected AdminConfig adminConfig() {
         return new AdminConfig(true, "127.0.0.1", 0, null);
@@ -251,7 +258,7 @@ abstract class GatewayTestSupport {
     }
 
     /// The full dynamic config written to the config topic before the gateway starts. Only
-    /// virtual topics, RBAC and client auth are dynamic; listeners, advertised and admin are
+    /// virtual topics, RBAC, client auth and governance are dynamic; listeners, advertised and admin are
     /// startup-only and come from the static bootstrap.
     private GatewayConfig buildDynamicConfig() {
         Map<String, VirtualTopicConfig> typedVirtualTopics = new java.util.HashMap<>();
@@ -266,7 +273,7 @@ abstract class GatewayTestSupport {
                 authConfig(),
                 rbacConfig(),
                 null,
-                CONFIG_TOPIC, null);
+                CONFIG_TOPIC, governanceConfig());
     }
 
     /// Serializes the full dynamic config as JSON and writes it to the config topic, so the

@@ -11,6 +11,9 @@ import io.jonasg.kawa.protocol.kafka.ApiVersionsResponseBuilder;
 import io.jonasg.kawa.protocol.kafka.KafkaApiRegistry;
 import io.jonasg.kawa.protocol.kafka.KafkaBodyCodec;
 import io.jonasg.kawa.protocol.kafka.SupportedVersions;
+import io.jonasg.kawa.governance.GovernanceInterceptor;
+import io.jonasg.kawa.governance.TopicDescriber;
+import io.jonasg.kawa.http.KafkaTopicAdmin;
 import io.jonasg.kawa.rbac.AuthorizationInterceptor;
 import io.jonasg.kawa.server.broker.ClusterConnections;
 import io.jonasg.kawa.server.netty.KafkaListener;
@@ -53,6 +56,7 @@ public final class KafkaGateway implements Gateway {
     private KafkaListener listener;
     private ClusterConnections connections;
     private AdminSurface admin;
+    private KafkaTopicAdmin topicDescriber;
 
     private volatile boolean running;
 
@@ -92,7 +96,8 @@ public final class KafkaGateway implements Gateway {
         AdvertisedListener advertised = resolveAdvertised(config.advertised(), boundPort);
 
         // Interceptor pipeline
-        RequestPipeline requestPipeline = buildPipeline(dynamicState, advertised);
+        topicDescriber = new KafkaTopicAdmin(bootstrapServers, config.auth().brokerAuth());
+        RequestPipeline requestPipeline = buildPipeline(dynamicState, advertised, topicDescriber);
 
         // Broker connections (metadata client) - the same static bootstrap that hosts the
         //    config topic. The dynamic snapshot's `clusters` map is carried in the message but
@@ -138,6 +143,9 @@ public final class KafkaGateway implements Gateway {
         if (listener != null) {
             listener.close();
         }
+        if (topicDescriber != null) {
+            topicDescriber.close();
+        }
     }
 
     public int boundPort() {
@@ -149,13 +157,17 @@ public final class KafkaGateway implements Gateway {
         return admin == null ? -1 : admin.boundPort();
     }
 
-    private RequestPipeline buildPipeline(DynamicGatewayState state, AdvertisedListener advertised) {
+    private RequestPipeline buildPipeline(DynamicGatewayState state, AdvertisedListener advertised, TopicDescriber topics) {
         var fetchSessions = new FetchSessionRegistry();
         var interceptors = new ArrayList<Interceptor>();
         interceptors.add(new AuthorizationInterceptor(state.authorizer(), state.virtualTopics()));
         if (!state.authorizer().hasAnyAcls()) {
             log.warn("RBAC has no roles or groups configured - every request will be denied");
         }
+        // After RBAC, so a refused request never reaches governance; before virtual topics, so
+        // rules judge the names clients asked for.
+        var governance = state.governance();
+        interceptors.add(new GovernanceInterceptor(() -> governance, topics, state.virtualTopics()::toPhysical));
         interceptors.add(new VirtualTopicInterceptor(state.virtualTopics(), advertised, fetchSessions));
         return new RequestPipeline(new InterceptorPipeline(interceptors), fetchSessions);
     }

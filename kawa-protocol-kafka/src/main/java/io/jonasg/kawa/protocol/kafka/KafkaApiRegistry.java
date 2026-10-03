@@ -4,6 +4,8 @@ import org.apache.kafka.common.message.AddPartitionsToTxnRequestData;
 import org.apache.kafka.common.message.AddPartitionsToTxnResponseData;
 import org.apache.kafka.common.message.AlterConfigsRequestData;
 import org.apache.kafka.common.message.AlterConfigsResponseData;
+import org.apache.kafka.common.message.ConsumerGroupHeartbeatRequestData;
+import org.apache.kafka.common.message.ConsumerGroupHeartbeatResponseData;
 import org.apache.kafka.common.message.ApiVersionsRequestData;
 import org.apache.kafka.common.message.ApiVersionsResponseData;
 import org.apache.kafka.common.message.FetchRequestData;
@@ -44,6 +46,8 @@ import org.apache.kafka.common.message.FindCoordinatorRequestData;
 import org.apache.kafka.common.message.FindCoordinatorResponseData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
+import org.apache.kafka.common.message.InitProducerIdRequestData;
+import org.apache.kafka.common.message.InitProducerIdResponseData;
 import org.apache.kafka.common.message.ListGroupsRequestData;
 import org.apache.kafka.common.message.ListGroupsResponseData;
 import org.apache.kafka.common.message.ListOffsetsRequestData;
@@ -66,6 +70,7 @@ import org.apache.kafka.common.message.SaslHandshakeRequestData;
 import org.apache.kafka.common.message.SaslHandshakeResponseData;
 import org.apache.kafka.common.message.TxnOffsetCommitRequestData;
 import org.apache.kafka.common.message.TxnOffsetCommitResponseData;
+import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Message;
 
 import java.util.Collection;
@@ -113,6 +118,8 @@ public final class KafkaApiRegistry {
     public static final short OFFSET_FOR_LEADER_EPOCH = 23;
     public static final short DESCRIBE_LOG_DIRS = 35;
     public static final short DESCRIBE_TOPIC_PARTITIONS = 75;
+    public static final short INIT_PRODUCER_ID = 22;
+    public static final short CONSUMER_GROUP_HEARTBEAT = 68;
 
     private final Map<Short, KafkaApiSpec> specs;
 
@@ -193,7 +200,16 @@ public final class KafkaApiRegistry {
                 new KafkaApiSpec(HEARTBEAT, "Heartbeat", VersionRange.of(0, 4),
                         of(HeartbeatRequestData::new), of(HeartbeatResponseData::new)),
                 new KafkaApiSpec(LEAVE_GROUP, "LeaveGroup", VersionRange.of(0, 5),
-                        of(LeaveGroupRequestData::new), of(LeaveGroupResponseData::new))));
+                        of(LeaveGroupRequestData::new), of(LeaveGroupResponseData::new)),
+                new KafkaApiSpec(INIT_PRODUCER_ID, "InitProducerId", bundled(ApiKeys.INIT_PRODUCER_ID),
+                        of(InitProducerIdRequestData::new), of(InitProducerIdResponseData::new)),
+                new KafkaApiSpec(CONSUMER_GROUP_HEARTBEAT, "ConsumerGroupHeartbeat", bundled(ApiKeys.CONSUMER_GROUP_HEARTBEAT),
+                        of(ConsumerGroupHeartbeatRequestData::new), of(ConsumerGroupHeartbeatResponseData::new))));
+    }
+
+    /// Every stable version the bundled Kafka client library can decode.
+    private static VersionRange bundled(ApiKeys api) {
+        return VersionRange.of(api.oldestVersion(), api.latestVersion());
     }
 
     private static <T extends Message> MessageReader of(Supplier<T> factory) {
