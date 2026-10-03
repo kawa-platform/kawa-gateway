@@ -19,6 +19,7 @@ COPY mvnw ./
 COPY .mvn .mvn
 COPY pom.xml ./
 COPY checkstyle.xml ./
+COPY kawa-plugin-api/pom.xml kawa-plugin-api/
 COPY kawa-config/pom.xml kawa-config/
 COPY kawa-test-support/pom.xml kawa-test-support/
 COPY kawa-core/pom.xml kawa-core/
@@ -33,6 +34,7 @@ COPY kawa-integration-tests/pom.xml kawa-integration-tests/
 RUN --mount=type=cache,target=/root/.m2 \
     ./mvnw -B -pl kawa-server -am dependency:go-offline || true
 
+COPY kawa-plugin-api/src kawa-plugin-api/src
 COPY kawa-config/src kawa-config/src
 COPY kawa-test-support/src kawa-test-support/src
 COPY kawa-core/src kawa-core/src
@@ -50,7 +52,8 @@ RUN --mount=type=cache,target=/root/.m2 \
 # ---- runtime stage ----------------------------------------------------------
 FROM eclipse-temurin:26-jre-alpine AS runtime
 
-RUN addgroup -S kawa && adduser -S kawa -G kawa
+RUN addgroup -S kawa && adduser -S kawa -G kawa \
+    && mkdir -p /opt/kawa/plugins
 
 WORKDIR /app
 COPY --from=build /workspace/kawa-server/target/kawa-server-*.jar /app/gateway.jar
@@ -60,4 +63,6 @@ EXPOSE 9092
 EXPOSE 9092
 
 # Config is expected at /etc/kawa/config.yaml (mount it read-only).
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/gateway.jar", "--config", "/etc/kawa/config.yaml"]
+# Plugin JARs (io.jonasg.kawa.plugin.KawaPlugin implementations) dropped into /opt/kawa/plugins/ are put on
+# the classpath and discovered via ServiceLoader at startup; the directory is empty in the OSS image.
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-cp", "/app/gateway.jar:/opt/kawa/plugins/*", "io.jonasg.kawa.server.GatewayLauncher", "--config", "/etc/kawa/config.yaml"]

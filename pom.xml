@@ -13,6 +13,7 @@
     <description>High-performance Kafka Gateway.</description>
 
     <modules>
+        <module>kawa-plugin-api</module>
         <module>kawa-config</module>
         <module>kawa-test-support</module>
         <module>kawa-core</module>

@@ -69,6 +69,8 @@ depend on production modules such as `kawa-config`, but never on a module that u
   **unconditional** (no opt-out) and **default-deny**.
 - `kawa-http-admin`: admin HTTP surface (e.g. `GET /topics`) exposing gateway state to a UI; reads
   `VirtualTopicManager`/`MetadataCache`, never talks to the broker.
+- `kawa-plugin-api`: public SPI (`KawaPlugin`, `KawaPluginContext`) for out-of-tree plugins such as Kawa Pro. Must stay
+  dependency-free and small; `kawa-server`'s `PluginLoader` discovers implementations via `ServiceLoader` at startup.
 - `kawa-server`: Netty server, broker clients, shading. Produces the runnable shaded jar
   (`mainClass=io.jonasg.kawa.server.GatewayLauncher`).
 - `kawa-integration-tests`: real-client + raw-socket wire tests against a broker via

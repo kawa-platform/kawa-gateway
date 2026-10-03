@@ -3,6 +3,7 @@ package io.jonasg.kawa.server;
 import io.jonasg.kawa.config.ConfigLoader;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.core.Gateway;
+import io.jonasg.kawa.server.plugin.PluginLoader;
 
 import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
@@ -16,9 +17,10 @@ public final class GatewayLauncher {
     private GatewayLauncher() {
     }
 
-    public static void main(String[] args) throws Exception {
+    static void main(String[] args) throws Exception {
         Path configPath = parseConfigPath(args);
         GatewayConfig bootstrap = new ConfigLoader().load(configPath);
+        new PluginLoader(GatewayLauncher.class.getClassLoader()).loadAll();
         Gateway gateway = new KafkaGateway(bootstrap);
 
         var shutdown = new CountDownLatch(1);
