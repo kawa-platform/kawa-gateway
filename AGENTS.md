@@ -69,8 +69,17 @@ depend on production modules such as `kawa-config`, but never on a module that u
   **unconditional** (no opt-out) and **default-deny**.
 - `kawa-http-admin`: admin HTTP surface (e.g. `GET /topics`) exposing gateway state to a UI; reads
   `VirtualTopicManager`/`MetadataCache`, never talks to the broker.
-- `kawa-plugin-api`: public SPI (`KawaPlugin`, `KawaPluginContext`) for out-of-tree plugins such as Kawa Pro. Must stay
-  dependency-free and small; `kawa-server`'s `PluginLoader` discovers implementations via `ServiceLoader` at startup.
+- `kawa-plugin-api`: public SPI (`KawaPlugin`, `KawaPluginContext`, admin `AuthenticationProviderFactory` and the
+  minimal `HttpEndpoint` types) for plugins such as Kawa Pro. Must stay dependency-free and small; `kawa-server`'s
+  `PluginLoader` discovers implementations via `ServiceLoader` at startup: built-ins on kawa's classpath, external
+  plugins from the plugin directory (`--plugins`, `KAWA_PLUGIN_DIR`, `/opt/kawa/plugins`), each in its own
+  `PluginClassLoader` that only shares `io.jonasg.kawa.plugin.*` and `org.slf4j.*` with kawa. Anything else an
+  external plugin needs it must ship itself, and nothing in kawa's classpath is visible to it. Every new type a
+  plugin must exchange with kawa therefore belongs in `kawa-plugin-api`.
+- `kawa-http-auth`: kawa's built-in admin API authentication providers (`none`, `oauth` with Nimbus), shipped as a
+  `KawaPlugin` (`BuiltInAuthenticationPlugin`). Depends only on `kawa-plugin-api` - never on `kawa-http-admin` or
+  `kawa-config` - so the built-ins use exactly the contract a third-party provider gets. Only `kawa-server` depends on
+  it (and `kawa-http-admin` with `test` scope, for the slice tests).
 - `kawa-server`: Netty server, broker clients, shading. Produces the runnable shaded jar
   (`mainClass=io.jonasg.kawa.server.GatewayLauncher`).
 - `kawa-integration-tests`: real-client + raw-socket wire tests against a broker via

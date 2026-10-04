@@ -32,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /// response safe for consumers, the same property compacted topics already rely on).
 public final class VirtualTopicRecordFilter {
 
-    private static final Logger LOG = LoggerFactory.getLogger(VirtualTopicRecordFilter.class);
+    private static final Logger log = LoggerFactory.getLogger(VirtualTopicRecordFilter.class);
 
     /// Evaluating filters keyed by config. Filter configs are records (value equality), so each
     /// distinct config is prepared - e.g. its CEL expression compiled - once and then reused across
@@ -108,7 +108,7 @@ public final class VirtualTopicRecordFilter {
             } catch (PayloadDecodeException e) {
                 return switch (onDecodeError) {
                     case SKIP -> {
-                        LOG.debug("Dropping record at offset {}: {}", record.offset(), e.getMessage());
+                        log.debug("Dropping record at offset {}: {}", record.offset(), e.getMessage());
                         yield false;
                     }
                     case INCLUDE -> true;

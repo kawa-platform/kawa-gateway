@@ -1,7 +1,9 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.netty.handler.codec.http.HttpMethod;
 import org.jspecify.annotations.NullUnmarked;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -12,7 +14,8 @@ import java.util.Optional;
 /// A tiny, data-driven HTTP route table. Routes are keyed by `(method, path template)` so that a
 /// path registered for one method but hit with another can be distinguished from a wholly unknown
 /// path. A template may contain `{name}` segments that match any single path segment and are
-/// captured into [Request#pathParams].
+/// captured into [Request#pathParams]. Routes require an authenticated caller unless registered
+/// as public (see [#publicGet] and [#publicRoute]).
 public final class Router {
 
     /// A route handler. Implementations are plain (no Netty imports); the [HttpRouterHandler]
@@ -24,23 +27,38 @@ public final class Router {
     }
 
     /// The decoded request handed to a handler: method, path, path parameters captured from
-    /// `{name}` template segments, query parameters, and the raw request body (empty when the
-    /// request has none).
+    /// `{name}` template segments, query parameters, the request headers (keyed by lower-case
+    /// name), the raw request body (empty when the request has none), and the authenticated
+    /// caller (`null` on public routes).
     public record Request(
             String method,
             String path,
             Map<String, String> pathParams,
             Map<String, String> queryParams,
-            byte[] body
-    ) { }
+            Map<String, List<String>> headers,
+            byte[] body,
+            @Nullable KawaPrincipal principal
+    ) {
+
+        /// The first value of the header `name` (lower-case), if present.
+        public Optional<String> header(String name) {
+            List<String> values = headers.get(name);
+            return values == null || values.isEmpty() ? Optional.empty() : Optional.of(values.getFirst());
+        }
+    }
 
     /// The response a handler returns: an HTTP status plus a body object serialized to JSON by the
     /// dispatcher. A `null` body serializes to an empty body. A raw response carries a
-    /// pre-serialized body (e.g. YAML) written verbatim with [Response#contentType].
+    /// pre-serialized body (e.g. YAML) written verbatim with [Response#contentType]. `headers` are
+    /// extra response headers.
     @NullUnmarked
-    public record Response<T>(int status, T body, String contentType, boolean rawBody) {
+    public record Response<T>(int status, T body, String contentType, boolean rawBody, Map<String, String> headers) {
 
         private static final String JSON = "application/json";
+
+        public Response(int status, T body, String contentType, boolean rawBody) {
+            this(status, body, contentType, rawBody, Map.of());
+        }
 
         public static <T> Response<T> ok(T body) {
             return new Response<>(200, body, JSON, false);
@@ -52,6 +70,19 @@ public final class Router {
 
         public static Response<Void> noContent() {
             return new Response<>(204, null, JSON, false);
+        }
+
+        /// `401 Unauthorized` with an RFC 6750 bearer challenge.
+        public static Response<Map<String, String>> unauthorized() {
+            return new Response<>(401, Map.of("error", "unauthorized"), JSON, false,
+                    Map.of("WWW-Authenticate", "Bearer realm=\"kawa\""));
+        }
+
+        /// A copy of this response with the header `name` set to `value`.
+        public Response<T> withHeader(String name, String value) {
+            var merged = new HashMap<>(headers);
+            merged.put(name, value);
+            return new Response<>(status, body, contentType, rawBody, Map.copyOf(merged));
         }
 
         public static Response<Map<String, String>> badRequest(String message) {
@@ -85,11 +116,20 @@ public final class Router {
         }
     }
 
-    /// A matched route: the handler plus the path parameters captured from `{name}` segments.
-    public record Match(Handler handler, Map<String, String> pathParams) {
+    /// A matched route: the handler, the path parameters captured from `{name}` segments, and
+    /// whether the route is reachable without authentication.
+    public record Match(Handler handler, Map<String, String> pathParams, boolean isPublic) {
     }
 
-    private record Route(HttpMethod method, List<String> segments, Handler handler) {
+    private record Route(
+            HttpMethod method,
+            List<String> segments,
+            Handler handler,
+            boolean isPublic
+    ) {
+        public boolean matches(HttpMethod method, List<String> segments) {
+            return this.method() == method && matchesTemplate(segments(), segments);
+        }
     }
 
     private final List<Route> routes = new ArrayList<>();
@@ -119,8 +159,22 @@ public final class Router {
         return route(HttpMethod.DELETE, path, handler);
     }
 
+    /// Registers a handler for `GET path` that needs no authentication.
+    public Router publicGet(String path, Handler handler) {
+        return publicRoute(HttpMethod.GET, path, handler);
+    }
+
+    /// Registers a handler for `method path` that needs no authentication.
+    public Router publicRoute(HttpMethod method, String path, Handler handler) {
+        return route(method, path, handler, true);
+    }
+
     private Router route(HttpMethod method, String path, Handler handler) {
-        routes.add(new Route(method, split(path), handler));
+        return route(method, path, handler, false);
+    }
+
+    private Router route(HttpMethod method, String path, Handler handler, boolean isPublic) {
+        routes.add(new Route(method, split(path), handler, isPublic));
         return this;
     }
 
@@ -128,29 +182,30 @@ public final class Router {
     /// captured from `{name}` template segments.
     public Optional<Match> find(HttpMethod method, String path) {
         List<String> segments = split(path);
-        for (Route route : routes) {
-            if (route.method() != method || !matches(route.segments(), segments)) {
-                continue;
+        return this.routes.stream()
+                .filter(route -> route.matches(method, segments))
+                .map(route -> new Match(route.handler(), getParams(route, segments), route.isPublic()))
+                .findFirst();
+    }
+
+    private static Map<String, String> getParams(Route route, List<String> segments) {
+        Map<String, String> params = new HashMap<>();
+        for (int i = 0; i < segments.size(); i++) {
+            String template = route.segments().get(i);
+            if (template.startsWith("{") && template.endsWith("}")) {
+                params.put(template.substring(1, template.length() - 1), segments.get(i));
             }
-            Map<String, String> params = new HashMap<>();
-            for (int i = 0; i < segments.size(); i++) {
-                String template = route.segments().get(i);
-                if (template.startsWith("{") && template.endsWith("}")) {
-                    params.put(template.substring(1, template.length() - 1), segments.get(i));
-                }
-            }
-            return Optional.of(new Match(route.handler(), params));
         }
-        return Optional.empty();
+        return params;
     }
 
     /// Returns whether any route is registered for `path` regardless of method.
     public boolean hasPath(String path) {
         List<String> segments = split(path);
-        return routes.stream().anyMatch(route -> matches(route.segments(), segments));
+        return routes.stream().anyMatch(route -> matchesTemplate(route.segments(), segments));
     }
 
-    private static boolean matches(List<String> template, List<String> actual) {
+    private static boolean matchesTemplate(List<String> template, List<String> actual) {
         if (template.size() != actual.size()) {
             return false;
         }

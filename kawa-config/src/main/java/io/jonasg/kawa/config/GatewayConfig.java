@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 /// @param admin         admin HTTP listener configuration
 /// @param configTopic   the topic that holds the dynamic gateway config (defaults to `__kawa`)
 /// @param governance    topic governance configuration
+/// @param adminUsers    admin API users, keyed by username
 public record GatewayConfig(
         List<ListenerConfig> listeners,
         Map<String, ClusterConfig> clusters,
@@ -27,7 +28,8 @@ public record GatewayConfig(
         RbacConfig rbac,
         AdminConfig admin,
         String configTopic,
-        GovernanceConfig governance) {
+        GovernanceConfig governance,
+        Map<String, AdminUserConfig> adminUsers) {
 
     public GatewayConfig {
         if (listeners == null) {
@@ -54,10 +56,26 @@ public record GatewayConfig(
         if (governance == null) {
             governance = new GovernanceConfig(null);
         }
+        if (adminUsers == null) {
+            adminUsers = Map.of();
+        }
         if (advertised == null) {
             ListenerConfig first = listeners.getFirst();
             advertised = new AdvertisedListener(null, null, first.port());
         }
+    }
+
+    public GatewayConfig(
+            List<ListenerConfig> listeners,
+            Map<String, ClusterConfig> clusters,
+            Map<String, VirtualTopicConfig> virtualTopics,
+            AdvertisedListener advertised,
+            AuthConfig auth,
+            RbacConfig rbac,
+            AdminConfig admin,
+            String configTopic,
+            GovernanceConfig governance) {
+        this(listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, null);
     }
 
     /// A fully-defaulted, empty gateway config: no virtual topics, no RBAC, no client auth.
@@ -145,6 +163,25 @@ public record GatewayConfig(
         return copyWith(Map.copyOf(newTopics), auth, rbac, governance);
     }
 
+    /// Returns a new [GatewayConfig] with the given admin user added or replaced.
+    public GatewayConfig upsertAdminUser(String username, AdminUserConfig user) {
+        var users = new HashMap<>(adminUsers);
+        users.put(username, user);
+        return withAdminUsers(Map.copyOf(users));
+    }
+
+    /// Returns a new [GatewayConfig] with the admin user `username` removed.
+    public GatewayConfig removeAdminUser(String username) {
+        var users = new HashMap<>(adminUsers);
+        users.remove(username);
+        return withAdminUsers(Map.copyOf(users));
+    }
+
+    private GatewayConfig withAdminUsers(Map<String, AdminUserConfig> adminUsers) {
+        return new GatewayConfig(
+                listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, adminUsers);
+    }
+
     private GatewayConfig copyWith(
             Map<String, VirtualTopicConfig> virtualTopics,
             AuthConfig auth,
@@ -152,6 +189,6 @@ public record GatewayConfig(
             GovernanceConfig governance
     ) {
         return new GatewayConfig(
-                listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance);
+                listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, adminUsers);
     }
 }

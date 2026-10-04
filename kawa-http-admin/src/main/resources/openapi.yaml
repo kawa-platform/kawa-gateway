@@ -13,7 +13,16 @@ info:
     The server binds to `admin.host`/`admin.port` (defaults `0.0.0.0:8080`). Unknown
     paths return `404`, known paths hit with the wrong method return `405`, and handler
     or serialization failures return `500` - all with an `{"error": "..."}` body.
+
+    Authentication is configured with `admin.auth`. With `type: none` (the default) the API is
+    open. With `type: oauth`, kawa acts as a headless OAuth 2.0 authorization server: clients use
+    the authorization code flow with PKCE (`/oauth/authorize`, the external login UI posting to
+    `/oauth/login`, then `/oauth/token`) and send the access token as
+    `Authorization: Bearer <token>`. Every endpoint except `/oauth/*`, `/.well-known/*` and `/docs`
+    then answers `401` without a valid token.
   version: 0.1.0-SNAPSHOT
+security:
+  - bearerAuth: []
 paths:
   /topics:
     get:
@@ -636,7 +645,221 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalError'
+  /oauth/authorize:
+    get:
+      summary: Start the authorization code flow
+      description: |
+        The authorization endpoint (RFC 6749 §4.1 with PKCE, RFC 7636). Only exists with
+        `admin.auth.type: oauth`. kawa serves no login page: a valid request is redirected to the
+        external login UI (`admin.auth.settings.loginUrl`) with a `login_challenge`. An unknown
+        client or redirect URI is answered with `400`; other errors are redirected to the client.
+      security: []
+      parameters:
+        - {name: response_type, in: query, required: true, schema: {type: string, enum: [code]}}
+        - {name: client_id, in: query, required: true, schema: {type: string}}
+        - {name: redirect_uri, in: query, required: true, schema: {type: string}}
+        - {name: code_challenge, in: query, required: true, schema: {type: string}}
+        - {name: code_challenge_method, in: query, required: true, schema: {type: string, enum: [S256]}}
+        - {name: state, in: query, required: false, schema: {type: string}}
+      responses:
+        '302':
+          description: To the login UI with `login_challenge`, or back to the client with an `error`
+        '400':
+          description: Unknown client or redirect URI (not redirected)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenError'
+  /oauth/login:
+    post:
+      summary: Log in for a login challenge
+      description: |
+        Called by the external login UI. Verifies the user's credentials for the pending
+        authorization request in `login_challenge` and returns where to send the browser: the
+        client's redirect URI with a single-use authorization code.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [login_challenge, username, password]
+              properties:
+                login_challenge:
+                  type: string
+                username:
+                  type: string
+                password:
+                  type: string
+                  format: password
+      responses:
+        '200':
+          description: Where to send the browser next
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [redirect_to]
+                properties:
+                  redirect_to:
+                    type: string
+        '400':
+          description: |
+            `invalid_request`, `invalid_challenge` (expired: start again) or `invalid_credentials`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenError'
+  /oauth/token:
+    post:
+      summary: Obtain an access token
+      description: |
+        The token endpoint of kawa's built-in authorization server (RFC 6749). Only exists with
+        `admin.auth.type: oauth`. Supports the authorization code grant with PKCE, which redeems
+        a code from `/oauth/login` and starts a session, and the refresh token grant, which
+        continues it: the refresh token is rotated but the session end
+        (`admin.auth.settings.sessionTtl`) stays the same. The password grant is not supported.
+        Responses carry `Cache-Control: no-store`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - grant_type
+              properties:
+                grant_type:
+                  type: string
+                  enum:
+                    - authorization_code
+                    - refresh_token
+                client_id:
+                  type: string
+                  description: Required for `authorization_code`.
+                code:
+                  type: string
+                  description: Required for `authorization_code`.
+                redirect_uri:
+                  type: string
+                  description: Required for `authorization_code`; the one used at `/oauth/authorize`.
+                code_verifier:
+                  type: string
+                  description: Required for `authorization_code` (PKCE).
+                refresh_token:
+                  type: string
+                  description: Required for `refresh_token`.
+      responses:
+        '200':
+          description: An access token (`at+jwt`) and a refresh token (`rt+jwt`), both ES256-signed JWTs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: |
+            `invalid_grant` (an invalid, expired or already used code, a PKCE mismatch, or an invalid
+            or expired refresh token), `unsupported_grant_type` or `invalid_request`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenError'
+  /.well-known/jwks.json:
+    get:
+      summary: Public signing keys
+      description: |
+        The JWK set that verifies kawa's access tokens. Only exists with `admin.auth.type: oauth`.
+      security: []
+      responses:
+        '200':
+          description: The public JWK set
+          content:
+            application/json:
+              schema:
+                type: object
+  /.well-known/oauth-authorization-server:
+    get:
+      summary: Authorization server metadata
+      description: |
+        RFC 8414 metadata: issuer, token endpoint, JWKS location and supported grants. Only exists
+        with `admin.auth.type: oauth`. Endpoint URLs are derived from the `Host` and
+        `X-Forwarded-Proto` request headers.
+      security: []
+      responses:
+        '200':
+          description: The metadata document
+          content:
+            application/json:
+              schema:
+                type: object
+  /admin/users:
+    get:
+      summary: List admin users
+      description: The admin API users stored in the config topic. The bootstrap user is not listed.
+      responses:
+        '200':
+          description: The admin users, sorted by username
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUserView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/users/{name}:
+    put:
+      summary: Upsert an admin user
+      description: |
+        Creates the admin user `name` or replaces their password. The password is stored as a
+        PBKDF2-HMAC-SHA256 hash. The bootstrap user cannot be managed here.
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserRequest'
+      responses:
+        '200':
+          description: The stored admin user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      summary: Delete an admin user
+      description: Removes the admin user `name`. Tokens already issued to them stop working immediately.
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      responses:
+        '204':
+          description: Admin user deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        An access token from `POST /oauth/token`. Only enforced with `admin.auth.type: oauth`.
   parameters:
     TopicName:
       name: name
@@ -653,6 +876,18 @@ components:
       schema:
         type: string
   responses:
+    Unauthorized:
+      description: |
+        Missing, invalid or expired bearer token (only with `admin.auth.type: oauth`)
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+          example: Bearer realm="kawa"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     BadRequest:
       description: Invalid request (malformed body, missing field, or unsupported value)
       content:
@@ -690,6 +925,53 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    TokenResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+        - refresh_token
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum:
+            - Bearer
+        expires_in:
+          type: integer
+          description: |
+            Access token lifetime in seconds (`admin.auth.settings.tokenTtl`, capped at the session end).
+        refresh_token:
+          type: string
+          description: |
+            Refresh token, valid until the session ends (`admin.auth.settings.sessionTtl`). Not accepted
+            as a bearer token.
+    TokenError:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+        error_description:
+          type: string
+    AdminUserRequest:
+      type: object
+      required:
+        - password
+      properties:
+        password:
+          type: string
+          format: password
+    AdminUserView:
+      type: object
+      required:
+        - username
+      properties:
+        username:
+          type: string
     Error:
       type: object
       required:

@@ -3,6 +3,8 @@ package io.jonasg.kawa.server;
 import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.core.Gateway;
+import io.jonasg.kawa.http.auth.AuthenticationProviderRegistry;
+import io.jonasg.kawa.server.plugin.PluginLoader;
 import io.jonasg.kawa.core.Interceptor;
 import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.cluster.MetadataCache;
@@ -58,10 +60,18 @@ public final class KafkaGateway implements Gateway {
     private AdminSurface admin;
     private KafkaTopicAdmin topicDescriber;
 
+    private final AuthenticationProviderRegistry authenticationProviders;
+
     private volatile boolean running;
 
+    /// A gateway with the authentication providers of the plugins on the classpath.
     public KafkaGateway(GatewayConfig config) {
+        this(config, new PluginLoader(KafkaGateway.class.getClassLoader()).loadAll().authenticationProviders());
+    }
+
+    public KafkaGateway(GatewayConfig config, AuthenticationProviderRegistry authenticationProviders) {
         this.config = config;
+        this.authenticationProviders = authenticationProviders;
     }
 
     @Override
@@ -70,6 +80,20 @@ public final class KafkaGateway implements Gateway {
             log.warn("Cannot start Gateway because it is already running");
             return;
         }
+        if (config.admin().enabled()) {
+            // fail on an unknown admin.auth.type before connecting to anything
+            authenticationProviders.require(config.admin().auth().type());
+        }
+        try {
+            startComponents();
+        } catch (Exception | Error e) {
+            // a partially started gateway would otherwise keep the JVM alive with its Kafka threads
+            closeComponents();
+            throw e;
+        }
+    }
+
+    private void startComponents() throws Exception {
 
         // Validate cluster, parse bootstrap
         var clusterCfg = config.defaultCluster();
@@ -117,7 +141,8 @@ public final class KafkaGateway implements Gateway {
 
         //  Admin surface
         if (config.admin().enabled()) {
-            admin = new AdminSurface(config.admin(), dynamicState, cache, bootstrapServers, config.auth().brokerAuth());
+            admin = new AdminSurface(config.admin(), dynamicState, cache, bootstrapServers, config.auth().brokerAuth(),
+                    authenticationProviders);
             admin.start();
         }
         running = true;
@@ -131,6 +156,10 @@ public final class KafkaGateway implements Gateway {
             return;
         }
         running = false;
+        closeComponents();
+    }
+
+    private void closeComponents() {
         if (admin != null) {
             admin.close();
         }

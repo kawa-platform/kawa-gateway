@@ -99,3 +99,86 @@ independently.
 :::note Only `PLAIN` is supported for upstream broker authentication. SCRAM would require the `javax.security.sasl.Sasl`
 API and is not yet implemented.
 :::
+
+## Admin API authentication
+
+Kafka clients and admin API callers are separate: SASL clients (`auth.clients`) authenticate on the Kafka listener,
+admin users authenticate on the admin HTTP API. By default (`admin.auth.type: none`) the admin API is open. With
+`admin.auth.type: oauth` kawa acts as its own OAuth 2.0 authorization server. It is **headless**: users log in with
+the authorization code flow with PKCE (RFC 7636), and the login page belongs to kawa studio, not to the gateway.
+
+```text
+kawa studio                 browser                         kawa
+ 1. PKCE verifier + state ─▶ GET /oauth/authorize ────────▶ validate client + redirect URI
+                            ◀── 302 settings.loginUrl?login_challenge=… ─┘
+ 2. studio's login page ───▶ POST /oauth/login {login_challenge, username, password}
+                            ◀── {redirect_to: "<redirect_uri>?code=…&state=…"}
+ 3. studio's callback ─────▶ POST /oauth/token grant_type=authorization_code, code, code_verifier
+                            ◀── access token + refresh token
+```
+
+1. kawa studio sends the browser to `GET /oauth/authorize` with its `client_id`, a registered `redirect_uri`, a PKCE
+   `code_challenge` (`S256`) and a `state`. kawa validates the request and redirects to the login UI
+   (`settings.loginUrl`) with a signed, 5-minute `login_challenge` that carries it.
+2. The login UI posts the challenge with the username and password to `POST /oauth/login`. kawa answers with
+   `redirect_to`: the client's redirect URI with a single-use, 60-second authorization code.
+3. The client redeems the code with its PKCE `code_verifier` at `POST /oauth/token`. This starts a session that lasts
+   `settings.sessionTtl` (default 8 hours) and returns a short-lived access token (`typ: at+jwt`, default 15 minutes)
+   and a refresh token (`typ: rt+jwt`, valid until the session ends): ES256-signed JWTs with `iss`/`aud` =
+   `settings.issuer` and `sub` = username.
+4. The client sends the access token as `Authorization: Bearer <token>`. Requests without a valid token get `401`
+   with a `WWW-Authenticate: Bearer` challenge.
+5. Before the access token expires, the client exchanges the refresh token for new tokens
+   (`grant_type=refresh_token`). The refresh token is rotated, but the session end stays the same.
+
+The password grant is not supported (OAuth 2.1): passwords only ever go to `POST /oauth/login`. Login challenges and
+codes are signed JWTs, so any gateway replica can continue a flow another started; each replica refuses a code it has
+already redeemed. Because the client only speaks the standard authorization code flow, an external OpenID Connect
+provider can take kawa's place later without changes to kawa studio.
+
+`/oauth/authorize`, `/oauth/login`, `/oauth/token`, `/.well-known/jwks.json` (the public signing key),
+`/.well-known/oauth-authorization-server` (RFC 8414 metadata) and `/docs` are reachable without a token.
+
+### Admin users
+
+- The **bootstrap user** (`admin.auth.bootstrapUser`) comes from the YAML file, typically with
+  `password: ${KAWA_ADMIN_PASSWORD}`. It always exists, is held in memory only, and cannot be changed through the API.
+- **Admin users** are managed with `GET`/`PUT`/`DELETE /admin/users/{name}` and stored in the config topic as
+  PBKDF2-HMAC-SHA256 hashes, like `PLAIN` client passwords. Deleting an admin user revokes their tokens immediately:
+  every request checks that the token's `sub` still exists.
+
+Failed logins return `invalid_credentials` whether the username or the password is wrong, and take the same time either
+way.
+
+Refresh tokens are stateless JWTs, so kawa keeps no session store. Signing out only discards the tokens in the
+client; a leaked refresh token stays usable until its session ends, unless the admin user is deleted (which revokes
+all of their tokens immediately). Keep `sessionTtl` as short as is practical.
+
+### Signing key
+
+Tokens are signed with the EC P-256 key in `admin.auth.settings.signingKey` (PEM, PKCS#8 or SEC1, with the public key
+embedded). Generate one with:
+
+```shell
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out kawa-admin-signing-key.pem
+```
+
+and pass it through the environment, for example `settings.signingKey: ${KAWA_ADMIN_SIGNING_KEY}`. Every gateway replica must
+use the same key. Without a configured key kawa generates one at startup and logs a warning: tokens then stop working
+after a restart and are only accepted by the replica that issued them.
+
+### Writing an authentication provider
+
+Admin authentication is pluggable. `none` and `oauth` are themselves a plugin (`kawa-http-auth`), registered exactly
+the way a third-party provider is, so a provider such as `oidc` needs no change in kawa:
+
+1. Implement `io.jonasg.kawa.plugin.auth.AuthenticationProviderFactory` from `kawa-plugin-api`: `name()` is the value
+   of `admin.auth.type` that selects it, `create(context)` returns the `AuthenticationProvider`.
+2. In `create`, read `context.settings()` (the `admin.auth.settings` section), optionally use `context.adminUsers()`
+   (kawa's admin users) and register unauthenticated endpoints with `context.publicEndpoint(...)`, such as a callback
+   or key set. Throw `IllegalArgumentException` for bad settings to stop startup.
+3. Register the factory from a `KawaPlugin`: `context.registerAuthenticationProvider(new OidcProviderFactory())`, list
+   the plugin in `META-INF/services/io.jonasg.kawa.plugin.KawaPlugin`, and put the JAR in `/opt/kawa/plugins/`.
+
+The provider's `authenticate` is called for every non-public admin request. It returns the caller's principal, or
+empty to answer `401`. Exactly one provider is active at a time.

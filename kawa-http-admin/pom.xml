@@ -16,6 +16,11 @@
     <dependencies>
         <dependency>
             <groupId>io.jonasg</groupId>
+            <artifactId>kawa-plugin-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jonasg</groupId>
             <artifactId>kawa-core</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -59,6 +64,13 @@
         <dependency>
             <groupId>io.jonasg</groupId>
             <artifactId>kawa-test-support</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- the built-in providers, so the slice tests exercise oauth through the real server -->
+            <groupId>io.jonasg</groupId>
+            <artifactId>kawa-http-auth</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>

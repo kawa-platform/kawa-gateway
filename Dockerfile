@@ -28,6 +28,7 @@ COPY kawa-virtual-topic/pom.xml kawa-virtual-topic/
 COPY kawa-server/pom.xml kawa-server/
 COPY kawa-rbac/pom.xml kawa-rbac/
 COPY kawa-governance/pom.xml kawa-governance/
+COPY kawa-http-auth/pom.xml kawa-http-auth/
 COPY kawa-http-admin/pom.xml kawa-http-admin/
 COPY kawa-integration-tests/pom.xml kawa-integration-tests/
 
@@ -43,6 +44,7 @@ COPY kawa-virtual-topic/src kawa-virtual-topic/src
 COPY kawa-server/src kawa-server/src
 COPY kawa-rbac/src kawa-rbac/src
 COPY kawa-governance/src kawa-governance/src
+COPY kawa-http-auth/src kawa-http-auth/src
 COPY kawa-http-admin/src kawa-http-admin/src
 COPY kawa-integration-tests/src kawa-integration-tests/src
 
@@ -60,9 +62,8 @@ COPY --from=build /workspace/kawa-server/target/kawa-server-*.jar /app/gateway.j
 
 USER kawa
 EXPOSE 9092
-EXPOSE 9092
 
 # Config is expected at /etc/kawa/config.yaml (mount it read-only).
-# Plugin JARs (io.jonasg.kawa.plugin.KawaPlugin implementations) dropped into /opt/kawa/plugins/ are put on
-# the classpath and discovered via ServiceLoader at startup; the directory is empty in the OSS image.
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-cp", "/app/gateway.jar:/opt/kawa/plugins/*", "io.jonasg.kawa.server.GatewayLauncher", "--config", "/etc/kawa/config.yaml"]
+# Plugins installed under /opt/kawa/plugins/ (one directory per plugin, or a single JAR) are loaded at
+# startup, each in its own isolated classloader; the directory is empty in the OSS image.
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/gateway.jar", "--config", "/etc/kawa/config.yaml"]

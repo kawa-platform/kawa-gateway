@@ -39,7 +39,9 @@ only startup-only settings:
 - a listener on `0.0.0.0:9092`
 - an upstream cluster pointing at `kafka:9092`
 - an advertised listener at `localhost:9092`
-- an admin API on `0.0.0.0:8080`
+- an admin API on `0.0.0.0:8080`, protected by kawa's built-in OAuth login with the demo user `admin` / `admin`,
+  signed in through kawa studio on `http://localhost:5173`
+  (see [Admin API authentication](/docs/concepts/authentication#admin-api-authentication))
 
 Virtual topics, RBAC, client authentication and governance are not in this file — they are dynamic
 (see [Dynamic config](/docs/configuration#dynamic-config)).
@@ -49,10 +51,23 @@ Virtual topics, RBAC, client authentication and governance are not in this file 
 The `orders.eu` virtual topic no longer ships in the static config. Configure virtual topics at runtime — via the admin
 API or by writing a config-topic snapshot (see
 [Admin API](/docs/configuration#admin-api)). This maps `orders.eu` to the physical topic
-`orders-v2` created by `kafka-init`:
+`orders-v2` created by `kafka-init`. Admin API calls need an access token. kawa issues tokens only through a browser
+login (the OAuth authorization code flow), so sign in to kawa studio as `admin` / `admin` and copy the token from the
+browser console:
+
+```js
+JSON.parse(localStorage.getItem('kawa.auth')).accessToken
+```
+
+```bash
+TOKEN=<the copied token>
+```
+
+The token is valid for 15 minutes; copy a fresh one when calls start returning `401`.
 
 ```bash
 curl -X POST http://localhost:8080/topics \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"type": "virtual", "name": "orders.eu", "topic": "orders-v2"}'
 ```
@@ -62,12 +77,15 @@ creates a PLAIN client with broad demo access:
 
 ```bash
 curl -X PUT http://localhost:8080/auth/clients/alice \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"mechanism":"PLAIN","password":"secret"}'
 curl -X PUT http://localhost:8080/rbac/roles/allow-all \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"acls":[{"resource":{"type":"TOPIC","pattern":"","patternType":"PREFIXED"},"operation":"ALL"},{"resource":{"type":"GROUP","pattern":"","patternType":"PREFIXED"},"operation":"ALL"},{"resource":{"type":"CLUSTER"},"operation":"ALL"}]}'
 curl -X PUT http://localhost:8080/rbac/groups/demo \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"clients":["alice"],"roles":["allow-all"]}'
 ```

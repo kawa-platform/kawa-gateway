@@ -16,6 +16,19 @@ admin:
   enabled: true
   host: 0.0.0.0
   port: 8080
+  # Local demo login: admin / admin (override with KAWA_ADMIN_PASSWORD), through kawa studio on
+  # http://localhost:5173 (authorization code flow with PKCE; kawa studio hosts the login page).
+  # No signingKey is set, so tokens are signed with a key generated at startup and stop working
+  # after a restart: just log in again.
+  auth:
+    type: oauth
+    bootstrapUser:
+      username: admin
+      password: ${KAWA_ADMIN_PASSWORD:-admin}
+    settings:
+      loginUrl: http://localhost:5173/admin/login
+      redirectUris:
+        - http://localhost:5173/admin/auth/callback
   cors:
     allowedOrigins:
       - http://localhost:5173

@@ -3,16 +3,26 @@
 #
 #   ./docker/governance-demo.sh                 # admin API on http://localhost:8080
 #   ADMIN=http://other-host:8080 ./docker/governance-demo.sh
+#   KAWA_TOKEN=<access token> ./docker/governance-demo.sh   # gateway with admin.auth.type: oauth
+#
+# With oauth, sign in to kawa studio and copy the access token from the browser console:
+#   JSON.parse(localStorage.getItem('kawa.auth')).accessToken
 #
 # Topics:   workshop.<line>.<station>, orders.<channel>.placed|shipped, qa.<line>.passed|rejected
 # Groups:   elf.<team>.<purpose>      Transactional ids: dispatch.<service>.tx
 set -euo pipefail
 ADMIN="${ADMIN:-http://localhost:8080}"
 
+# kawa only issues tokens through the browser login (authorization code flow), so a gateway with
+# admin.auth.type: oauth needs a token from kawa studio; an open gateway needs none.
+TOKEN="${KAWA_TOKEN:-}"
+AUTH=()
+if [ -n "$TOKEN" ]; then AUTH=(-H "Authorization: Bearer $TOKEN"); fi
+
 put() {
     local path="$1"
     printf 'PUT %-48s ' "$path"
-    curl -sS -o /tmp/kawa-demo.out -w '%{http_code}\n' -X PUT -H 'content-type: application/json' \
+    curl -sS -o /tmp/kawa-demo.out -w '%{http_code}\n' -X PUT -H 'content-type: application/json' ${AUTH[@]+"${AUTH[@]}"} \
         --data-binary @- "$ADMIN$path?consistency=applied"
     if ! grep -q '"name"' /tmp/kawa-demo.out; then cat /tmp/kawa-demo.out; echo; fi
 }
@@ -142,4 +152,5 @@ put /governance/exemptions/factory-maintenance <<'JSON'
 JSON
 
 echo "Done. Try: curl -s -X POST $ADMIN/governance/dry-run -H 'content-type: application/json' \\"
+if [ -n "$TOKEN" ]; then echo "  -H 'Authorization: Bearer \$KAWA_TOKEN' \\"; fi
 echo "  -d '{\"resourceType\":\"TOPIC\",\"resource\":{\"name\":\"workshop.dolls.paint\",\"partitions\":3,\"replicationFactor\":3}}'"
