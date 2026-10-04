@@ -2,8 +2,10 @@ package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.ConfigLoader;
 import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.core.Gateway;
+import io.jonasg.kawa.server.plugin.PluginDirectory;
 import io.jonasg.kawa.server.plugin.PluginLoader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
@@ -11,8 +13,11 @@ import java.util.concurrent.CountDownLatch;
 /// Entry point. The `--config` file is the static bootstrap: cluster bootstrap servers,
 /// broker credentials, config topic name, listeners, advertised endpoint and admin.
 /// Virtual topics, RBAC and client auth are read from the config topic by [KafkaGateway]
-/// and update live; an empty config topic on first boot is valid.
+/// and update live; an empty config topic on first boot is valid. External plugins are loaded from
+/// `--plugins <dir>`, `KAWA_PLUGIN_DIR` or `/opt/kawa/plugins` (see [PluginDirectory]).
 public final class GatewayLauncher {
+
+    private static final Logger log = LoggerFactory.getLogger(GatewayLauncher.class);
 
     private GatewayLauncher() {
     }
@@ -20,17 +25,19 @@ public final class GatewayLauncher {
     static void main(String[] args) throws Exception {
         Path configPath = parseConfigPath(args);
         GatewayConfig bootstrap = new ConfigLoader().load(configPath);
-        new PluginLoader(GatewayLauncher.class.getClassLoader()).loadAll();
-        Gateway gateway = new KafkaGateway(bootstrap);
+        var pluginDirectory = PluginDirectory.resolve(args, System.getenv()).orElse(null);
+        var plugins = new PluginLoader(GatewayLauncher.class.getClassLoader(), pluginDirectory).loadAll();
+        var gateway = new KafkaGateway(bootstrap, plugins.authenticationProviders());
 
         var shutdown = new CountDownLatch(1);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            log.info("shutting down kawa gateway");
             gateway.stop();
             shutdown.countDown();
         }));
 
         gateway.start();
-        System.out.println("kawa gateway started (bootstrap " + configPath + ", dynamic config from topic)");
+        log.info("kawa gateway started (bootstrap {})", configPath);
         shutdown.await();
     }
 

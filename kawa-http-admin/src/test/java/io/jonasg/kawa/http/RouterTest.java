@@ -1,5 +1,7 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.http.auth.none.AnonymousAuthenticationProvider;
+import io.jonasg.kawa.plugin.auth.AuthenticationProvider;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
@@ -18,13 +20,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class RouterTest {
 
+    private static final AuthenticationProvider ANONYMOUS = new AnonymousAuthenticationProvider();
+
     private static final String JSON = "application/json";
 
     @Test
     void routesGetToRegisteredHandler() {
         // given
         var router = new Router().get("/topics", request -> Router.Response.ok(List.of()));
-        var handler = new HttpRouterHandler(router);
+        var handler = new HttpRouterHandler(router, ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.GET, "/topics");
@@ -38,7 +42,7 @@ class RouterTest {
     @Test
     void returnsNotFoundForUnknownPath() {
         // given
-        var handler = new HttpRouterHandler(new Router().get("/topics", request -> Router.Response.ok(List.of())));
+        var handler = new HttpRouterHandler(new Router().get("/topics", request -> Router.Response.ok(List.of())), ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.GET, "/unknown");
@@ -50,7 +54,7 @@ class RouterTest {
     @Test
     void returnsMethodNotAllowedForKnownPathWithWrongMethod() {
         // given
-        var handler = new HttpRouterHandler(new Router().get("/topics", request -> Router.Response.ok(List.of())));
+        var handler = new HttpRouterHandler(new Router().get("/topics", request -> Router.Response.ok(List.of())), ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.POST, "/topics");
@@ -62,7 +66,7 @@ class RouterTest {
     @Test
     void setsKeepAliveHeaderWhenRequestIsKeepAlive() {
         // given
-        var handler = new HttpRouterHandler(new Router().get("/topics", request -> Router.Response.ok(List.of())));
+        var handler = new HttpRouterHandler(new Router().get("/topics", request -> Router.Response.ok(List.of())), ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.GET, "/topics");
@@ -76,7 +80,7 @@ class RouterTest {
         // given
         var router = new Router().put("/configs/rbac", request ->
                 Router.Response.ok(new String(request.body(), StandardCharsets.UTF_8)));
-        var handler = new HttpRouterHandler(router);
+        var handler = new HttpRouterHandler(router, ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.PUT, "/configs/rbac", "{\"roles\":{}}");
@@ -91,7 +95,7 @@ class RouterTest {
     void writesHandlerStatusAndBody() {
         // given
         var router = new Router().get("/configs/rbac", request -> Router.Response.badRequest("nope"));
-        var handler = new HttpRouterHandler(router);
+        var handler = new HttpRouterHandler(router, ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.GET, "/configs/rbac");
@@ -106,7 +110,7 @@ class RouterTest {
     void routesPostToRegisteredHandler() {
         // given
         var router = new Router().post("/topics", request -> Router.Response.ok(List.of()));
-        var handler = new HttpRouterHandler(router);
+        var handler = new HttpRouterHandler(router, ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.POST, "/topics");
@@ -118,7 +122,7 @@ class RouterTest {
     @Test
     void returnsMethodNotAllowedForGetOnPostOnlyPath() {
         // given
-        var handler = new HttpRouterHandler(new Router().post("/topics", request -> Router.Response.ok(List.of())));
+        var handler = new HttpRouterHandler(new Router().post("/topics", request -> Router.Response.ok(List.of())), ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.GET, "/topics");
@@ -132,7 +136,7 @@ class RouterTest {
         // given
         var router = new Router().delete("/configs/virtual-topics/{name}", request ->
                 Router.Response.ok(request.pathParams().get("name")));
-        var handler = new HttpRouterHandler(router);
+        var handler = new HttpRouterHandler(router, ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.DELETE, "/configs/virtual-topics/orders");
@@ -147,7 +151,7 @@ class RouterTest {
         // given
         var router = new Router().patch("/auth/users/{name}", request ->
                 Router.Response.ok(request.pathParams().get("name")));
-        var handler = new HttpRouterHandler(router);
+        var handler = new HttpRouterHandler(router, ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.PATCH, "/auth/users/alice");
@@ -161,7 +165,7 @@ class RouterTest {
     void writesNoContentWithoutBody() {
         // given
         var router = new Router().delete("/configs/virtual-topics/{name}", request -> Router.Response.noContent());
-        var handler = new HttpRouterHandler(router);
+        var handler = new HttpRouterHandler(router, ANONYMOUS);
 
         // when
         FullHttpResponse response = request(handler, HttpMethod.DELETE, "/configs/virtual-topics/orders");

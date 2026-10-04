@@ -21,6 +21,7 @@
         <module>kawa-virtual-topic</module>
         <module>kawa-rbac</module>
         <module>kawa-governance</module>
+        <module>kawa-http-auth</module>
         <module>kawa-http-admin</module>
         <module>kawa-server</module>
         <module>kawa-integration-tests</module>
@@ -49,6 +50,7 @@
         <cel.version>0.13.1</cel.version>
         <openapi-generator.version>7.25.0</openapi-generator.version>
         <jspecify.version>1.0.1</jspecify.version>
+        <nimbus-oauth2-oidc-sdk.version>11.38.2</nimbus-oauth2-oidc-sdk.version>
 
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.2</maven-surefire-plugin.version>
@@ -92,6 +94,11 @@
                 <groupId>ch.qos.logback</groupId>
                 <artifactId>logback-classic</artifactId>
                 <version>${logback.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.nimbusds</groupId>
+                <artifactId>oauth2-oidc-sdk</artifactId>
+                <version>${nimbus-oauth2-oidc-sdk.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.jspecify</groupId>

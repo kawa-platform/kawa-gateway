@@ -55,6 +55,12 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <!-- kawa's built-in admin authentication providers, discovered as a plugin via ServiceLoader -->
+            <groupId>io.jonasg</groupId>
+            <artifactId>kawa-http-auth</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-codec</artifactId>
         </dependency>
@@ -101,6 +107,8 @@
                         </goals>
                         <configuration>
                             <transformers>
+                                <transformer
+                                        implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                                 <transformer
                                         implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>io.jonasg.kawa.server.GatewayLauncher</mainClass>

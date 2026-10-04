@@ -1,9 +1,14 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.governance.GovernancePolicy;
+import io.jonasg.kawa.http.auth.AdminUserAuthenticator;
+import io.jonasg.kawa.http.auth.AuthenticationProviderRegistry;
+import io.jonasg.kawa.http.auth.MapProviderSettings;
+import io.jonasg.kawa.plugin.auth.AuthenticationProvider;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
@@ -30,6 +35,11 @@ import java.net.InetSocketAddress;
 /// `/rbac/...`, `/auth/...` and `/governance` endpoints read and write the dynamic config
 /// through the [GatewayConfigRepository]. Config writes go to the config topic and are
 /// applied by the consumer.
+///
+/// Requests are authenticated by the provider that `admin.auth.type` selects from the
+/// [AuthenticationProviderRegistry]: kawa's built-in `none` or `oauth`, or one registered by a
+/// plugin. A provider may add public endpoints of its own (e.g. a token endpoint); every other
+/// endpoint except `/docs` requires the provider to accept the request.
 public final class AdminHttpServer {
 
     private static final Logger log = LoggerFactory.getLogger(AdminHttpServer.class);
@@ -37,6 +47,7 @@ public final class AdminHttpServer {
     private final AdminConfig config;
     private final TopicAdmin topicAdmin;
     private final Router router;
+    private final AuthenticationProvider authenticationProvider;
     private final int routerExecutorThreads;
 
     private @Nullable EventLoopGroup bossGroup;
@@ -50,7 +61,8 @@ public final class AdminHttpServer {
             MetadataCache cache,
             GatewayConfigRepository configRepository,
             GovernancePolicy governance,
-            TopicAdmin topicAdmin
+            TopicAdmin topicAdmin,
+            AuthenticationProviderRegistry authenticationProviders
     ) {
         this.config = config;
         this.topicAdmin = topicAdmin;
@@ -61,6 +73,10 @@ public final class AdminHttpServer {
         var clientService = new AuthClientService(configRepository);
         var governanceService = new GovernanceService(configRepository);
         var governanceMapper = new GovernanceConfigMapper();
+        var adminUserService = new AdminUserService(configRepository);
+        AdminAuthConfig adminAuthConfig = config.auth();
+        var adminUsers = new AdminUserAuthenticator(adminAuthConfig.bootstrapUser(), configRepository);
+        var adminUserMapper = new AdminUserMapper(adminUsers.bootstrapUsername().orElse(null));
         this.router = new Router()
                 .get("/topics", new GetTopicsHandler(topicService))
                 .post("/topics", new PostTopicHandler(topicService))
@@ -94,7 +110,13 @@ public final class AdminHttpServer {
                 .put("/governance/variables/{name}", new PutGovernanceVariableHandler(governanceService, governanceMapper))
                 .delete("/governance/variables/{name}", new DeleteGovernanceVariableHandler(governanceService))
 
-                .get("/docs", new GetDocsHandler());
+                .get("/admin/users", new GetAdminUsersHandler(adminUserService, adminUserMapper))
+                .put("/admin/users/{name}", new PutAdminUserHandler(adminUserService, adminUserMapper))
+                .delete("/admin/users/{name}", new DeleteAdminUserHandler(adminUserService))
+
+                .publicGet("/docs", new GetDocsHandler());
+        this.authenticationProvider = authenticationProviders.require(adminAuthConfig.type()).create(
+                new AdminAuthenticationContext(new MapProviderSettings(adminAuthConfig.settings()), adminUsers, router));
     }
 
     public void start() throws InterruptedException {
@@ -114,12 +136,13 @@ public final class AdminHttpServer {
                         if (config.cors() != null) {
                             ch.pipeline().addLast("cors", new CorsHandler(CorsConfigFactory.from(config.cors())));
                         }
-                        ch.pipeline().addLast(routerExecutorGroup, "httpRouter", new HttpRouterHandler(router));
+                        ch.pipeline().addLast(routerExecutorGroup, "httpRouter", new HttpRouterHandler(router, authenticationProvider));
                     }
                 });
         serverChannel = bootstrap.bind(config.host(), config.port()).sync().channel();
         int boundPort = ((InetSocketAddress) serverChannel.localAddress()).getPort();
-        log.info("Admin HTTP server listening on {}:{}", config.host(), boundPort);
+        log.info("Admin HTTP server listening on {}:{} (authentication: {})",
+                config.host(), boundPort, config.auth().type());
     }
 
     @SuppressWarnings("ConstantConditions")

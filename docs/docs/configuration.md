@@ -14,7 +14,7 @@ java -jar kawa-server.jar --config /path/to/config.yaml   # default: ./config.ya
 Unknown properties are ignored. Every field is optional unless stated otherwise.
 
 The file is the **static bootstrap**: it carries the startup-only configuration (`listeners`, `clusters`, `advertised`,
-`admin`, `auth.brokerAuth`, `configTopic`). Virtual topics, RBAC, client authentication and governance are **dynamic**
+`admin`, `auth.brokerAuth`, `configTopic`). Virtual topics, RBAC, client authentication, admin users and governance are **dynamic**
 and are read from the config topic (see [Dynamic config](#dynamic-config)); an empty config topic on first boot is valid
 and the gateway boots with no virtual topics, default-deny RBAC, no client auth, and no governance rules.
 
@@ -316,6 +316,7 @@ The admin HTTP surface exposing gateway state (e.g. `GET /topics`) to a UI.
 | `host`    | string | `0.0.0.0`    | Bind address                                                           |
 | `port`    | int    | `8080`       | Bind port; `0` binds an ephemeral port                                 |
 | `cors`    | object | *(disabled)* | CORS configuration for browser-based UIs served from another host/port |
+| `auth`    | object | *(none)*     | Admin API authentication, see [`admin.auth`](#adminauth)               |
 
 ```yaml
 admin:
@@ -333,13 +334,57 @@ admin:
 |--------------------|-------------|--------------------------------------------------------|-------------------------------------------------------------------|
 | `allowedOrigins`   | string list | `["*"]`                                                | Origins allowed to call the admin API; `["*"]` allows any origin  |
 | `allowedMethods`   | string list | `["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]` | HTTP methods allowed in preflight responses                       |
-| `allowedHeaders`   | string list | *(empty)*                                              | Request headers allowed in preflight responses                    |
+| `allowedHeaders`   | string list | `["*"]`                                                | Request headers allowed in preflight responses; `*` also allows `Authorization`, an explicit list must include it when admin auth is on |
 | `allowCredentials` | bool        | `false`                                                | Whether credentialed requests (cookies, auth headers) are allowed |
 | `maxAge`           | int         | *(omitted)*                                            | How long preflight results may be cached, in seconds              |
 
 CORS is disabled entirely when `admin.cors` is omitted. When `allowCredentials` is `true`
 with a wildcard origin, kawa echoes the request origin (with a `Vary` header) instead of returning `*`, as required by
 the CORS spec.
+
+#### `admin.auth`
+
+Authentication for the admin API, done by a pluggable provider selected with `type`. kawa ships `none` (the default:
+the admin API is open) and `oauth` (kawa acts as an OAuth 2.0 authorization server); plugins can register more. See
+[Admin API authentication](concepts/authentication.md#admin-api-authentication).
+
+| Field           | Type   | Default | Description                                                                                          |
+|-----------------|--------|---------|------------------------------------------------------------------------------------------------------|
+| `type`          | string | `none`  | Name of the authentication provider: `none`, `oauth`, or one registered by a plugin                  |
+| `bootstrapUser` | object | -       | `username` and `password` (`${VAR}` resolved) of an admin that can always log in. Required for `oauth` |
+| `settings`      | object | `{}`    | Provider-specific settings, handed to the selected provider; `${VAR}` placeholders are resolved      |
+
+`settings` for `type: oauth`:
+
+| Setting      | Type     | Default       | Description                                                                 |
+|--------------|----------|---------------|-----------------------------------------------------------------------------|
+| `issuer`     | string   | `kawa`        | The `iss` and `aud` claim of issued tokens                                  |
+| `tokenTtl`   | duration | `PT15M`       | Access token lifetime (ISO-8601 duration)                                   |
+| `sessionTtl` | duration | `PT8H`        | How long a login lasts; refresh tokens stop working after it, refreshing does not extend it |
+| `signingKey` | string   | *(generated)* | PEM EC P-256 private key that signs tokens. Generated at startup if unset   |
+| `loginUrl`   | string   | *(required)*  | The login page of the UI (kawa studio) that `/oauth/authorize` redirects to |
+| `redirectUris` | list   | *(required)*  | Redirect URIs the UI may use, e.g. `http://localhost:5173/admin/auth/callback` |
+| `clientId`   | string   | `kawa-studio` | The UI's OAuth client id                                                    |
+
+```yaml
+admin:
+  enabled: true
+  auth:
+    type: oauth
+    bootstrapUser:
+      username: admin
+      password: ${KAWA_ADMIN_PASSWORD}
+    settings:
+      signingKey: ${KAWA_ADMIN_SIGNING_KEY}
+      loginUrl: https://studio.example.com/admin/login
+      redirectUris:
+        - https://studio.example.com/admin/auth/callback
+```
+
+`admin.auth` holds secrets, so it is read from the YAML file only and never written to the config topic. An unknown
+`type` stops the gateway at startup with the list of available providers. Without a `signingKey`, `oauth` tokens stop
+working when the gateway restarts and are not accepted by other replicas: set one in any multi-replica or
+long-running deployment.
 
 ### `governance`
 
@@ -558,8 +603,8 @@ exists returns `409`. A `virtual` topic is judged by the rules covering virtual 
 refused), then writes the virtual topic config and returns `201` with the stored config. An invalid body, unknown `type`, or a virtual topic without a physical `topic`
 returns `400`.
 
-The admin HTTP layer has no authentication yet, so the requesting principal is a placeholder (`admin`) until real admin
-auth lands.
+The governance `principal` of admin API requests is still the placeholder `admin`, also when
+[admin authentication](#adminauth) is enabled.
 
 ### `PUT /topics/{name}`
 
@@ -592,6 +637,9 @@ and governance). `GET` lists a section, `PUT /{name}` upserts one entry,
 | `/auth/clients`        | GET    | List clients                                     |
 | `/auth/clients/{name}` | PUT    | Add or replace a client                          |
 | `/auth/clients/{name}` | DELETE | Remove a client                                  |
+| `/admin/users`         | GET    | List admin users                                 |
+| `/admin/users/{name}`  | PUT    | Add an admin user or replace their password      |
+| `/admin/users/{name}`  | DELETE | Remove an admin user; their tokens stop working  |
 | `/governance/rules`         | GET    | The governance section: rules, global exemptions and variables |
 | `/governance/rules/{name}`  | GET    | Read one governance rule                 |
 | `/governance/rules/{name}`  | PUT    | Add or replace a governance rule         |

@@ -1,6 +1,7 @@
 package io.jonasg.kawa.config;
 
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Map;
 
@@ -23,6 +24,44 @@ class GatewayConfigTest {
         assertThat(config.rbac().groups()).isEmpty();
         assertThat(config.governance().rules()).isEmpty();
         assertThat(config.configTopic()).isEqualTo("__kawa");
+        assertThat(config.adminUsers()).isEmpty();
+    }
+
+    @Test
+    void upsertAdminUserAddsAndRemoveAdminUserRemoves() {
+        // given
+        var user = AdminUserConfig.fromPlaintext("s3cret");
+
+        // when
+        var added = GatewayConfig.empty().upsertAdminUser("alice", user);
+        var removed = added.removeAdminUser("alice");
+
+        // then
+        assertThat(added.adminUsers())
+                .withFailMessage(() -> "admin user 'alice' was not added: " + added.adminUsers())
+                .containsEntry("alice", user);
+        assertThat(removed.adminUsers())
+                .withFailMessage(() -> "admin user 'alice' was not removed: " + removed.adminUsers())
+                .isEmpty();
+    }
+
+    @Test
+    void adminUsersSurviveAJsonRoundTripWithTheirHashOnly() {
+        // given
+        var mapper = JsonMapper.builder().build();
+        var config = GatewayConfig.empty().upsertAdminUser("alice", AdminUserConfig.fromPlaintext("s3cret"));
+
+        // when
+        String json = mapper.writeValueAsString(config);
+        GatewayConfig restored = mapper.readValue(json, GatewayConfig.class);
+
+        // then
+        assertThat(json)
+                .withFailMessage(() -> "the plaintext admin password was serialized: " + json)
+                .doesNotContain("s3cret");
+        assertThat(restored.adminUsers().get("alice").password().verify("s3cret"))
+                .withFailMessage(() -> "admin user 'alice' did not verify after the round trip")
+                .isTrue();
     }
 
     @Test

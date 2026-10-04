@@ -109,7 +109,7 @@ public final class GovernanceInterceptor implements Interceptor {
             ApiKeys.JOIN_GROUP.id, ApiKeys.CONSUMER_GROUP_HEARTBEAT.id,
             ApiKeys.OFFSET_COMMIT.id, ApiKeys.TXN_OFFSET_COMMIT.id,
             ApiKeys.INIT_PRODUCER_ID.id);
-    private static final Logger LOG = LoggerFactory.getLogger(GovernanceInterceptor.class);
+    private static final Logger log = LoggerFactory.getLogger(GovernanceInterceptor.class);
 
     private final Supplier<GovernancePolicy> policy;
     private final TopicDescriber topics;
@@ -415,7 +415,7 @@ public final class GovernanceInterceptor implements Interceptor {
         for (var topic : data.topics()) {
             if (topic.name() == null) {
                 String message = "governance cannot judge a delete by topic id; delete the topic by name";
-                LOG.info("governance refused DeleteTopics for topic id {} by principal '{}': {}", topic.topicId(), principal, message);
+                log.info("governance refused DeleteTopics for topic id {} by principal '{}': {}", topic.topicId(), principal, message);
                 refusedIds.put(topic.topicId(), message);
                 denied.add(topic);
             } else if (isPhysicalName(topic.name())) {
@@ -464,7 +464,7 @@ public final class GovernanceInterceptor implements Interceptor {
         if (current == null || current.error() != null) {
             String reason = current == null ? "it was not read" : rootMessage(current.error());
             String message = "governance could not read the current state of topic '" + name + "': " + reason;
-            LOG.warn("governance refused {} for topic '{}' by principal '{}': {}", api, name, principal, message);
+            log.warn("governance refused {} for topic '{}' by principal '{}': {}", api, name, principal, message);
             return Optional.of(message);
         }
         String physical = physicalName.apply(name);
@@ -533,7 +533,7 @@ public final class GovernanceInterceptor implements Interceptor {
     /// is logged with the API it came through.
     private Optional<String> refusal(String api, GovernanceRequest request) {
         Optional<String> refusal = reason(request);
-        refusal.ifPresent(message -> LOG.info("governance refused {} for {} '{}' by principal '{}': {}",
+        refusal.ifPresent(message -> log.info("governance refused {} for {} '{}' by principal '{}': {}",
                 api, request.resourceType().name().toLowerCase(Locale.ROOT), request.resourceName(), request.principal(), message));
         return refusal;
     }

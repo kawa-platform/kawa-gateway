@@ -60,6 +60,26 @@ class ServerSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void allowsTheAuthorizationHeaderInPreflightByDefault() throws Exception {
+        // given
+        cors = new CorsConfig(List.of("http://localhost:5173"), null, null, null, null);
+        startServer();
+
+        // when
+        var response = send("OPTIONS", "/topics", null, Map.of(
+                "Origin", "http://localhost:5173",
+                "Access-Control-Request-Method", "GET",
+                "Access-Control-Request-Headers", "authorization"));
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("Access-Control-Allow-Headers"))
+                .withFailMessage(() -> "Authorization is not explicitly allowed (a '*' does not cover it): "
+                        + response.headers().firstValue("Access-Control-Allow-Headers"))
+                .hasValueSatisfying(value -> assertThat(value).containsIgnoringCase("authorization"));
+    }
+
+    @Test
     void addsCorsHeadersToActualResponseWhenConfigured() throws Exception {
         // given
         cors = new CorsConfig(List.of("http://localhost:8080"), null, null, null, null);

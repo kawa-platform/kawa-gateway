@@ -9,7 +9,8 @@ import java.util.List;
 ///                       (defaults to `["*"]`)
 /// @param allowedMethods   HTTP methods allowed in preflight responses (defaults to
 ///                       `["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]`)
-/// @param allowedHeaders   request headers allowed in preflight responses (defaults to none)
+/// @param allowedHeaders   request headers allowed in preflight responses (defaults to `["*"]`, which
+///                         kawa extends with `Authorization` because the wildcard does not cover it)
 /// @param allowCredentials whether credentialed requests (cookies, auth headers) are allowed;
 ///                         cannot be combined with a wildcard origin (defaults to `false`)
 /// @param maxAge           how long preflight results may be cached, in seconds (`null` omits the
