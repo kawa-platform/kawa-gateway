@@ -35,7 +35,7 @@
         <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
         <checkstyle.version>14.1.0</checkstyle.version>
 
-        <netty.version>4.1.137.Final</netty.version>
+        <netty.version>4.2.18.Final</netty.version>
         <kafka.version>4.3.0</kafka.version>
         <micrometer.version>1.13.6</micrometer.version>
         <jackson.version>3.2.2</jackson.version>
