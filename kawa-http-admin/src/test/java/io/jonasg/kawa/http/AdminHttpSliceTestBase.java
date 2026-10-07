@@ -103,12 +103,12 @@ abstract class AdminHttpSliceTestBase {
     }
 
     /// Switches the server to be started to `admin.auth.type: oauth`, with the bootstrap user
-    /// `admin` / `s3cret` and the [TestSigningKeys#SEC1_P256] signing key.
+    /// `admin@kawa` / `s3cret` and the [TestSigningKeys#SEC1_P256] signing key.
     protected static final String LOGIN_URL = "http://localhost:5173/admin/login";
     protected static final String REDIRECT_URI = "http://localhost:5173/admin/auth/callback";
 
     protected void enableOAuth() {
-        auth = new AdminAuthConfig("oauth", new AdminAuthConfig.BootstrapUser("admin", "s3cret"), Map.of(
+        auth = new AdminAuthConfig("oauth", new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), Map.of(
                 "issuer", "kawa-test", "signingKey", TestSigningKeys.SEC1_P256,
                 "loginUrl", LOGIN_URL, "redirectUris", REDIRECT_URI));
     }

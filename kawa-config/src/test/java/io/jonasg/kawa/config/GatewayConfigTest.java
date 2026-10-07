@@ -3,11 +3,14 @@ package io.jonasg.kawa.config;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Instant;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class GatewayConfigTest {
+
+    private static final String ALICE_ID = "0b6f7e0a-2a4c-4e8e-9d6b-1f2a3b4c5d6e";
 
     @Test
     void emptyReturnsFullyDefaultedConfig() {
@@ -30,18 +33,19 @@ class GatewayConfigTest {
     @Test
     void upsertAdminUserAddsAndRemoveAdminUserRemoves() {
         // given
-        var user = AdminUserConfig.fromPlaintext("s3cret");
+        var user = new AdminUserConfig("alice@mycom.com", HashedPassword.fromPlaintext(Mechanism.PLAIN, "s3cret"),
+                null, true, Instant.parse("2026-10-06T12:00:00Z"));
 
         // when
-        var added = GatewayConfig.empty().upsertAdminUser("alice", user);
-        var removed = added.removeAdminUser("alice");
+        var added = GatewayConfig.empty().upsertAdminUser(ALICE_ID, user);
+        var removed = added.removeAdminUser(ALICE_ID);
 
         // then
         assertThat(added.adminUsers())
-                .withFailMessage(() -> "admin user 'alice' was not added: " + added.adminUsers())
-                .containsEntry("alice", user);
+                .withFailMessage(() -> "admin user 'alice@mycom.com' was not added: " + added.adminUsers())
+                .containsEntry(ALICE_ID, user);
         assertThat(removed.adminUsers())
-                .withFailMessage(() -> "admin user 'alice' was not removed: " + removed.adminUsers())
+                .withFailMessage(() -> "admin user 'alice@mycom.com' was not removed: " + removed.adminUsers())
                 .isEmpty();
     }
 
@@ -49,7 +53,9 @@ class GatewayConfigTest {
     void adminUsersSurviveAJsonRoundTripWithTheirHashOnly() {
         // given
         var mapper = JsonMapper.builder().build();
-        var config = GatewayConfig.empty().upsertAdminUser("alice", AdminUserConfig.fromPlaintext("s3cret"));
+        var user = new AdminUserConfig("alice@mycom.com", HashedPassword.fromPlaintext(Mechanism.PLAIN, "s3cret"),
+                "Alice Liddell", true, Instant.parse("2026-10-06T12:00:00Z"));
+        var config = GatewayConfig.empty().upsertAdminUser(ALICE_ID, user);
 
         // when
         String json = mapper.writeValueAsString(config);
@@ -59,9 +65,29 @@ class GatewayConfigTest {
         assertThat(json)
                 .withFailMessage(() -> "the plaintext admin password was serialized: " + json)
                 .doesNotContain("s3cret");
-        assertThat(restored.adminUsers().get("alice").password().verify("s3cret"))
-                .withFailMessage(() -> "admin user 'alice' did not verify after the round trip")
+        assertThat(restored.adminUsers().get(ALICE_ID))
+                .withFailMessage(() -> "admin user 'alice@mycom.com' changed in the round trip: " + restored.adminUsers())
+                .isEqualTo(user);
+        assertThat(restored.adminUsers().get(ALICE_ID).password().verify("s3cret"))
+                .withFailMessage(() -> "admin user 'alice@mycom.com' did not verify after the round trip")
                 .isTrue();
+    }
+
+    @Test
+    void disabledAdminUserStaysDisabledAfterRoundTrip() {
+        // given
+        var mapper = JsonMapper.builder().build();
+        var user = new AdminUserConfig("alice@mycom.com", HashedPassword.fromPlaintext(Mechanism.PLAIN, "s3cret"),
+                null, false, Instant.parse("2026-10-06T12:00:00Z"));
+        var config = GatewayConfig.empty().upsertAdminUser(ALICE_ID, user);
+
+        // when
+        GatewayConfig restored = mapper.readValue(mapper.writeValueAsString(config), GatewayConfig.class);
+
+        // then
+        assertThat(restored.adminUsers().get(ALICE_ID).enabled())
+                .withFailMessage(() -> "disabled admin user 'alice@mycom.com' was enabled after the round trip")
+                .isFalse();
     }
 
     @Test

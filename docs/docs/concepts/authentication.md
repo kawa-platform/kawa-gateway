@@ -125,7 +125,8 @@ kawa studio                 browser                         kawa
 3. The client redeems the code with its PKCE `code_verifier` at `POST /oauth/token`. This starts a session that lasts
    `settings.sessionTtl` (default 8 hours) and returns a short-lived access token (`typ: at+jwt`, default 15 minutes)
    and a refresh token (`typ: rt+jwt`, valid until the session ends): ES256-signed JWTs with `iss`/`aud` =
-   `settings.issuer` and `sub` = username.
+   `settings.issuer`, `sub` = the admin user's id (the bootstrap user's is their username) and `preferred_username` =
+   their email.
 4. The client sends the access token as `Authorization: Bearer <token>`. Requests without a valid token get `401`
    with a `WWW-Authenticate: Bearer` challenge.
 5. Before the access token expires, the client exchanges the refresh token for new tokens
@@ -143,9 +144,15 @@ provider can take kawa's place later without changes to kawa studio.
 
 - The **bootstrap user** (`admin.auth.bootstrapUser`) comes from the YAML file, typically with
   `password: ${KAWA_ADMIN_PASSWORD}`. It always exists, is held in memory only, and cannot be changed through the API.
-- **Admin users** are managed with `GET`/`PUT`/`DELETE /admin/users/{name}` and stored in the config topic as
-  PBKDF2-HMAC-SHA256 hashes, like `PLAIN` client passwords. Deleting an admin user revokes their tokens immediately:
-  every request checks that the token's `sub` still exists.
+- **Admin users** are created with `POST /admin/users`, get a gateway-assigned UUID, and are read, changed and removed
+  with `GET`/`PATCH`/`DELETE /admin/users/{id}`. They are stored in the config topic with their password as a
+  PBKDF2-HMAC-SHA256 hash, like `PLAIN` client passwords. The email is the username: stored in lower case, unique
+  regardless of case and never the bootstrap user's. Each admin user also has an optional `displayName`, an `enabled`
+  flag (always `true` on creation) and a `createdAt` set by the gateway, never by the client. `PATCH` keeps every field it
+  leaves out, so a user can be disabled or renamed without their password. Responses never contain the password or its
+  hash. Tokens carry the admin user's id, so changing their email keeps them signed in. Deleting or disabling an admin
+  user revokes their tokens immediately: every request checks that the token's `sub` still exists and is enabled. A
+  disabled admin user cannot log in; the login fails like a wrong password.
 
 Failed logins return `invalid_credentials` whether the username or the password is wrong, and take the same time either
 way.

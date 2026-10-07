@@ -6,6 +6,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AdminAuthConfigTest {
 
@@ -34,7 +35,7 @@ class AdminAuthConfigTest {
                   auth:
                     type: oidc
                     bootstrapUser:
-                      username: admin
+                      username: admin@kawa
                       password: s3cret
                     settings:
                       issuer: https://idp.example.com
@@ -46,10 +47,18 @@ class AdminAuthConfigTest {
         assertThat(auth.type())
                 .withFailMessage(() -> "an arbitrary provider name was not kept: " + auth.type())
                 .isEqualTo("oidc");
-        assertThat(auth.bootstrapUser()).isEqualTo(new AdminAuthConfig.BootstrapUser("admin", "s3cret"));
+        assertThat(auth.bootstrapUser()).isEqualTo(new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"));
         assertThat(auth.settings())
                 .withFailMessage(() -> "settings were not handed through as-is: " + auth.settings())
                 .containsExactlyInAnyOrderEntriesOf(Map.of("issuer", "https://idp.example.com", "tokenTtl", "PT5M"));
+    }
+
+    @Test
+    void rejectsBootstrapUsernameThatIsNotAnEmail() {
+        // when / then
+        assertThatThrownBy(() -> new AdminAuthConfig.BootstrapUser("admin", "s3cret"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("admin.auth.bootstrapUser.username must be an email address");
     }
 
     @Test
@@ -69,7 +78,7 @@ class AdminAuthConfigTest {
     @Test
     void resolvesBootstrapPasswordFromEnvironment() {
         // when
-        var user = AdminAuthConfig.BootstrapUser.of("admin", "${KAWA_ADMIN_PASSWORD}",
+        var user = AdminAuthConfig.BootstrapUser.of("admin@kawa", "${KAWA_ADMIN_PASSWORD}",
                 Map.of("KAWA_ADMIN_PASSWORD", "from-env")::get);
 
         // then
@@ -82,7 +91,7 @@ class AdminAuthConfigTest {
     void neverSerializesAuthSoSecretsStayOutOfTheConfigTopic() {
         // given
         var admin = new AdminConfig(true, null, null, null, new AdminAuthConfig("oauth",
-                new AdminAuthConfig.BootstrapUser("admin", "s3cret"), Map.of("signingKey", "private-pem")));
+                new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), Map.of("signingKey", "private-pem")));
 
         // when
         String json = JsonMapper.builder().build().writeValueAsString(admin);

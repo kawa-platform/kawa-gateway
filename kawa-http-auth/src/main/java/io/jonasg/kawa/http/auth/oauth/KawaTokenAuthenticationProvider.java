@@ -13,7 +13,8 @@ import java.util.Optional;
 /// kawa itself (`Authorization: Bearer <jwt>`).
 ///
 /// A token is valid when [TokenVerifier] accepts it as an `at+jwt` access token and its `sub` is an
-/// admin user that still exists, so deleting a user revokes their tokens immediately.
+/// admin user that still exists and is enabled, so deleting or disabling a user revokes their tokens
+/// immediately. The principal is named by the admin user's current username.
 public final class KawaTokenAuthenticationProvider implements AuthenticationProvider {
 
     private static final String BEARER = "bearer ";
@@ -34,7 +35,7 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
                 .map(value -> value.substring(BEARER.length()).trim())
                 .flatMap(verifier::verify)
                 .map(JWTClaimsSet::getSubject)
-                .filter(users::exists)
+                .flatMap(users::username)
                 .map(KawaPrincipal::new);
     }
 }

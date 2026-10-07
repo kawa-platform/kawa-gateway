@@ -61,13 +61,16 @@ public record AdminAuthConfig(
     /// An admin user defined in the bootstrap config. Its password is plaintext (typically
     /// `${KAWA_ADMIN_PASSWORD}`), resolved from the environment, and only ever held in memory.
     ///
-    /// @param username the admin username
+    /// @param username the admin username, an email address
     /// @param password the plaintext password, with `${VAR:-default}` resolved
     public record BootstrapUser(String username, String password) {
 
         public BootstrapUser {
             if (username == null || username.isBlank()) {
                 throw new IllegalArgumentException("admin.auth.bootstrapUser.username must not be null or blank");
+            }
+            if (!EmailAddresses.isValid(username)) {
+                throw new IllegalArgumentException("admin.auth.bootstrapUser.username must be an email address");
             }
             if (password == null || password.isBlank()) {
                 throw new IllegalArgumentException("admin.auth.bootstrapUser.password must not be null or blank");

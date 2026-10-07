@@ -1,11 +1,14 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.AdminUserConfig;
 import io.jonasg.kawa.config.GatewayConfig;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
+import java.util.Base64;
 import java.util.Map;
 
+import static io.jonasg.kawa.http.AdminUserConfigMother.ALICE_ID;
+import static io.jonasg.kawa.http.AdminUserConfigMother.adminUser;
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 
@@ -20,7 +23,7 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
         startServer();
 
         // when
-        var response = signIn("admin", "s3cret");
+        var response = signIn("admin@kawa", "s3cret");
 
         // then
         assertThat(response).hasStatusCode(200);
@@ -39,15 +42,113 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
         // given
         enableOAuth();
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .upsertAdminUser("alice", AdminUserConfig.fromPlaintext("alice-secret")));
+                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
         startServer();
 
         // when
-        var response = signIn("alice", "alice-secret");
+        var response = signIn("alice@mycom.com", "alice-secret");
 
         // then
         assertThat(response).hasStatusCode(200);
         assertThatJson(response.body()).isObject().containsKey("access_token");
+    }
+
+    @Test
+    void rejectsADisabledAdminUserLikeAWrongPassword() throws Exception {
+        // given
+        enableOAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").disabled().build()));
+        startServer();
+
+        // when
+        var response = signIn("alice@mycom.com", "alice-secret");
+
+        // then
+        assertThat(response).hasStatusCode(400);
+        assertThatJson(response.body()).isEqualTo("""
+                {"error":"invalid_credentials","error_description":"invalid username or password"}
+                """);
+    }
+
+    @Test
+    void refusesToRefreshTheSessionOfADisabledAdminUser() throws Exception {
+        // given
+        enableOAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
+        startServer();
+        String refreshToken = JsonMapper.builder().build()
+                .readTree(signIn("alice@mycom.com", "alice-secret").body()).get("refresh_token").asString();
+        String adminToken = login("admin@kawa", "s3cret");
+        send("PATCH", "/admin/users/" + ALICE_ID, """
+                {"enabled":false}
+                """, bearer(adminToken));
+
+        // when
+        var response = send("POST", "/oauth/token", "grant_type=refresh_token&refresh_token=" + refreshToken,
+                Map.of("Content-Type", "application/x-www-form-urlencoded"));
+
+        // then
+        assertThat(response).hasStatusCode(400);
+        assertThatJson(response.body()).isObject().containsEntry("error", "invalid_grant");
+    }
+
+    @Test
+    void signsInWithTheEmailInAnyCase() throws Exception {
+        // given
+        enableOAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .upsertAdminUser(ALICE_ID, adminUser().withEmail("alice@mycom.com").withPassword("alice-secret").build()));
+        startServer();
+
+        // when
+        var stored = signIn("Alice@MyCom.com", "alice-secret");
+        var bootstrap = signIn("ADMIN@kawa", "s3cret");
+
+        // then
+        assertThat(stored).hasStatusCode(200);
+        assertThat(bootstrap).hasStatusCode(200);
+    }
+
+    @Test
+    void accessTokenIdentifiesTheUserByIdAndNamesThemByEmail() throws Exception {
+        // given
+        enableOAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .upsertAdminUser(ALICE_ID, adminUser().withEmail("alice@mycom.com").withPassword("alice-secret").build()));
+        startServer();
+
+        // when
+        String accessToken = JsonMapper.builder().build()
+                .readTree(signIn("alice@mycom.com", "alice-secret").body()).get("access_token").asString();
+
+        // then
+        var claims = JsonMapper.builder().build().readTree(
+                Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]));
+        assertThat(claims.get("sub").asString())
+                .withFailMessage(() -> "the access token does not identify the admin user by id: " + claims)
+                .isEqualTo(ALICE_ID);
+        assertThat(claims.get("preferred_username").asString())
+                .withFailMessage(() -> "the access token does not name the admin user by email: " + claims)
+                .isEqualTo("alice@mycom.com");
+    }
+
+    @Test
+    void bootstrapUserIsIdentifiedByTheirEmail() throws Exception {
+        // given
+        enableOAuth();
+        startServer();
+
+        // when
+        String accessToken = JsonMapper.builder().build()
+                .readTree(signIn("admin@kawa", "s3cret").body()).get("access_token").asString();
+
+        // then
+        var claims = JsonMapper.builder().build().readTree(
+                Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]));
+        assertThat(claims.get("sub").asString()).isEqualTo("admin@kawa");
+        assertThat(claims.get("preferred_username").asString()).isEqualTo("admin@kawa");
     }
 
     @Test
@@ -73,7 +174,7 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
         startServer();
 
         // when
-        var response = signIn("admin", "wrong");
+        var response = signIn("admin@kawa", "wrong");
 
         // then
         assertThat(response).hasStatusCode(400);
@@ -87,7 +188,7 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
         startServer();
 
         // when
-        var response = signIn("mallory", "s3cret");
+        var response = signIn("mallory@mycom.com", "s3cret");
 
         // then
         assertThat(response).hasStatusCode(400);
@@ -103,7 +204,7 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
         startServer();
 
         // when
-        var response = send("POST", "/oauth/token", "grant_type=password&username=admin&password=s3cret",
+        var response = send("POST", "/oauth/token", "grant_type=password&username=admin%40kawa&password=s3cret",
                 Map.of("Content-Type", "application/x-www-form-urlencoded"));
 
         // then

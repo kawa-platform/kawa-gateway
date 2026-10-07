@@ -351,7 +351,7 @@ the admin API is open) and `oauth` (kawa acts as an OAuth 2.0 authorization serv
 | Field           | Type   | Default | Description                                                                                          |
 |-----------------|--------|---------|------------------------------------------------------------------------------------------------------|
 | `type`          | string | `none`  | Name of the authentication provider: `none`, `oauth`, or one registered by a plugin                  |
-| `bootstrapUser` | object | -       | `username` and `password` (`${VAR}` resolved) of an admin that can always log in. Required for `oauth` |
+| `bootstrapUser` | object | -       | `username` (an email address) and `password` (`${VAR}` resolved) of an admin that can always log in. Required for `oauth` |
 | `settings`      | object | `{}`    | Provider-specific settings, handed to the selected provider; `${VAR}` placeholders are resolved      |
 
 `settings` for `type: oauth`:
@@ -372,7 +372,7 @@ admin:
   auth:
     type: oauth
     bootstrapUser:
-      username: admin
+      username: admin@kawa
       password: ${KAWA_ADMIN_PASSWORD}
     settings:
       signingKey: ${KAWA_ADMIN_SIGNING_KEY}
@@ -638,8 +638,10 @@ and governance). `GET` lists a section, `PUT /{name}` upserts one entry,
 | `/auth/clients/{name}` | PUT    | Add or replace a client                          |
 | `/auth/clients/{name}` | DELETE | Remove a client                                  |
 | `/admin/users`         | GET    | List admin users                                 |
-| `/admin/users/{name}`  | PUT    | Add an admin user or replace their password      |
-| `/admin/users/{name}`  | DELETE | Remove an admin user; their tokens stop working  |
+| `/admin/users`         | POST   | Create an admin user under a new id              |
+| `/admin/users/{id}`    | GET    | Read one admin user                              |
+| `/admin/users/{id}`    | PATCH  | Change an admin user's email, password, display name or `enabled` flag; omitted fields are kept |
+| `/admin/users/{id}`    | DELETE | Remove an admin user; their tokens stop working  |
 | `/governance/rules`         | GET    | The governance section: rules, global exemptions and variables |
 | `/governance/rules/{name}`  | GET    | Read one governance rule                 |
 | `/governance/rules/{name}`  | PUT    | Add or replace a governance rule         |
