@@ -68,16 +68,16 @@ final class TokenEndpoint implements HttpEndpoint {
                 .filter(code -> code.redirectUri().equals(grant.getRedirectionURI()))
                 .filter(code -> grant.getCodeVerifier() != null && code.codeChallenge().equals(
                         CodeChallenge.compute(CodeChallengeMethod.S256, grant.getCodeVerifier()).getValue()))
-                .filter(code -> users.exists(code.subject()))
-                .map(code -> tokens(new AccessTokenResponse(tokenIssuer.newSession(code.subject()))))
+                .flatMap(code -> users.username(code.subject())
+                        .map(username -> tokens(new AccessTokenResponse(tokenIssuer.newSession(code.subject(), username)))))
                 .orElseGet(() -> error(OAuth2Error.INVALID_GRANT.setDescription("invalid, expired or already used authorization code")));
     }
 
     private HttpResponse refresh(RefreshTokenGrant grant) {
         return refreshTokens.verify(grant.getRefreshToken().getValue())
-                .filter(claims -> users.exists(claims.getSubject()))
-                .map(claims -> tokens(new AccessTokenResponse(
-                        tokenIssuer.refreshSession(claims.getSubject(), sessionExpiry(claims)))))
+                .flatMap(claims -> users.username(claims.getSubject())
+                        .map(username -> tokens(new AccessTokenResponse(
+                                tokenIssuer.refreshSession(claims.getSubject(), username, sessionExpiry(claims))))))
                 .orElseGet(() -> error(OAuth2Error.INVALID_GRANT.setDescription("invalid or expired refresh token")));
     }
 

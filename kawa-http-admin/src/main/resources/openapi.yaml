@@ -797,10 +797,10 @@ paths:
   /admin/users:
     get:
       summary: List admin users
-      description: The admin API users stored in the config topic. The bootstrap user is not listed.
+      description: The admin API users stored in the config topic, sorted by email. The bootstrap user is not listed.
       responses:
         '200':
-          description: The admin users, sorted by username
+          description: The admin users
           content:
             application/json:
               schema:
@@ -811,23 +811,28 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalError'
-  /admin/users/{name}:
-    put:
-      summary: Upsert an admin user
+    post:
+      summary: Create an admin user
       description: |
-        Creates the admin user `name` or replaces their password. The password is stored as a
-        PBKDF2-HMAC-SHA256 hash. The bootstrap user cannot be managed here.
-      parameters:
-        - $ref: '#/components/parameters/ConfigEntryName'
+        Creates an admin user under a new, gateway-assigned UUID. The email is the username: it is
+        stored in lower case and must be unique regardless of case, also against the bootstrap user.
+        The password is stored as a PBKDF2-HMAC-SHA256 hash. A new admin user is enabled and gets
+        `createdAt` from the gateway; a body carrying any other field, such as `enabled` or
+        `createdAt`, is rejected.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AdminUserRequest'
+              $ref: '#/components/schemas/CreateAdminUserRequest'
       responses:
-        '200':
-          description: The stored admin user
+        '201':
+          description: The created admin user; `Location` points at it
+          headers:
+            Location:
+              schema:
+                type: string
+              description: '`/admin/users/{id}` of the new admin user'
           content:
             application/json:
               schema:
@@ -836,13 +841,63 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/users/{id}:
+    get:
+      summary: Get an admin user
+      parameters:
+        - $ref: '#/components/parameters/AdminUserId'
+      responses:
+        '200':
+          description: The admin user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      summary: Update an admin user
+      description: |
+        Changes the given fields and keeps the rest, so an admin user can be disabled or renamed
+        without their password. An empty `displayName` clears it. Changing the email keeps the admin
+        user signed in: their tokens carry their id. Disabling them revokes their tokens immediately.
+        A body carrying any other field is rejected.
+      parameters:
+        - $ref: '#/components/parameters/AdminUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAdminUserRequest'
+      responses:
+        '200':
+          description: The updated admin user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalError'
     delete:
       summary: Delete an admin user
-      description: Removes the admin user `name`. Tokens already issued to them stop working immediately.
+      description: Removes the admin user. Tokens already issued to them stop working immediately.
       parameters:
-        - $ref: '#/components/parameters/ConfigEntryName'
+        - $ref: '#/components/parameters/AdminUserId'
       responses:
         '204':
           description: Admin user deleted
@@ -875,6 +930,14 @@ components:
       description: The config entry name (role, group, username, or governance rule).
       schema:
         type: string
+    AdminUserId:
+      name: id
+      in: path
+      required: true
+      description: The admin user's gateway-assigned id.
+      schema:
+        type: string
+        format: uuid
   responses:
     Unauthorized:
       description: |
@@ -957,21 +1020,62 @@ components:
           type: string
         error_description:
           type: string
-    AdminUserRequest:
+    CreateAdminUserRequest:
       type: object
+      additionalProperties: false
       required:
+        - email
         - password
       properties:
+        email:
+          type: string
+          format: email
+          description: The username to log in with; stored in lower case.
         password:
           type: string
           format: password
+        displayName:
+          type: string
+          description: An optional human-readable label to tell admin users apart.
+    UpdateAdminUserRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          description: Must not be blank.
+        displayName:
+          type: string
+          description: An empty value clears it.
+        enabled:
+          type: boolean
     AdminUserView:
       type: object
       required:
-        - username
+        - id
+        - email
+        - displayName
+        - enabled
+        - createdAt
       properties:
-        username:
+        id:
           type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+          nullable: true
+        enabled:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
     Error:
       type: object
       required:

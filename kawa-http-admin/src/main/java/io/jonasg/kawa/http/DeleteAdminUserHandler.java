@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-/// Serves `DELETE /admin/users/{name}`. Tokens already issued to the user stop working immediately.
+/// Serves `DELETE /admin/users/{id}`. Tokens already issued to the user stop working immediately.
 public final class DeleteAdminUserHandler implements Router.Handler {
 
     private final AdminUserService service;
@@ -11,10 +11,10 @@ public final class DeleteAdminUserHandler implements Router.Handler {
 
     @Override
     public Router.Response<?> handle(Router.Request request) {
-        String name = request.pathParams().get("name");
+        String id = request.pathParams().get("id");
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            service.deleteAdminUser(name, consistency);
+            service.deleteAdminUser(id, consistency);
             return Router.Response.noContent();
         } catch (NotFoundException e) {
             return Router.Response.notFound(e.getMessage());

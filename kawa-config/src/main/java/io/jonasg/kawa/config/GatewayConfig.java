@@ -18,7 +18,7 @@ import java.util.stream.Collectors;
 /// @param admin         admin HTTP listener configuration
 /// @param configTopic   the topic that holds the dynamic gateway config (defaults to `__kawa`)
 /// @param governance    topic governance configuration
-/// @param adminUsers    admin API users, keyed by username
+/// @param adminUsers    admin API users, keyed by their gateway-assigned UUID
 public record GatewayConfig(
         List<ListenerConfig> listeners,
         Map<String, ClusterConfig> clusters,
@@ -163,17 +163,17 @@ public record GatewayConfig(
         return copyWith(Map.copyOf(newTopics), auth, rbac, governance);
     }
 
-    /// Returns a new [GatewayConfig] with the given admin user added or replaced.
-    public GatewayConfig upsertAdminUser(String username, AdminUserConfig user) {
+    /// Returns a new [GatewayConfig] with the admin user `id` added or replaced.
+    public GatewayConfig upsertAdminUser(String id, AdminUserConfig user) {
         var users = new HashMap<>(adminUsers);
-        users.put(username, user);
+        users.put(id, user);
         return withAdminUsers(Map.copyOf(users));
     }
 
-    /// Returns a new [GatewayConfig] with the admin user `username` removed.
-    public GatewayConfig removeAdminUser(String username) {
+    /// Returns a new [GatewayConfig] with the admin user `id` removed.
+    public GatewayConfig removeAdminUser(String id) {
         var users = new HashMap<>(adminUsers);
-        users.remove(username);
+        users.remove(id);
         return withAdminUsers(Map.copyOf(users));
     }
 

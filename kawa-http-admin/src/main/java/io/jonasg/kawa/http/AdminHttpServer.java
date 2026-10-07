@@ -28,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.time.Clock;
 
 /// Netty HTTP server exposing the gateway's admin/UI surface: `GET /topics` reads the
 /// [VirtualTopicManager] and [MetadataCache], `POST /topics` and `DELETE /topics/{name}`
@@ -73,10 +74,10 @@ public final class AdminHttpServer {
         var clientService = new AuthClientService(configRepository);
         var governanceService = new GovernanceService(configRepository);
         var governanceMapper = new GovernanceConfigMapper();
-        var adminUserService = new AdminUserService(configRepository);
         AdminAuthConfig adminAuthConfig = config.auth();
         var adminUsers = new AdminUserAuthenticator(adminAuthConfig.bootstrapUser(), configRepository);
-        var adminUserMapper = new AdminUserMapper(adminUsers.bootstrapUsername().orElse(null));
+        var adminUserService = new AdminUserService(configRepository, adminUsers.bootstrapUsername().orElse(null));
+        var adminUserMapper = new AdminUserMapper(Clock.systemUTC());
         this.router = new Router()
                 .get("/topics", new GetTopicsHandler(topicService))
                 .post("/topics", new PostTopicHandler(topicService))
@@ -111,8 +112,10 @@ public final class AdminHttpServer {
                 .delete("/governance/variables/{name}", new DeleteGovernanceVariableHandler(governanceService))
 
                 .get("/admin/users", new GetAdminUsersHandler(adminUserService, adminUserMapper))
-                .put("/admin/users/{name}", new PutAdminUserHandler(adminUserService, adminUserMapper))
-                .delete("/admin/users/{name}", new DeleteAdminUserHandler(adminUserService))
+                .post("/admin/users", new PostAdminUserHandler(adminUserService, adminUserMapper))
+                .get("/admin/users/{id}", new GetAdminUserHandler(adminUserService, adminUserMapper))
+                .patch("/admin/users/{id}", new PatchAdminUserHandler(adminUserService, adminUserMapper))
+                .delete("/admin/users/{id}", new DeleteAdminUserHandler(adminUserService))
 
                 .publicGet("/docs", new GetDocsHandler());
         this.authenticationProvider = authenticationProviders.require(adminAuthConfig.type()).create(

@@ -23,7 +23,7 @@ admin:
   auth:
     type: oauth
     bootstrapUser:
-      username: admin
+      username: admin@kawa
       password: ${KAWA_ADMIN_PASSWORD:-admin}
     settings:
       loginUrl: http://localhost:5173/admin/login

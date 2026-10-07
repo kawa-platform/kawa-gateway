@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /// An in-memory [AuthenticationProviderContext]: settings from a map, admin users with plaintext
-/// passwords, and the registered public endpoints collected by `METHOD path`.
+/// passwords (each user's subject is their username), and the registered public endpoints collected by `METHOD path`.
 final class FakeProviderContext implements AuthenticationProviderContext {
 
     private final Map<String, String> settings;
@@ -57,13 +57,13 @@ final class FakeProviderContext implements AuthenticationProviderContext {
     public AdminUserDirectory adminUsers() {
         return new AdminUserDirectory() {
             @Override
-            public boolean verify(String username, String password) {
-                return password.equals(users.get(username));
+            public Optional<String> authenticate(String username, String password) {
+                return password.equals(users.get(username)) ? Optional.of(username) : Optional.empty();
             }
 
             @Override
-            public boolean exists(String username) {
-                return users.containsKey(username);
+            public Optional<String> username(String subject) {
+                return users.containsKey(subject) ? Optional.of(subject) : Optional.empty();
             }
 
             @Override

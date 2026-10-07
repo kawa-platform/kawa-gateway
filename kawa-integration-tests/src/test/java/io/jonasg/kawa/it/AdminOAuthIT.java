@@ -29,7 +29,7 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
     @Override
     protected AdminConfig adminConfig() {
         return new AdminConfig(true, "127.0.0.1", 0, null,
-                new AdminAuthConfig("oauth", new AdminAuthConfig.BootstrapUser("admin", "s3cret"), Map.of(
+                new AdminAuthConfig("oauth", new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), Map.of(
                         "loginUrl", "http://localhost:5173/admin/login",
                         "redirectUris", REDIRECT_URI)));
     }
@@ -48,7 +48,7 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
     @Test
     void bootstrapUserCallsTheAdminApiWithAToken() throws Exception {
         // given
-        String token = login("admin", "s3cret");
+        String token = login("admin@kawa", "s3cret");
 
         // when
         HttpResponse<String> response = httpExec(reqBuilder("/topics").GET()
@@ -62,31 +62,32 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
 
     @Test
     void adminUserCreatedThroughTheApiCanLogIn() throws Exception {
-        // given: the bootstrap admin creates 'alice', persisted in and applied from the config topic
-        String adminToken = login("admin", "s3cret");
-        HttpResponse<String> created = httpExec(reqBuilder("/admin/users/alice?consistency=applied")
-                .PUT(HttpRequest.BodyPublishers.ofString("{\"password\":\"alice-secret\"}"))
+        // given: the bootstrap admin creates 'alice@mycom.com', persisted in and applied from the config topic
+        String adminToken = login("admin@kawa", "s3cret");
+        HttpResponse<String> created = httpExec(reqBuilder("/admin/users?consistency=applied")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"email\":\"alice@mycom.com\",\"password\":\"alice-secret\"}"))
+                .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + adminToken).build());
         assertThat(created.statusCode())
-                .withFailMessage(() -> "creating admin user 'alice' failed: " + created.body())
-                .isEqualTo(200);
+                .withFailMessage(() -> "creating admin user 'alice@mycom.com' failed: " + created.body())
+                .isEqualTo(201);
 
         // when
-        String aliceToken = login("alice", "alice-secret");
+        String aliceToken = login("alice@mycom.com", "alice-secret");
         HttpResponse<String> response = httpExec(reqBuilder("/admin/users").GET()
                 .header("Authorization", "Bearer " + aliceToken).build());
 
         // then
         assertThat(response.statusCode())
-                .withFailMessage(() -> "GET /admin/users as 'alice' failed: " + response.body())
+                .withFailMessage(() -> "GET /admin/users as 'alice@mycom.com' failed: " + response.body())
                 .isEqualTo(200);
-        assertThat(response.body()).contains("\"alice\"");
+        assertThat(response.body()).contains("\"alice@mycom.com\"");
     }
 
     @Test
     void refreshTokenObtainsANewAccessToken() throws Exception {
         // given
-        String refreshToken = signIn("admin", "s3cret").get("refresh_token").asString();
+        String refreshToken = signIn("admin@kawa", "s3cret").get("refresh_token").asString();
 
         // when
         String accessToken = tokenResponse("grant_type=refresh_token&refresh_token=" + refreshToken)

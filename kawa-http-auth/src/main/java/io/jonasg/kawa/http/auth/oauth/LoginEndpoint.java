@@ -47,11 +47,12 @@ final class LoginEndpoint implements HttpEndpoint {
         if (pending.isEmpty()) {
             return error("invalid_challenge", "the login request has expired, start again");
         }
-        if (!users.verify(username.get(), password.get())) {
+        Optional<String> subject = users.authenticate(username.get(), password.get());
+        if (subject.isEmpty()) {
             return error("invalid_credentials", "invalid username or password");
         }
         var authorization = pending.get();
-        String code = flow.code(username.get(), authorization);
+        String code = flow.code(subject.get(), authorization);
         String redirectTo = new AuthorizationSuccessResponse(authorization.redirectUri(), new AuthorizationCode(code), null,
                 authorization.state() == null ? null : new State(authorization.state()), ResponseMode.QUERY).toURI().toString();
         return noStore(HttpResponse.json(200, JSONObjectUtils.toJSONString(Map.of("redirect_to", redirectTo))));

@@ -267,7 +267,7 @@ class OAuthAuthenticationProviderFactoryTest {
         var threeHoursAgo = Clock.fixed(Instant.now().minus(Duration.ofHours(3)), ZoneOffset.UTC);
         String expired = new TokenIssuer(SigningKeys.from(TestSigningKeys.SEC1_P256), "kawa",
                 Duration.ofMinutes(15), Duration.ofHours(2), threeHoursAgo)
-                .newSession("admin").getRefreshToken().getValue();
+                .newSession("admin", "admin").getRefreshToken().getValue();
         var context = context(settings);
         factory.create(context);
 

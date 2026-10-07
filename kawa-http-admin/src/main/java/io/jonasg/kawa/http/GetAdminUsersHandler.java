@@ -1,6 +1,8 @@
 package io.jonasg.kawa.http;
 
-/// Serves `GET /admin/users`.
+import java.util.Comparator;
+
+/// Serves `GET /admin/users`: every stored admin user, sorted by email. The bootstrap user is not listed.
 public final class GetAdminUsersHandler implements Router.Handler {
 
     private final AdminUserService service;
@@ -13,9 +15,9 @@ public final class GetAdminUsersHandler implements Router.Handler {
 
     @Override
     public Router.Response<?> handle(Router.Request request) {
-        return Router.Response.ok(service.listAdminUsers().keySet().stream()
-                .sorted()
-                .map(mapper::toAdminUserView)
+        return Router.Response.ok(service.listAdminUsers().entrySet().stream()
+                .sorted(Comparator.comparing(entry -> entry.getValue().email()))
+                .map(entry -> mapper.toAdminUserView(entry.getKey(), entry.getValue()))
                 .toList());
     }
 }
