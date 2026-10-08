@@ -10,14 +10,14 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class ConfigTopicRepositoryTest {
+class TransactionalConfigTopicWriterTest {
 
     private final JsonMapper mapper = JsonMapper.builder().build();
 
     @Test
     void serializeRoundTripsThroughConsumerDeserialization() throws Exception {
         // given
-        try (var repository = new ConfigTopicRepository("localhost:9092", "__kawa", new Properties())) {
+        try (var writer = new TransactionalConfigTopicWriter("localhost:9092", "__kawa", new Properties())) {
             var config = new GatewayConfig(
                     null, null,
                     Map.of("orders", new VirtualTopicConfig("raw-orders")),
@@ -29,7 +29,7 @@ class ConfigTopicRepositoryTest {
                     null, null, null);
 
             // when
-            String json = repository.serialize(config);
+            String json = writer.serialize(config);
             GatewayConfig readBack = mapper.readValue(json, GatewayConfig.class);
 
             // then
@@ -40,7 +40,7 @@ class ConfigTopicRepositoryTest {
     @Test
     void serializeRoundTripsVirtualTopicValueFormat() throws Exception {
         // given a virtual topic filtering on JSON content
-        try (var repository = new ConfigTopicRepository("localhost:9092", "__kawa", new Properties())) {
+        try (var writer = new TransactionalConfigTopicWriter("localhost:9092", "__kawa", new Properties())) {
             var virtualTopic = new VirtualTopicConfig(
                     "orders",
                     new CelFilterConfig("value.status == \"PAID\""),
@@ -49,7 +49,7 @@ class ConfigTopicRepositoryTest {
             var config = GatewayConfig.empty().upsertVirtualTopic("paid-orders", virtualTopic);
 
             // when
-            String json = repository.serialize(config);
+            String json = writer.serialize(config);
             GatewayConfig readBack = mapper.readValue(json, GatewayConfig.class);
 
             // then
@@ -82,7 +82,7 @@ class ConfigTopicRepositoryTest {
     @Test
     void serializeProducesFullSnapshotWithAllDynamicSections() throws Exception {
         // given
-        try (var repository = new ConfigTopicRepository("localhost:9092", "__kawa", new Properties())) {
+        try (var writer = new TransactionalConfigTopicWriter("localhost:9092", "__kawa", new Properties())) {
             var config = new GatewayConfig(
                     null, null,
                     Map.of("orders", new VirtualTopicConfig("raw-orders")),
@@ -94,7 +94,7 @@ class ConfigTopicRepositoryTest {
                     null, null, null);
 
             // when
-            String json = repository.serialize(config);
+            String json = writer.serialize(config);
 
             // then
             assertThat(json).contains("\"virtualTopics\"", "\"auth\"", "\"rbac\"");

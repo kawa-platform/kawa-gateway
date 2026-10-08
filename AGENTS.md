@@ -66,7 +66,8 @@ depend on production modules such as `kawa-config`, but never on a module that u
   (the virtual-to-physical mapping state).
 - `kawa-protocol-kafka`: `KafkaApiRegistry` — the decoded API/version table; APIs not registered pass through ungated.
 - `kawa-rbac`: `AuthorizationInterceptor` + per-API `AuthorizationCheck`s. One check per gate shape; RBAC is
-  **unconditional** (no opt-out) and **default-deny**.
+  **on by default** and **default-deny**. It may be explicitly disabled, and doing so removes authorization
+  entirely (fail-open: no interceptor, every Kafka request admitted) - see epic #45.
 - `kawa-http-admin`: admin HTTP surface (e.g. `GET /topics`) exposing gateway state to a UI; reads
   `VirtualTopicManager`/`MetadataCache`, never talks to the broker.
 - `kawa-plugin-api`: public SPI (`KawaPlugin`, `KawaPluginContext`, admin `AuthenticationProviderFactory` and the

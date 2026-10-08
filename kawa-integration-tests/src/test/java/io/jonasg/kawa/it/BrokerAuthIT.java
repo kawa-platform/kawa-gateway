@@ -80,6 +80,8 @@ class BrokerAuthIT {
             .withEnv("KAFKA_ADVERTISED_LISTENERS",
                     "SASL_PLAINTEXT://localhost:" + HOST_SASL_PORT)
             .withEnv("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", "1")
+            .withEnv("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", "1")
+            .withEnv("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "1")
             .withEnv("KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS", "0")
             .withEnv("KAFKA_SASL_ENABLED_MECHANISMS", "PLAIN")
             .withEnv("KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL", "PLAIN")

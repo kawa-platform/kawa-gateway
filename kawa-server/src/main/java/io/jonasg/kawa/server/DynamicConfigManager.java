@@ -1,25 +1,30 @@
 package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.ConfigTopicConsumer;
-import io.jonasg.kawa.config.ConfigTopicRepository;
+import io.jonasg.kawa.config.ConfigTopicWriter;
+import io.jonasg.kawa.config.ConfigWriteFencedException;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
-import io.jonasg.kawa.config.OffsetAwareGatewayConfigRepository;
+import io.jonasg.kawa.config.TransactionalConfigTopicWriter;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.rbac.RbacAuthorizer;
 import io.jonasg.kawa.server.auth.SaslAuthenticator;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.Properties;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 /// Owns the config-topic consumer and applies each [GatewayConfig] snapshot to the mutable
 /// consumers: [VirtualTopicManager], [RbacAuthorizer], [SaslAuthenticator] and
-/// [GovernancePolicy]. Also owns the config-topic producer, so it is the
+/// [GovernancePolicy]. Also owns the config-topic writer, so it is the
 /// [GatewayConfigRepository] the admin HTTP surface uses to read the current snapshot and
 /// persist changes.
 ///
@@ -34,27 +39,37 @@ import java.util.function.UnaryOperator;
 /// offset, so the gateway can refuse to serve until it has applied the config that existed
 /// at boot.
 ///
-/// [current] reports the newest *persisted* snapshot (from the write repository) when one
-/// exists, falling back to the last *applied* one. The admin API's read-modify-write must
-/// build on the persisted snapshot: the consumer applies asynchronously, so a burst of PUTs
-/// would otherwise each start from the same stale base and overwrite each other.
+/// Every write is a compare-and-set across gateway replicas: the [ConfigTopicWriter] takes over
+/// the config topic (fencing every other replica's writer), this manager waits until its consumer
+/// has read every committed snapshot, applies the mutation to that snapshot and commits. When
+/// another replica took over in between, the commit is fenced and the write starts again on the
+/// newer snapshot, so a mutation always sees every change committed before its own and its checks
+/// (such as "not the last enabled admin user") hold on what is written. Writes on one replica are
+/// serialized. A mutation may therefore run more than once and must be a pure function of its base.
+///
+/// [getActiveConfig] reports this replica's own newest committed snapshot until the consumer has
+/// applied it, then the last applied one, so the admin API reads its own writes.
 public final class DynamicConfigManager implements GatewayConfigRepository, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(DynamicConfigManager.class);
 
     private static final Duration DEFAULT_APPLY_WAIT_TIMEOUT = Duration.ofSeconds(5);
+    private static final int MAX_WRITE_ATTEMPTS = 10;
 
     private final ConfigTopicConsumer consumer;
-    private final GatewayConfigRepository writeRepository;
+    private final ConfigTopicWriter writer;
     private final VirtualTopicManager virtualTopics;
     private final RbacAuthorizer authorizer;
     private final SaslAuthenticator saslAuthenticator;
     private final GovernancePolicy governance;
     private final Duration applyWaitTimeout;
     private final Object applyProgressLock = new Object();
+    private final Object writeLock = new Object();
 
-    private volatile GatewayConfig current;
+    private volatile @Nullable GatewayConfig current;
     private volatile long lastAppliedOffset = -1L;
+    private volatile long consumedPosition = 0L;
+    private volatile @Nullable Committed lastCommitted;
 
     public DynamicConfigManager(
             String bootstrapServers,
@@ -64,8 +79,7 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
             SaslAuthenticator saslAuthenticator,
             GovernancePolicy governance
     ) {
-        this(bootstrapServers, topic, new Properties(), virtualTopics, authorizer, saslAuthenticator,
-                governance, DEFAULT_APPLY_WAIT_TIMEOUT);
+        this(bootstrapServers, topic, new Properties(), virtualTopics, authorizer, saslAuthenticator, governance);
     }
 
     /// Variant that accepts extra consumer/producer properties (e.g. SASL/security settings
@@ -79,11 +93,26 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
             SaslAuthenticator saslAuthenticator,
             GovernancePolicy governance
     ) {
-        this(bootstrapServers, topic, extraProps, virtualTopics, authorizer, saslAuthenticator, governance,
-                DEFAULT_APPLY_WAIT_TIMEOUT);
+        this(new TransactionalConfigTopicWriter(bootstrapServers, topic, extraProps), bootstrapServers, topic, extraProps,
+                virtualTopics, authorizer, saslAuthenticator, governance, DEFAULT_APPLY_WAIT_TIMEOUT);
     }
 
+    /// Test seam: injects the writer so the compare-and-set flow can be verified without a broker.
+    /// The consumer is created against a dummy bootstrap and never started; tests drive [apply].
     DynamicConfigManager(
+            ConfigTopicWriter writer,
+            VirtualTopicManager virtualTopics,
+            RbacAuthorizer authorizer,
+            SaslAuthenticator saslAuthenticator,
+            GovernancePolicy governance,
+            Duration applyWaitTimeout
+    ) {
+        this(writer, "localhost:9092", "__kawa", new Properties(), virtualTopics, authorizer, saslAuthenticator,
+                governance, applyWaitTimeout);
+    }
+
+    private DynamicConfigManager(
+            ConfigTopicWriter writer,
             String bootstrapServers,
             String topic,
             Properties extraProps,
@@ -93,6 +122,7 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
             GovernancePolicy governance,
             Duration applyWaitTimeout
     ) {
+        this.writer = writer;
         this.virtualTopics = virtualTopics;
         this.authorizer = authorizer;
         this.saslAuthenticator = saslAuthenticator;
@@ -102,42 +132,8 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
                 bootstrapServers,
                 topic,
                 extraProps,
-                (config, offset) -> apply(config, offset));
-        this.writeRepository = new ConfigTopicRepository(bootstrapServers, topic, extraProps);
-    }
-
-    /// Test seam: injects the write-side repository so the read-modify-write base can be
-    /// verified without a broker. The consumer is created against a dummy bootstrap and never
-    /// started.
-    DynamicConfigManager(
-            GatewayConfigRepository writeRepository,
-            VirtualTopicManager virtualTopics,
-            RbacAuthorizer authorizer,
-            SaslAuthenticator saslAuthenticator,
-            GovernancePolicy governance
-    ) {
-        this(writeRepository, virtualTopics, authorizer, saslAuthenticator, governance, DEFAULT_APPLY_WAIT_TIMEOUT);
-    }
-
-    DynamicConfigManager(
-            GatewayConfigRepository writeRepository,
-            VirtualTopicManager virtualTopics,
-            RbacAuthorizer authorizer,
-            SaslAuthenticator saslAuthenticator,
-            GovernancePolicy governance,
-            Duration applyWaitTimeout
-    ) {
-        this.virtualTopics = virtualTopics;
-        this.authorizer = authorizer;
-        this.saslAuthenticator = saslAuthenticator;
-        this.governance = governance;
-        this.applyWaitTimeout = applyWaitTimeout;
-        this.consumer = new ConfigTopicConsumer(
-                "localhost:9092",
-                "__kawa",
-                new Properties(),
-                (config, offset) -> apply(config, offset));
-        this.writeRepository = writeRepository;
+                this::apply,
+                this::consumedUpTo);
     }
 
     /// Applies a snapshot to the four mutable consumers. Package-private so the wiring is
@@ -147,13 +143,23 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
         current = config;
     }
 
-    /// Applies a snapshot and advances the last-applied offset used by
-    /// [updateAndWaitUntilApplied]. Package-private so offset-wait behavior is testable.
+    /// Applies the snapshot at `offset` and advances the progress [updateAndWaitUntilApplied] and
+    /// the compare-and-set wait on. Package-private so the write flow is testable.
     void apply(GatewayConfig config, long offset) {
         applyConsumers(config);
         current = config;
         synchronized (applyProgressLock) {
             lastAppliedOffset = Math.max(lastAppliedOffset, offset);
+            consumedPosition = Math.max(consumedPosition, offset + 1);
+            applyProgressLock.notifyAll();
+        }
+    }
+
+    /// The consumer has read everything before `position`, including aborted records and
+    /// transaction markers that carry no snapshot.
+    private void consumedUpTo(long position) {
+        synchronized (applyProgressLock) {
+            consumedPosition = Math.max(consumedPosition, position);
             applyProgressLock.notifyAll();
         }
     }
@@ -176,55 +182,89 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
     }
 
     @Override
-    public GatewayConfig getActiveConfig() {
-        // The admin API's read-modify-write must build on the most recent *persisted*
-        // snapshot, not the last *applied* one: the consumer applies asynchronously, so a
-        // burst of PUTs would otherwise each start from the same stale base and overwrite
-        // each other. The write repository tracks the newest persisted snapshot.
-        GatewayConfig persisted = writeRepository.getActiveConfig();
-        return persisted != null ? persisted : current;
+    public @Nullable GatewayConfig getActiveConfig() {
+        Committed committed = lastCommitted;
+        if (committed != null && committed.offset() > lastAppliedOffset) {
+            return committed.config();
+        }
+        return current;
     }
 
-    /// Applies [mutation] to the active config (persisted-or-applied, or empty before the
-    /// first snapshot) and persists the result.
     @Override
     public void update(UnaryOperator<GatewayConfig> mutation) {
-        // The write repository only knows persisted snapshots, so the read-modify-write base
-        // must be resolved here: before the first persist it falls back to the last applied
-        // config (see getActiveConfig).
-        GatewayConfig base = getActiveConfigOrEmpty();
-        writeRepository.update(ignored -> mutation.apply(base));
+        commit(mutation);
     }
 
     @Override
     public void updateAndWaitUntilApplied(UnaryOperator<GatewayConfig> mutation) {
-        GatewayConfig base = getActiveConfigOrEmpty();
-        if (!(writeRepository instanceof OffsetAwareGatewayConfigRepository offsetAwareRepository)) {
-            writeRepository.updateAndWaitUntilApplied(ignored -> mutation.apply(base));
-            return;
+        awaitAppliedOffset(commit(mutation));
+    }
+
+    /// Applies `mutation` to the newest committed snapshot and commits the result, starting again on
+    /// a newer snapshot when another replica wrote in between. Returns the offset of the commit.
+    private long commit(UnaryOperator<GatewayConfig> mutation) {
+        synchronized (writeLock) {
+            for (int attempt = 1; ; attempt++) {
+                // The committed end offset can trail this replica's own last commit: committing
+                // returns once the transaction log records it, before its marker reaches the config
+                // topic. Waiting for the consumer to read past our own last commit as well keeps a
+                // write from building on a snapshot that is missing the previous one.
+                Committed own = lastCommitted;
+                awaitConsumedPosition(Math.max(writer.committedEndOffset(), own == null ? 0 : own.offset() + 1));
+                GatewayConfig base = current;
+                GatewayConfig next = mutation.apply(base != null ? base : GatewayConfig.empty());
+                try {
+                    long offset = writer.commit(next);
+                    lastCommitted = new Committed(next, offset);
+                    return offset;
+                } catch (ConfigWriteFencedException e) {
+                    if (attempt == MAX_WRITE_ATTEMPTS) {
+                        throw new IllegalStateException("config write kept conflicting with other gateway replicas; "
+                                + "gave up after " + attempt + " attempts", e);
+                    }
+                    log.info("config write conflicted with another gateway replica; retrying on the newer snapshot "
+                            + "(attempt {} of {})", attempt, MAX_WRITE_ATTEMPTS);
+                    backOff(attempt);
+                }
+            }
         }
-        long writtenOffset = offsetAwareRepository.updateAndGetOffset(ignored -> mutation.apply(base));
-        awaitAppliedOffset(writtenOffset);
+    }
+
+    private static void backOff(int attempt) {
+        try {
+            Thread.sleep(ThreadLocalRandom.current().nextLong(5, 25) * attempt);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while retrying a config write", e);
+        }
+    }
+
+    /// Blocks until the consumer has read every record before `position`.
+    private void awaitConsumedPosition(long position) {
+        awaitProgress(() -> consumedPosition >= position,
+                () -> "timed out waiting for the config consumer to read up to offset " + position
+                        + "; consumedPosition=" + consumedPosition + ", timeout=" + applyWaitTimeout.toMillis() + "ms");
     }
 
     private void awaitAppliedOffset(long targetOffset) {
-        long timeoutNanos = applyWaitTimeout.toNanos();
-        long deadline = System.nanoTime() + timeoutNanos;
+        awaitProgress(() -> lastAppliedOffset >= targetOffset,
+                () -> "timed out waiting for config apply after persist; targetOffset=" + targetOffset
+                        + ", lastAppliedOffset=" + lastAppliedOffset + ", timeout=" + applyWaitTimeout.toMillis() + "ms");
+    }
+
+    private void awaitProgress(BooleanSupplier reached, Supplier<String> timeoutMessage) {
+        long deadline = System.nanoTime() + applyWaitTimeout.toNanos();
         synchronized (applyProgressLock) {
-            while (lastAppliedOffset < targetOffset) {
+            while (!reached.getAsBoolean()) {
                 long remainingNanos = deadline - System.nanoTime();
                 if (remainingNanos <= 0) {
-                    throw new IllegalStateException(
-                            "timed out waiting for config apply after persist; targetOffset=" + targetOffset
-                            + ", lastAppliedOffset=" + lastAppliedOffset
-                            + ", timeout=" + applyWaitTimeout.toMillis() + "ms");
+                    throw new IllegalStateException(timeoutMessage.get());
                 }
                 try {
                     TimeUnit.NANOSECONDS.timedWait(applyProgressLock, remainingNanos);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    throw new IllegalStateException(
-                            "interrupted while waiting for config apply at offset " + targetOffset, e);
+                    throw new IllegalStateException("interrupted while waiting for the config consumer", e);
                 }
             }
         }
@@ -234,9 +274,13 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
     public void close() {
         consumer.close();
         try {
-            writeRepository.close();
+            writer.close();
         } catch (Exception e) {
-            log.warn("failed to close config write repository", e);
+            log.warn("failed to close config writer", e);
         }
+    }
+
+    /// A snapshot this replica committed, and the offset of its record.
+    private record Committed(GatewayConfig config, long offset) {
     }
 }

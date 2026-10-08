@@ -103,7 +103,9 @@ API and is not yet implemented.
 ## Admin API authentication
 
 Kafka clients and admin API callers are separate: SASL clients (`auth.clients`) authenticate on the Kafka listener,
-admin users authenticate on the admin HTTP API. By default (`admin.auth.type: none`) the admin API is open. With
+admin users authenticate on the admin HTTP API. By default (`admin.auth.type: none`) the admin API is open: `none`
+authenticates nobody and admits every request as `admin`, so admin users, and whether they are enabled, have no effect
+on access under it. With
 `admin.auth.type: oauth` kawa acts as its own OAuth 2.0 authorization server. It is **headless**: users log in with
 the authorization code flow with PKCE (RFC 7636), and the login page belongs to kawa studio, not to the gateway.
 
