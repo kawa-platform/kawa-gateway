@@ -20,6 +20,9 @@ admin:
   # http://localhost:5173 (authorization code flow with PKCE; kawa studio hosts the login page).
   # No signingKey is set, so tokens are signed with a key generated at startup and stop working
   # after a restart: just log in again.
+  # bootstrapUser is created as a normal admin user on the first start, when there are no admin
+  # users yet; after that it is ignored, so changing the password here does nothing. Locked out?
+  # Start once with KAWA_ADMIN_RESET=true to re-enable it and reset its password to this one.
   auth:
     type: oauth
     bootstrapUser:

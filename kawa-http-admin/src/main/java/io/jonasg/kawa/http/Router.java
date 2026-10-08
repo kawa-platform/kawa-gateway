@@ -45,6 +45,12 @@ public final class Router {
             List<String> values = headers.get(name);
             return values == null || values.isEmpty() ? Optional.empty() : Optional.of(values.getFirst());
         }
+
+        /// The name of the authenticated caller, or `null` on a public route. Under kawa's `oauth`
+        /// provider that is the admin user's current email.
+        public @Nullable String principalName() {
+            return principal == null ? null : principal.name();
+        }
     }
 
     /// The response a handler returns: an HTTP status plus a body object serialized to JSON by the

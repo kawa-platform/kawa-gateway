@@ -797,7 +797,9 @@ paths:
   /admin/users:
     get:
       summary: List admin users
-      description: The admin API users stored in the config topic, sorted by email. The bootstrap user is not listed.
+      description: |
+        The admin API users stored in the config topic, sorted by email. This includes the bootstrap
+        user, which the gateway creates from `admin.auth.bootstrapUser` on a start without admin users.
       responses:
         '200':
           description: The admin users
@@ -815,7 +817,7 @@ paths:
       summary: Create an admin user
       description: |
         Creates an admin user under a new, gateway-assigned UUID. The email is the username: it is
-        stored in lower case and must be unique regardless of case, also against the bootstrap user.
+        stored in lower case and must be unique regardless of case.
         The password is stored as a PBKDF2-HMAC-SHA256 hash. A new admin user is enabled and gets
         `createdAt` from the gateway; a body carrying any other field, such as `enabled` or
         `createdAt`, is rejected.
@@ -867,7 +869,8 @@ paths:
         Changes the given fields and keeps the rest, so an admin user can be disabled or renamed
         without their password. An empty `displayName` clears it. Changing the email keeps the admin
         user signed in: their tokens carry their id. Disabling them revokes their tokens immediately.
-        A body carrying any other field is rejected.
+        A body carrying any other field is rejected. Disabling your own admin user, or the last
+        enabled one, is refused with a `409` naming the reason.
       parameters:
         - $ref: '#/components/parameters/AdminUserId'
       requestBody:
@@ -895,7 +898,9 @@ paths:
           $ref: '#/components/responses/InternalError'
     delete:
       summary: Delete an admin user
-      description: Removes the admin user. Tokens already issued to them stop working immediately.
+      description: |
+        Removes the admin user. Tokens already issued to them stop working immediately. Deleting your
+        own admin user, or the last enabled one, is refused with a `409` naming the reason.
       parameters:
         - $ref: '#/components/parameters/AdminUserId'
       responses:
@@ -905,6 +910,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalError'
 components:

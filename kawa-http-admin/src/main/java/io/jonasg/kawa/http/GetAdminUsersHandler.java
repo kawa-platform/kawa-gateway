@@ -2,7 +2,8 @@ package io.jonasg.kawa.http;
 
 import java.util.Comparator;
 
-/// Serves `GET /admin/users`: every stored admin user, sorted by email. The bootstrap user is not listed.
+/// Serves `GET /admin/users`: every stored admin user, sorted by email, including the bootstrap user
+/// the gateway seeded on first start.
 public final class GetAdminUsersHandler implements Router.Handler {
 
     private final AdminUserService service;

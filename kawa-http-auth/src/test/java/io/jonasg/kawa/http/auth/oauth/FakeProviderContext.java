@@ -4,7 +4,6 @@ import io.jonasg.kawa.plugin.auth.AdminUserDirectory;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
 import io.jonasg.kawa.plugin.auth.ProviderSettings;
 import io.jonasg.kawa.plugin.http.HttpEndpoint;
-import org.jspecify.annotations.Nullable;
 
 import java.time.Duration;
 import java.util.Arrays;
@@ -18,13 +17,11 @@ import java.util.Optional;
 final class FakeProviderContext implements AuthenticationProviderContext {
 
     private final Map<String, String> settings;
-    private final @Nullable String bootstrapUsername;
     private final Map<String, String> users;
     final Map<String, HttpEndpoint> endpoints = new HashMap<>();
 
-    FakeProviderContext(Map<String, String> settings, @Nullable String bootstrapUsername, Map<String, String> users) {
+    FakeProviderContext(Map<String, String> settings, Map<String, String> users) {
         this.settings = settings;
-        this.bootstrapUsername = bootstrapUsername;
         this.users = users;
     }
 
@@ -67,8 +64,8 @@ final class FakeProviderContext implements AuthenticationProviderContext {
             }
 
             @Override
-            public Optional<String> bootstrapUsername() {
-                return Optional.ofNullable(bootstrapUsername);
+            public boolean hasAdminUsers() {
+                return !users.isEmpty();
             }
         };
     }

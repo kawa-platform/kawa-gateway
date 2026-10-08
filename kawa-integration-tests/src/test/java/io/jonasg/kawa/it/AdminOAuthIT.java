@@ -20,8 +20,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/// End-to-end OAuth on the admin API of a real gateway: kawa issues tokens for the bootstrap user
-/// and for admin users stored in the config topic, and rejects requests without one.
+/// End-to-end OAuth on the admin API of a real gateway: kawa seeds the bootstrap user into the config
+/// topic, issues tokens for the admin users stored there, and rejects requests without one.
 class AdminOAuthIT extends AdminHTTPTestSupport {
 
     private static final String REDIRECT_URI = "http://localhost:5173/admin/auth/callback";
@@ -58,6 +58,21 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
         assertThat(response.statusCode())
                 .withFailMessage(() -> "GET /topics with a valid token failed: " + response.body())
                 .isEqualTo(200);
+    }
+
+    @Test
+    void seedsTheBootstrapUserIntoTheConfigTopic() throws Exception {
+        // when
+        HttpResponse<String> response = httpExec(reqBuilder("/admin/users").GET()
+                .header("Authorization", "Bearer " + login("admin@kawa", "s3cret")).build());
+
+        // then
+        assertThat(response.statusCode())
+                .withFailMessage(() -> "GET /admin/users as the bootstrap user failed: " + response.body())
+                .isEqualTo(200);
+        assertThat(response.body())
+                .withFailMessage(() -> "the bootstrap user is not a stored admin user: " + response.body())
+                .contains("\"email\":\"admin@kawa\"");
     }
 
     @Test

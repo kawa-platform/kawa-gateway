@@ -8,6 +8,7 @@ import java.util.Base64;
 import java.util.Map;
 
 import static io.jonasg.kawa.http.AdminUserConfigMother.ALICE_ID;
+import static io.jonasg.kawa.http.AdminUserConfigMother.BOB_ID;
 import static io.jonasg.kawa.http.AdminUserConfigMother.adminUser;
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
@@ -76,11 +77,12 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
         // given
         enableOAuth();
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
+                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build())
+                .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").withPassword("bob-secret").build()));
         startServer();
         String refreshToken = JsonMapper.builder().build()
                 .readTree(signIn("alice@mycom.com", "alice-secret").body()).get("refresh_token").asString();
-        String adminToken = login("admin@kawa", "s3cret");
+        String adminToken = login("bob@mycom.com", "bob-secret");
         send("PATCH", "/admin/users/" + ALICE_ID, """
                 {"enabled":false}
                 """, bearer(adminToken));
@@ -103,12 +105,10 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
         startServer();
 
         // when
-        var stored = signIn("Alice@MyCom.com", "alice-secret");
-        var bootstrap = signIn("ADMIN@kawa", "s3cret");
+        var response = signIn("Alice@MyCom.com", "alice-secret");
 
         // then
-        assertThat(stored).hasStatusCode(200);
-        assertThat(bootstrap).hasStatusCode(200);
+        assertThat(response).hasStatusCode(200);
     }
 
     @Test
@@ -135,7 +135,7 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
-    void bootstrapUserIsIdentifiedByTheirEmail() throws Exception {
+    void seededBootstrapUserIsIdentifiedByTheirIdLikeAnyAdminUser() throws Exception {
         // given
         enableOAuth();
         startServer();
@@ -147,7 +147,9 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
         // then
         var claims = JsonMapper.builder().build().readTree(
                 Base64.getUrlDecoder().decode(accessToken.split("\\.")[1]));
-        assertThat(claims.get("sub").asString()).isEqualTo("admin@kawa");
+        assertThat(claims.get("sub").asString())
+                .withFailMessage(() -> "the seeded bootstrap user is not identified by their id: " + claims)
+                .isEqualTo(BootstrapUserSeeder.idOf("admin@kawa"));
         assertThat(claims.get("preferred_username").asString()).isEqualTo("admin@kawa");
     }
 

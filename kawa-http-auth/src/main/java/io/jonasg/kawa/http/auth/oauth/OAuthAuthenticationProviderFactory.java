@@ -28,7 +28,8 @@ import java.util.stream.Collectors;
 ///
 /// Users log in with the authorization code flow with PKCE (no password grant, per OAuth 2.1).
 ///
-/// Requires `admin.auth.bootstrapUser`: without it nobody could log in to create further admin users.
+/// Requires at least one admin user: without one nobody could log in to create further admin users.
+/// The gateway seeds `admin.auth.bootstrapUser` as the first admin user before the provider is created.
 public final class OAuthAuthenticationProviderFactory implements AuthenticationProviderFactory {
 
     static final String DEFAULT_ISSUER = "kawa";
@@ -53,8 +54,9 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
 
     @Override
     public AuthenticationProvider create(AuthenticationProviderContext context) {
-        if (context.adminUsers().bootstrapUsername().isEmpty()) {
-            throw new IllegalArgumentException("admin.auth.type 'oauth' requires admin.auth.bootstrapUser");
+        if (!context.adminUsers().hasAdminUsers()) {
+            throw new IllegalArgumentException("admin.auth.type 'oauth' requires an admin user: "
+                    + "set admin.auth.bootstrapUser to create the first one");
         }
         var settings = context.settings();
         String issuer = settings.string("issuer").orElse(DEFAULT_ISSUER);

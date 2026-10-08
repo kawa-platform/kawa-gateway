@@ -351,7 +351,7 @@ the admin API is open) and `oauth` (kawa acts as an OAuth 2.0 authorization serv
 | Field           | Type   | Default | Description                                                                                          |
 |-----------------|--------|---------|------------------------------------------------------------------------------------------------------|
 | `type`          | string | `none`  | Name of the authentication provider: `none`, `oauth`, or one registered by a plugin                  |
-| `bootstrapUser` | object | -       | `username` (an email address) and `password` (`${VAR}` resolved) of an admin that can always log in. Required for `oauth` |
+| `bootstrapUser` | object | -       | `username` (an email address) and `password` (`${VAR}` resolved) of the first admin user, created on a start without admin users and ignored once any exist. `oauth` needs it, or an existing admin user |
 | `settings`      | object | `{}`    | Provider-specific settings, handed to the selected provider; `${VAR}` placeholders are resolved      |
 
 `settings` for `type: oauth`:
@@ -385,6 +385,10 @@ admin:
 `type` stops the gateway at startup with the list of available providers. Without a `signingKey`, `oauth` tokens stop
 working when the gateway restarts and are not accepted by other replicas: set one in any multi-replica or
 long-running deployment.
+
+The bootstrap user's password only counts on the first start, when the gateway creates the bootstrap user. To recover
+a gateway nobody can sign in to, start it once with `KAWA_ADMIN_RESET=true`: see
+[Recovering from a lockout](concepts/authentication.md#recovering-from-a-lockout).
 
 ### `governance`
 

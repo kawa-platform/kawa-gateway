@@ -1,7 +1,7 @@
 package io.jonasg.kawa.http;
 
 /// Serves `POST /admin/users`: creates an admin user under a new id and answers `201` with the
-/// stored user and its `Location`. An email in use, also by the bootstrap user, is a `409`.
+/// stored user and its `Location`. An email in use is a `409`.
 public final class PostAdminUserHandler implements Router.Handler {
 
     private final AdminUserService service;
