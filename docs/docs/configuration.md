@@ -581,6 +581,21 @@ first-boot flow - there is no "seed the config topic before starting" requiremen
 The startup-only configuration (`listeners`, `clusters`, `advertised`, `admin`,
 `auth.brokerAuth`, `configTopic`) always comes from the static YAML file and cannot be changed live.
 
+### Concurrent writes and replicas
+
+Several gateway replicas can share one config topic. Every write through the Admin API is a compare-and-set: the replica
+writes in a Kafka transaction under the `transactional.id` `kawa-config-writer-<configTopic>`, which all replicas share.
+Starting a write fences any other replica's write in flight; the replica then reads the config topic up to the last
+committed snapshot, applies its change to that snapshot and commits. A fenced write is aborted and retried on the newer
+snapshot, so concurrent writes on different replicas never overwrite each other, and checks such as "not the last
+enabled admin user" hold across replicas. The gateway reads the config topic `read_committed`, so an aborted write is
+never applied.
+
+This needs brokers with transaction support (a single-broker development cluster needs
+`transaction.state.log.replication.factor=1` and `transaction.state.log.min.isr=1`). Where the brokers enforce ACLs, the
+gateway's principal (`auth.brokerAuth`) also needs `WRITE` and `DESCRIBE` on that transactional id, besides `READ` and
+`WRITE` on the config topic.
+
 ## Admin API
 
 When `admin.enabled` is `true`, the admin HTTP server exposes gateway state and the dynamic config. All endpoints return

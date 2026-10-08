@@ -17,8 +17,10 @@ import java.util.UUID;
 ///
 /// The stored admin users are the only way in to the admin API, so this service refuses the changes
 /// that would lock everyone out: removing or disabling the caller's own admin user, and removing or
-/// disabling the last enabled one. Writes are serialized, so two concurrent requests cannot each
-/// remove "not the last" enabled admin user.
+/// disabling the last enabled one. The checks run inside the mutation, on the snapshot that is written:
+/// writes here are serialized, and the gateway's config repository commits each mutation as a
+/// compare-and-set across replicas (re-running it on a newer snapshot when another replica wrote in
+/// between), so two concurrent requests cannot each remove "not the last" enabled admin user.
 final class AdminUserService {
 
     private final GatewayConfigRepository repository;

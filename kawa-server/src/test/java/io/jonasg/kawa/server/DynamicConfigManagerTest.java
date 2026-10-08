@@ -3,13 +3,13 @@ package io.jonasg.kawa.server;
 import io.jonasg.kawa.config.AclConfig;
 import io.jonasg.kawa.config.AuthConfig;
 import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.ConfigTopicWriter;
+import io.jonasg.kawa.config.ConfigWriteFencedException;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
 import io.jonasg.kawa.config.GroupConfig;
-import io.jonasg.kawa.config.OffsetAwareGatewayConfigRepository;
 import io.jonasg.kawa.config.RbacConfig;
 import io.jonasg.kawa.config.ResourceConfig;
 import io.jonasg.kawa.config.RoleConfig;
@@ -37,10 +37,12 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.UnaryOperator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -148,98 +150,144 @@ class DynamicConfigManagerTest {
     }
 
     @Test
-    void currentReturnsLastPersistedSnapshotBeforeConsumerAppliesIt() {
-        // given - a manager whose write side is an in-memory repository (no broker needed)
-        var writeRepository = new GatewayConfigRepository() {
-            private GatewayConfig last;
+    void readsItsOwnCommittedSnapshotBeforeTheConsumerAppliesIt() {
+        // given
+        var writer = new FakeConfigTopicWriter();
+        var manager = manager(writer, Duration.ofSeconds(1));
+        var committed = config(Map.of("orders", new VirtualTopicConfig("orders-v2")), rbacAllowingReadOnOrders(), plainAuth(), null);
 
-            @Override
-            public GatewayConfig getActiveConfig() {
-                return last;
-            }
+        // when
+        manager.update(_ -> committed);
 
-            private void upsert(GatewayConfig config) {
-                last = config;
-            }
-
-            @Override
-            public void update(UnaryOperator<GatewayConfig> mutation) {
-                upsert(mutation.apply(getActiveConfigOrEmpty()));
-            }
-
-            @Override
-            public void updateAndWaitUntilApplied(UnaryOperator<GatewayConfig> mutation) {
-                update(mutation);
-            }
-
-            @Override
-            public void close() {
-                // no resources
-            }
-        };
-        var manager = new DynamicConfigManager(writeRepository,
-                new VirtualTopicManager(Map.of()),
-                new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(),
-                emptyGovernance());
-        var first = config(Map.of("orders", new VirtualTopicConfig("orders-v2")), rbacAllowingReadOnOrders(), plainAuth(), null);
-        var second = config(Map.of("customers", new VirtualTopicConfig("crm.customers")), rbacAllowingReadOnOrders(), plainAuth(), null);
-
-        // when - two snapshots are persisted before the consumer has applied either
-        manager.update(_ -> first);
-        manager.update(_ -> second);
-
-        // then - the read-modify-write base is the newest persisted snapshot, so a burst of
-        // PUTs builds on each other instead of overwriting from the same stale base
-        assertThat(manager.getActiveConfig()).isSameAs(second);
+        // then - the admin API reads its own write although the consumer has not applied it yet
+        assertThat(manager.getActiveConfig()).isSameAs(committed);
     }
 
     @Test
     void updateBuildsOnLastAppliedConfigBeforeFirstPersist() {
-        // given - a manager whose write side is an in-memory repository (no broker needed)
-        var writeRepository = new GatewayConfigRepository() {
-            private GatewayConfig last;
-
-            @Override
-            public GatewayConfig getActiveConfig() {
-                return last;
-            }
-
-            private void upsert(GatewayConfig config) {
-                last = config;
-            }
-
-            @Override
-            public void update(UnaryOperator<GatewayConfig> mutation) {
-                upsert(mutation.apply(getActiveConfigOrEmpty()));
-            }
-
-            @Override
-            public void updateAndWaitUntilApplied(UnaryOperator<GatewayConfig> mutation) {
-                update(mutation);
-            }
-
-            @Override
-            public void close() {
-                // no resources
-            }
-        };
-        var manager = new DynamicConfigManager(writeRepository,
-                new VirtualTopicManager(Map.of()),
-                new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(),
-                emptyGovernance());
+        // given
+        var writer = new FakeConfigTopicWriter();
+        var manager = manager(writer, Duration.ofSeconds(1));
         var applied = config(Map.of("orders", new VirtualTopicConfig("orders-v2")),
                 rbacAllowingReadOnOrders(), plainAuth(), null);
         manager.apply(applied);
 
-        // when - a mutation is applied before anything has been persisted through the write side
+        // when - a mutation is applied before anything has been committed through the writer
         manager.update(c -> c.upsertVirtualTopic("customers", new VirtualTopicConfig("crm.customers")));
 
         // then - the base is the last applied config, not an empty one
-        assertThat(manager.getActiveConfig().virtualTopics())
+        assertThat(writer.committed.getLast().virtualTopics())
                 .containsEntry("orders", new VirtualTopicConfig("orders-v2"))
                 .containsEntry("customers", new VirtualTopicConfig("crm.customers"));
+    }
+
+    @Test
+    void waitsUntilEveryCommittedSnapshotIsConsumedBeforeBuildingOnIt() throws Exception {
+        // given - another replica committed a snapshot this replica's consumer has not read yet
+        var writer = new FakeConfigTopicWriter();
+        var manager = manager(writer, Duration.ofSeconds(1));
+        var otherReplicas = GatewayConfig.empty().upsertVirtualTopic("payments", new VirtualTopicConfig("payments-v1"));
+        long otherOffset = writer.commitByAnotherReplica(otherReplicas);
+        Thread consumer = new Thread(() -> {
+            sleep(50);
+            manager.apply(otherReplicas, otherOffset);
+        });
+        consumer.start();
+
+        // when
+        manager.update(c -> c.upsertVirtualTopic("customers", new VirtualTopicConfig("crm.customers")));
+
+        // then - the write built on the other replica's snapshot instead of overwriting it
+        consumer.join();
+        assertThat(writer.committed.getLast().virtualTopics())
+                .withFailMessage(() -> "the write lost the other replica's change: " + writer.committed.getLast().virtualTopics())
+                .containsKeys("payments", "customers");
+    }
+
+    @Test
+    void waitsForItsOwnLastCommitBeforeTheNextWriteEvenWhenTheEndOffsetLags() {
+        // given - a commit returns before its transaction marker reaches the topic, so the committed
+        // end offset still excludes it; the consumer reads it a little later
+        var writer = new FakeConfigTopicWriter();
+        writer.lagEndOffsetBehindOwnCommits();
+        var manager = manager(writer, Duration.ofSeconds(1));
+        manager.update(c -> c.upsertVirtualTopic("customers", new VirtualTopicConfig("crm.customers")));
+        var first = writer.committed.getLast();
+        Thread consumer = new Thread(() -> {
+            sleep(50);
+            manager.apply(first, 0);
+        });
+        consumer.start();
+
+        // when - the same replica writes again straight away
+        manager.update(c -> c.upsertVirtualTopic("payments", new VirtualTopicConfig("payments-v1")));
+
+        // then - the second write built on the first instead of dropping it
+        assertThat(writer.committed.getLast().virtualTopics())
+                .withFailMessage(() -> "the second write lost the first: " + writer.committed.getLast().virtualTopics())
+                .containsKeys("customers", "payments");
+    }
+
+    @Test
+    void retriesAFencedWriteOnTheNewerSnapshot() {
+        // given - another replica commits between this replica's read and its commit
+        var writer = new FakeConfigTopicWriter();
+        var manager = manager(writer, Duration.ofSeconds(1));
+        var otherReplicas = GatewayConfig.empty().upsertVirtualTopic("payments", new VirtualTopicConfig("payments-v1"));
+        writer.fenceNextCommit(() -> manager.apply(otherReplicas, writer.commitByAnotherReplica(otherReplicas)));
+        var bases = new ArrayList<GatewayConfig>();
+
+        // when
+        manager.update(c -> {
+            bases.add(c);
+            return c.upsertVirtualTopic("customers", new VirtualTopicConfig("crm.customers"));
+        });
+
+        // then
+        assertThat(bases)
+                .withFailMessage(() -> "the fenced write was not retried on the newer snapshot: " + bases)
+                .hasSize(2);
+        assertThat(writer.committed.getLast().virtualTopics()).containsKeys("payments", "customers");
+    }
+
+    @Test
+    void reRunsTheMutationsChecksOnTheNewerSnapshot() {
+        // given - the mutation only allows removing 'orders' while 'payments' remains; another
+        // replica removes 'payments' while this write is in flight
+        var writer = new FakeConfigTopicWriter();
+        var manager = manager(writer, Duration.ofSeconds(1));
+        var both = GatewayConfig.empty()
+                .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1"))
+                .upsertVirtualTopic("payments", new VirtualTopicConfig("payments-v1"));
+        manager.apply(both, writer.commitByAnotherReplica(both));
+        var withoutPayments = both.removeVirtualTopic("payments");
+        writer.fenceNextCommit(() -> manager.apply(withoutPayments, writer.commitByAnotherReplica(withoutPayments)));
+
+        // when / then
+        assertThatThrownBy(() -> manager.update(c -> {
+            if (!c.virtualTopics().containsKey("payments")) {
+                throw new IllegalArgumentException("'orders' is the last virtual topic");
+            }
+            return c.removeVirtualTopic("orders");
+        }))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("'orders' is the last virtual topic");
+        assertThat(writer.committed.getLast())
+                .withFailMessage(() -> "a write whose check failed on the newer snapshot was committed")
+                .isSameAs(withoutPayments);
+    }
+
+    @Test
+    void givesUpWhenEveryAttemptIsFenced() {
+        // given
+        var writer = new FakeConfigTopicWriter();
+        var manager = manager(writer, Duration.ofSeconds(1));
+        writer.fenceEveryCommit();
+
+        // when / then
+        assertThatThrownBy(() -> manager.update(c -> c))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("kept conflicting with other gateway replicas");
     }
 
     @Test
@@ -337,27 +385,16 @@ class DynamicConfigManagerTest {
     @Test
     void updateAndWaitUntilAppliedReturnsAfterWrittenOffsetIsApplied() {
         // given
-        var writeRepository = new OffsetAwareTestRepository();
-        var manager = new DynamicConfigManager(
-                writeRepository,
-                new VirtualTopicManager(Map.of()),
-                new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(),
-                emptyGovernance(),
-                Duration.ofSeconds(1));
+        var writer = new FakeConfigTopicWriter();
+        var manager = manager(writer, Duration.ofSeconds(1));
         var targetConfig = config(
                 Map.of("orders", new VirtualTopicConfig("orders-v2")),
                 rbacAllowingReadOnOrders(),
                 plainAuth(),
                 null);
-        long writtenOffset = writeRepository.nextOffset;
+        long writtenOffset = writer.endOffset;
         Thread applier = new Thread(() -> {
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new RuntimeException(e);
-            }
+            sleep(50);
             manager.apply(targetConfig, writtenOffset);
         });
         applier.start();
@@ -372,14 +409,7 @@ class DynamicConfigManagerTest {
     @Test
     void updateAndWaitUntilAppliedTimesOutWhenOffsetIsNotApplied() {
         // given
-        var writeRepository = new OffsetAwareTestRepository();
-        var manager = new DynamicConfigManager(
-                writeRepository,
-                new VirtualTopicManager(Map.of()),
-                new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
-                new SaslAuthenticator(),
-                emptyGovernance(),
-                Duration.ofMillis(20));
+        var manager = manager(new FakeConfigTopicWriter(), Duration.ofMillis(20));
 
         // when / then
         assertThatThrownBy(() -> manager.updateAndWaitUntilApplied(_ -> GatewayConfig.empty()))
@@ -389,70 +419,87 @@ class DynamicConfigManagerTest {
     }
 
     @Test
-    void updateAndWaitUntilAppliedFallsBackToRepositoryWhenOffsetIsUnavailable() {
-        // given
-        var writeRepository = new GatewayConfigRepository() {
-            private GatewayConfig current;
+    void updateTimesOutWhenTheConsumerNeverCatchesUp() {
+        // given - a committed snapshot this replica's consumer never reads
+        var writer = new FakeConfigTopicWriter();
+        writer.commitByAnotherReplica(GatewayConfig.empty());
+        var manager = manager(writer, Duration.ofMillis(20));
 
-            @Override
-            public GatewayConfig getActiveConfig() {
-                return current;
-            }
+        // when / then
+        assertThatThrownBy(() -> manager.update(c -> c))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("timed out waiting for the config consumer to read up to offset 1");
+    }
 
-            @Override
-            public void update(UnaryOperator<GatewayConfig> mutation) {
-                current = mutation.apply(getActiveConfigOrEmpty());
-            }
-
-            @Override
-            public void updateAndWaitUntilApplied(UnaryOperator<GatewayConfig> mutation) {
-                current = mutation.apply(getActiveConfigOrEmpty());
-            }
-
-            @Override
-            public void close() {
-                // no resources
-            }
-        };
-        var manager = new DynamicConfigManager(
-                writeRepository,
+    private DynamicConfigManager manager(ConfigTopicWriter writer, Duration applyWaitTimeout) {
+        return new DynamicConfigManager(writer,
                 new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
                 new SaslAuthenticator(),
                 emptyGovernance(),
-                Duration.ofMillis(20));
-
-        // when
-        manager.updateAndWaitUntilApplied(_ -> GatewayConfig.empty().upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
-
-        // then
-        assertThat(writeRepository.getActiveConfig().virtualTopics())
-                .containsEntry("orders", new VirtualTopicConfig("orders-v2"));
+                applyWaitTimeout);
     }
 
-    private static final class OffsetAwareTestRepository implements OffsetAwareGatewayConfigRepository {
-        private GatewayConfig current;
-        private long nextOffset = 7;
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
 
-        @Override
-        public GatewayConfig getActiveConfig() {
-            return current;
+    /// An in-memory config topic shared with simulated other replicas: commits get consecutive
+    /// offsets, and a commit can be fenced after running what another replica did meanwhile.
+    private static final class FakeConfigTopicWriter implements ConfigTopicWriter {
+
+        private final List<GatewayConfig> committed = new ArrayList<>();
+        private long endOffset;
+        private final Deque<Runnable> fences = new ArrayDeque<>();
+        private boolean fenceAlways;
+        /// When set, this writer's own commits never move [#committedEndOffset], like a commit whose
+        /// transaction marker has not reached the topic yet.
+        private boolean lagOwnCommits;
+        private long visibleEnd;
+
+        /// A snapshot another replica committed; returns its offset.
+        long commitByAnotherReplica(GatewayConfig config) {
+            committed.add(config);
+            visibleEnd = endOffset + 1;
+            return endOffset++;
+        }
+
+        /// The next commit runs `otherReplica` and is then fenced.
+        void fenceNextCommit(Runnable otherReplica) {
+            fences.add(otherReplica);
+        }
+
+        void fenceEveryCommit() {
+            fenceAlways = true;
+        }
+
+        void lagEndOffsetBehindOwnCommits() {
+            lagOwnCommits = true;
         }
 
         @Override
-        public void update(UnaryOperator<GatewayConfig> mutation) {
-            current = mutation.apply(getActiveConfigOrEmpty());
+        public long commit(GatewayConfig config) {
+            if (fenceAlways || !fences.isEmpty()) {
+                if (!fences.isEmpty()) {
+                    fences.poll().run();
+                }
+                throw new ConfigWriteFencedException("another writer took over", new RuntimeException());
+            }
+            committed.add(config);
+            if (!lagOwnCommits) {
+                visibleEnd = endOffset + 1;
+            }
+            return endOffset++;
         }
 
         @Override
-        public void updateAndWaitUntilApplied(UnaryOperator<GatewayConfig> mutation) {
-            update(mutation);
-        }
-
-        @Override
-        public long updateAndGetOffset(UnaryOperator<GatewayConfig> mutation) {
-            current = mutation.apply(getActiveConfigOrEmpty());
-            return nextOffset++;
+        public long committedEndOffset() {
+            return visibleEnd;
         }
 
         @Override
