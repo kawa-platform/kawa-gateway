@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static io.jonasg.kawa.http.AdminUserConfigMother.ALICE_ID;
 import static io.jonasg.kawa.http.AdminUserConfigMother.BOB_ID;
@@ -171,7 +172,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
-    void rejectsTheBootstrapUsersEmail() throws Exception {
+    void rejectsTheSeededBootstrapUsersEmail() throws Exception {
         // given
         enableOAuth();
         startServer();
@@ -301,7 +302,8 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     void disablesAdminUserWithoutTheirPassword() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").withDisplayName("Alice Liddell").build()));
+                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").withDisplayName("Alice Liddell").build())
+                .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").build()));
         startServer();
 
         // when
@@ -546,7 +548,8 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     void deletesAdminUser() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .upsertAdminUser(ALICE_ID, adminUser().build()));
+                .upsertAdminUser(ALICE_ID, adminUser().build())
+                .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").build()));
         startServer();
 
         // when
@@ -569,6 +572,133 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response).hasStatusCode(404);
+    }
+
+    // --- lockout rails ------------------------------------------------------------------------
+
+    @Test
+    void refusesToDeleteYourOwnAdminUser() throws Exception {
+        // given
+        enableOAuth();
+        repository = new FakeGatewayConfigRepository(aliceAndBob());
+        startServer();
+        String aliceToken = login("alice@mycom.com", "alice-secret");
+
+        // when
+        var response = send("DELETE", "/admin/users/" + ALICE_ID, null, bearer(aliceToken));
+
+        // then
+        assertThat(response).hasStatusCode(409);
+        assertThatJson(response.body()).isEqualTo("""
+                {"error":"you cannot delete your own admin user 'alice@mycom.com'; sign in as another admin user to delete it"}
+                """);
+        assertThat(repository.getActiveConfig().adminUsers())
+                .withFailMessage(() -> "the caller's own admin user was deleted")
+                .containsKey(ALICE_ID);
+    }
+
+    @Test
+    void refusesToDisableYourOwnAdminUser() throws Exception {
+        // given
+        enableOAuth();
+        repository = new FakeGatewayConfigRepository(aliceAndBob());
+        startServer();
+        String aliceToken = login("alice@mycom.com", "alice-secret");
+
+        // when
+        var response = send("PATCH", "/admin/users/" + ALICE_ID, """
+                {"enabled":false}
+                """, bearer(aliceToken));
+
+        // then
+        assertThat(response).hasStatusCode(409);
+        assertThatJson(response.body()).isEqualTo("""
+                {"error":"you cannot disable your own admin user 'alice@mycom.com'; sign in as another admin user to disable it"}
+                """);
+        assertThat(stored(ALICE_ID).enabled())
+                .withFailMessage(() -> "the caller's own admin user was disabled")
+                .isTrue();
+    }
+
+    @Test
+    void refusesToDeleteTheLastEnabledAdminUser() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .upsertAdminUser(ALICE_ID, adminUser().build())
+                .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").disabled().build()));
+        startServer();
+
+        // when
+        var response = send("DELETE", "/admin/users/" + ALICE_ID);
+
+        // then
+        assertThat(response).hasStatusCode(409);
+        assertThatJson(response.body()).isEqualTo("""
+                {"error":"admin user 'alice@mycom.com' is the last enabled admin user; create or enable another admin user before you delete it"}
+                """);
+        assertThat(repository.getActiveConfig().adminUsers())
+                .withFailMessage(() -> "the last enabled admin user was deleted")
+                .containsKey(ALICE_ID);
+    }
+
+    @Test
+    void refusesToDisableTheLastEnabledAdminUser() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .upsertAdminUser(ALICE_ID, adminUser().build()));
+        startServer();
+
+        // when
+        var response = send("PATCH", "/admin/users/" + ALICE_ID, """
+                {"enabled":false}
+                """);
+
+        // then
+        assertThat(response).hasStatusCode(409);
+        assertThatJson(response.body()).isEqualTo("""
+                {"error":"admin user 'alice@mycom.com' is the last enabled admin user; create or enable another admin user before you disable it"}
+                """);
+        assertThat(stored(ALICE_ID).enabled())
+                .withFailMessage(() -> "the last enabled admin user was disabled")
+                .isTrue();
+    }
+
+    @Test
+    void deletesADisabledAdminUserBesideTheLastEnabledOne() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .upsertAdminUser(ALICE_ID, adminUser().build())
+                .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").disabled().build()));
+        startServer();
+
+        // when
+        var response = send("DELETE", "/admin/users/" + BOB_ID);
+
+        // then
+        assertThat(response).hasStatusCode(204);
+        assertThat(repository.getActiveConfig().adminUsers())
+                .withFailMessage(() -> "the disabled admin user was not removed")
+                .doesNotContainKey(BOB_ID);
+    }
+
+    @Test
+    void concurrentDeletesCannotRemoveEveryEnabledAdminUser() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(aliceAndBob());
+        startServer();
+
+        // when
+        var deleteAlice = CompletableFuture.supplyAsync(() -> deleteQuietly(ALICE_ID));
+        var deleteBob = CompletableFuture.supplyAsync(() -> deleteQuietly(BOB_ID));
+        List<Integer> statuses = List.of(deleteAlice.get().statusCode(), deleteBob.get().statusCode());
+
+        // then
+        assertThat(statuses)
+                .withFailMessage(() -> "expected one delete to succeed and one to be refused, got " + statuses)
+                .containsExactlyInAnyOrder(204, 409);
+        assertThat(repository.getActiveConfig().adminUsers())
+                .withFailMessage(() -> "concurrent deletes left no admin user")
+                .hasSize(1);
     }
 
     // --- secrets ------------------------------------------------------------------------------
@@ -598,6 +728,21 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
                     .doesNotContain("alice-secret")
                     .doesNotContain("new-secret")
                     .doesNotContain(hash);
+        }
+    }
+
+    /// Alice (`alice-secret`) and Bob (`bob-secret`), both enabled.
+    private static GatewayConfig aliceAndBob() {
+        return GatewayConfig.empty()
+                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build())
+                .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").withPassword("bob-secret").build());
+    }
+
+    private HttpResponse<String> deleteQuietly(String id) {
+        try {
+            return send("DELETE", "/admin/users/" + id);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
         }
     }
 

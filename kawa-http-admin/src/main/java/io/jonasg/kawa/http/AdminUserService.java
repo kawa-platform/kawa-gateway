@@ -12,19 +12,22 @@ import java.util.Map;
 import java.util.UUID;
 
 /// Owns the admin users section of the gateway config snapshot. Admin users are keyed by a
-/// gateway-assigned UUID; their email must be unique among them and must not be the bootstrap
-/// user's. Every check runs inside the config update, on the snapshot that is written.
+/// gateway-assigned UUID; their email must be unique among them. Every check runs inside the config
+/// update, on the snapshot that is written.
+///
+/// The stored admin users are the only way in to the admin API, so this service refuses the changes
+/// that would lock everyone out: removing or disabling the caller's own admin user, and removing or
+/// disabling the last enabled one. Writes are serialized, so two concurrent requests cannot each
+/// remove "not the last" enabled admin user.
 final class AdminUserService {
 
     private final GatewayConfigRepository repository;
     private final ConsistencyAwareUpdater updater;
-    private final @Nullable String bootstrapUsername;
+    private final Object writeLock = new Object();
 
-    /// @param bootstrapUsername the bootstrap admin from the YAML config, whose email no stored admin user may take
-    AdminUserService(GatewayConfigRepository repository, @Nullable String bootstrapUsername) {
+    AdminUserService(GatewayConfigRepository repository) {
         this.repository = repository;
         this.updater = new ConsistencyAwareUpdater(repository);
-        this.bootstrapUsername = bootstrapUsername;
     }
 
     Map<String, AdminUserConfig> listAdminUsers() {
@@ -42,38 +45,62 @@ final class AdminUserService {
     /// Stores `user` under a new id and returns that id.
     String createAdminUser(AdminUserConfig user, Consistency consistency) {
         String id = UUID.randomUUID().toString();
-        updater.update(consistency, config -> {
-            requireUnusedEmail(config, user.email(), id);
-            return config.upsertAdminUser(id, user);
-        });
+        synchronized (writeLock) {
+            updater.update(consistency, config -> {
+                requireUnusedEmail(config, user.email(), id);
+                return config.upsertAdminUser(id, user);
+            });
+        }
         return id;
     }
 
     /// Changes the fields of the admin user `id` that `patch` carries, keeps the rest, and returns the
     /// stored result.
-    AdminUserConfig updateAdminUser(String id, UpdateAdminUserRequest patch, Consistency consistency) {
-        updater.update(consistency, config -> config.upsertAdminUser(id, patched(config, id, patch)));
+    ///
+    /// @param caller the principal name of the caller, which kawa's `oauth` provider sets to the admin
+    ///               user's email; `null` when there is none
+    AdminUserConfig updateAdminUser(String id, UpdateAdminUserRequest patch, @Nullable String caller, Consistency consistency) {
+        synchronized (writeLock) {
+            updater.update(consistency, config -> config.upsertAdminUser(id, patched(config, id, patch, caller)));
+        }
         return getAdminUser(id);
     }
 
-    void deleteAdminUser(String id, Consistency consistency) {
-        updater.update(consistency, config -> {
-            if (!config.adminUsers().containsKey(id)) {
-                throw notFound(id);
-            }
-            return config.removeAdminUser(id);
-        });
+    /// @param caller the principal name of the caller, which kawa's `oauth` provider sets to the admin
+    ///               user's email; `null` when there is none
+    void deleteAdminUser(String id, @Nullable String caller, Consistency consistency) {
+        synchronized (writeLock) {
+            updater.update(consistency, config -> {
+                AdminUserConfig existing = config.adminUsers().get(id);
+                if (existing == null) {
+                    throw notFound(id);
+                }
+                if (isCaller(existing, caller)) {
+                    throw new ConflictException("you cannot delete your own admin user '" + existing.email()
+                            + "'; sign in as another admin user to delete it");
+                }
+                requireAnotherEnabledUser(config, id, existing, "delete");
+                return config.removeAdminUser(id);
+            });
+        }
     }
 
     /// The admin user `id` in `config` with `patch` applied: fields it leaves out keep their value, an
     /// empty display name clears it, and `createdAt` never changes.
-    private AdminUserConfig patched(GatewayConfig config, String id, UpdateAdminUserRequest patch) {
+    private AdminUserConfig patched(GatewayConfig config, String id, UpdateAdminUserRequest patch, @Nullable String caller) {
         AdminUserConfig existing = config.adminUsers().get(id);
         if (existing == null) {
             throw notFound(id);
         }
         if (patch.password() != null && patch.password().isBlank()) {
             throw new IllegalArgumentException("admin user '" + existing.email() + "': password must not be blank");
+        }
+        if (Boolean.FALSE.equals(patch.enabled())) {
+            if (isCaller(existing, caller)) {
+                throw new ConflictException("you cannot disable your own admin user '" + existing.email()
+                        + "'; sign in as another admin user to disable it");
+            }
+            requireAnotherEnabledUser(config, id, existing, "disable");
         }
         var user = new AdminUserConfig(
                 patch.email() == null ? existing.email() : EmailAddresses.normalize(patch.email()),
@@ -85,16 +112,36 @@ final class AdminUserService {
         return user;
     }
 
+    /// Rejects deleting or disabling `existing` when it is the last enabled admin user: nobody could
+    /// log in afterwards. A user that is already disabled can always go.
+    private static void requireAnotherEnabledUser(GatewayConfig config, String id, AdminUserConfig existing, String action) {
+        if (!existing.enabled()) {
+            return;
+        }
+        boolean anotherEnabled = config.adminUsers().entrySet().stream()
+                .anyMatch(entry -> !entry.getKey().equals(id) && entry.getValue().enabled());
+        if (!anotherEnabled) {
+            throw new ConflictException("admin user '" + existing.email() + "' is the last enabled admin user; "
+                    + "create or enable another admin user before you " + action + " it");
+        }
+    }
+
+    /// Whether `user` is the caller. Matched on the email, the name kawa's `oauth` provider gives its
+    /// principal; a provider naming principals differently never matches, and only the last-enabled
+    /// check applies.
+    private static boolean isCaller(AdminUserConfig user, @Nullable String caller) {
+        return caller != null && user.email().equalsIgnoreCase(caller.trim());
+    }
+
     private static @Nullable String blankToNull(String value) {
         return value.isBlank() ? null : value;
     }
 
-    /// Rejects `email` when the bootstrap user or another admin user than `id` already has it.
-    private void requireUnusedEmail(GatewayConfig config, String email, String id) {
-        boolean bootstrap = email.equalsIgnoreCase(bootstrapUsername);
+    /// Rejects `email` when another admin user than `id` already has it.
+    private static void requireUnusedEmail(GatewayConfig config, String email, String id) {
         boolean taken = config.adminUsers().entrySet().stream()
                 .anyMatch(entry -> !entry.getKey().equals(id) && entry.getValue().email().equals(email));
-        if (bootstrap || taken) {
+        if (taken) {
             throw new ConflictException("admin user email '" + email + "' is already in use");
         }
     }

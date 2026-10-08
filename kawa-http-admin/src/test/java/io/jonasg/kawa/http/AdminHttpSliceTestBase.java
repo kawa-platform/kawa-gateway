@@ -51,6 +51,8 @@ abstract class AdminHttpSliceTestBase {
     protected CorsConfig cors;
     protected AdminAuthConfig auth = AdminAuthConfig.none();
     protected AuthenticationProviderRegistry authenticationProviders = registryOf(new BuiltInAuthenticationPlugin());
+    /// The environment the server sees, e.g. `KAWA_ADMIN_RESET`.
+    protected Map<String, String> env = Map.of();
 
     private AdminHttpServer server;
     private final HttpClient client = HttpClient.newHttpClient();
@@ -70,7 +72,7 @@ abstract class AdminHttpSliceTestBase {
     protected void startServer() throws InterruptedException {
         server = new AdminHttpServer(
                 new AdminConfig(true, "127.0.0.1", 0, cors, auth),
-                virtualTopics, cache, repository, governance, topicAdmin, authenticationProviders);
+                virtualTopics, cache, repository, governance, topicAdmin, authenticationProviders, env::get);
         server.start();
     }
 
@@ -102,13 +104,19 @@ abstract class AdminHttpSliceTestBase {
         return client.send(builder.build(), HttpResponse.BodyHandlers.ofString());
     }
 
-    /// Switches the server to be started to `admin.auth.type: oauth`, with the bootstrap user
-    /// `admin@kawa` / `s3cret` and the [TestSigningKeys#SEC1_P256] signing key.
     protected static final String LOGIN_URL = "http://localhost:5173/admin/login";
     protected static final String REDIRECT_URI = "http://localhost:5173/admin/auth/callback";
 
+    /// Switches the server to be started to `admin.auth.type: oauth`, with the bootstrap user
+    /// `admin@kawa` / `s3cret` and the [TestSigningKeys#SEC1_P256] signing key. The bootstrap user is
+    /// seeded only when the repository holds no admin users.
     protected void enableOAuth() {
-        auth = new AdminAuthConfig("oauth", new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), Map.of(
+        enableOAuth(new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"));
+    }
+
+    /// Like [#enableOAuth()], with `bootstrapUser` instead (`null` for none).
+    protected void enableOAuth(AdminAuthConfig.@Nullable BootstrapUser bootstrapUser) {
+        auth = new AdminAuthConfig("oauth", bootstrapUser, Map.of(
                 "issuer", "kawa-test", "signingKey", TestSigningKeys.SEC1_P256,
                 "loginUrl", LOGIN_URL, "redirectUris", REDIRECT_URI));
     }

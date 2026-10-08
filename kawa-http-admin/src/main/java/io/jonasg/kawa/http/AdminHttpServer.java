@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.time.Clock;
+import java.util.function.Function;
 
 /// Netty HTTP server exposing the gateway's admin/UI surface: `GET /topics` reads the
 /// [VirtualTopicManager] and [MetadataCache], `POST /topics` and `DELETE /topics/{name}`
@@ -41,6 +42,9 @@ import java.time.Clock;
 /// [AuthenticationProviderRegistry]: kawa's built-in `none` or `oauth`, or one registered by a
 /// plugin. A provider may add public endpoints of its own (e.g. a token endpoint); every other
 /// endpoint except `/docs` requires the provider to accept the request.
+///
+/// Constructing the server seeds `admin.auth.bootstrapUser` into the admin users (see
+/// [BootstrapUserSeeder]), so it must happen after the config topic has been read.
 public final class AdminHttpServer {
 
     private static final Logger log = LoggerFactory.getLogger(AdminHttpServer.class);
@@ -65,6 +69,20 @@ public final class AdminHttpServer {
             TopicAdmin topicAdmin,
             AuthenticationProviderRegistry authenticationProviders
     ) {
+        this(config, virtualTopics, cache, configRepository, governance, topicAdmin, authenticationProviders, System::getenv);
+    }
+
+    /// @param env looks up environment variables, such as the bootstrap user reset switch
+    AdminHttpServer(
+            AdminConfig config,
+            VirtualTopicManager virtualTopics,
+            MetadataCache cache,
+            GatewayConfigRepository configRepository,
+            GovernancePolicy governance,
+            TopicAdmin topicAdmin,
+            AuthenticationProviderRegistry authenticationProviders,
+            Function<String, @Nullable String> env
+    ) {
         this.config = config;
         this.topicAdmin = topicAdmin;
         this.routerExecutorThreads = Math.max(4, Runtime.getRuntime().availableProcessors());
@@ -75,8 +93,11 @@ public final class AdminHttpServer {
         var governanceService = new GovernanceService(configRepository);
         var governanceMapper = new GovernanceConfigMapper();
         AdminAuthConfig adminAuthConfig = config.auth();
-        var adminUsers = new AdminUserAuthenticator(adminAuthConfig.bootstrapUser(), configRepository);
-        var adminUserService = new AdminUserService(configRepository, adminUsers.bootstrapUsername().orElse(null));
+        // Before the provider is created: a provider may require an admin user to exist.
+        new BootstrapUserSeeder(configRepository, Clock.systemUTC())
+                .seed(adminAuthConfig.bootstrapUser(), Boolean.parseBoolean(env.apply(BootstrapUserSeeder.RESET_ENV)));
+        var adminUsers = new AdminUserAuthenticator(configRepository);
+        var adminUserService = new AdminUserService(configRepository);
         var adminUserMapper = new AdminUserMapper(Clock.systemUTC());
         this.router = new Router()
                 .get("/topics", new GetTopicsHandler(topicService))

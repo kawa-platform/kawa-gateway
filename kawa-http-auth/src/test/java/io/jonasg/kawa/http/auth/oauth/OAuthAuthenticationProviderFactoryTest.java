@@ -300,7 +300,7 @@ class OAuthAuthenticationProviderFactoryTest {
     void rejectsTheRefreshTokenOfADeletedUser() {
         // given
         var users = new HashMap<>(Map.of("admin", "s3cret", "alice", "alice-secret"));
-        var context = new FakeProviderContext(defaults(Map.of()), "admin", users);
+        var context = new FakeProviderContext(defaults(Map.of()), users);
         factory.create(context);
         var flow = new AuthorizationCodeFlow(context);
         String refreshToken = jsonField(flow.signIn("alice", "alice-secret"), "refresh_token");
@@ -315,14 +315,14 @@ class OAuthAuthenticationProviderFactoryTest {
     }
 
     @Test
-    void rejectsMissingBootstrapUser() {
+    void rejectsAGatewayWithoutAdminUsers() {
         // given
-        var context = new FakeProviderContext(defaults(Map.of()), null, Map.of());
+        var context = new FakeProviderContext(defaults(Map.of()), Map.of());
 
         // when / then
         assertThatThrownBy(() -> factory.create(context))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("admin.auth.type 'oauth' requires admin.auth.bootstrapUser");
+                .hasMessage("admin.auth.type 'oauth' requires an admin user: set admin.auth.bootstrapUser to create the first one");
     }
 
     @Test
@@ -335,17 +335,17 @@ class OAuthAuthenticationProviderFactoryTest {
     @Test
     void requiresTheLoginUiAndRedirectUris() {
         assertThatThrownBy(() -> factory.create(new FakeProviderContext(
-                Map.of("redirectUris", REDIRECT_URI), "admin", Map.of("admin", "s3cret"))))
+                Map.of("redirectUris", REDIRECT_URI), Map.of("admin", "s3cret"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("admin.auth.settings.loginUrl is required");
         assertThatThrownBy(() -> factory.create(new FakeProviderContext(
-                Map.of("loginUrl", LOGIN_URL), "admin", Map.of("admin", "s3cret"))))
+                Map.of("loginUrl", LOGIN_URL), Map.of("admin", "s3cret"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("admin.auth.settings.redirectUris is required");
     }
 
     private static FakeProviderContext context(Map<String, String> settings) {
-        return new FakeProviderContext(defaults(settings), "admin", Map.of("admin", "s3cret"));
+        return new FakeProviderContext(defaults(settings), Map.of("admin", "s3cret"));
     }
 
     /// `settings` on top of a valid login UI and redirect URI.

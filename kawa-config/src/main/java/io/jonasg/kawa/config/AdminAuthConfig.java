@@ -15,8 +15,8 @@ import java.util.function.Function;
 /// register more, e.g. `oidc`.
 ///
 /// @param type          the name of the authentication provider (defaults to `none`)
-/// @param bootstrapUser an in-memory admin user that can always log in to providers that check
-///                      kawa's local admin users
+/// @param bootstrapUser the first admin user: created as a stored admin user when the gateway starts
+///                      without any, and ignored once admin users exist
 /// @param settings      provider-specific settings handed to the selected provider as-is, with
 ///                      `${VAR:-default}` placeholders in string values resolved
 public record AdminAuthConfig(
@@ -58,8 +58,9 @@ public record AdminAuthConfig(
         };
     }
 
-    /// An admin user defined in the bootstrap config. Its password is plaintext (typically
-    /// `${KAWA_ADMIN_PASSWORD}`), resolved from the environment, and only ever held in memory.
+    /// The admin user the gateway seeds on first start. Its password is plaintext (typically
+    /// `${KAWA_ADMIN_PASSWORD}`), resolved from the environment; the seeded admin user stores only
+    /// its hash. Changing it later has no effect, except on a start with `KAWA_ADMIN_RESET=true`.
     ///
     /// @param username the admin username, an email address
     /// @param password the plaintext password, with `${VAR:-default}` resolved

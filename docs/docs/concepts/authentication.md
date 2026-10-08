@@ -125,7 +125,7 @@ kawa studio                 browser                         kawa
 3. The client redeems the code with its PKCE `code_verifier` at `POST /oauth/token`. This starts a session that lasts
    `settings.sessionTtl` (default 8 hours) and returns a short-lived access token (`typ: at+jwt`, default 15 minutes)
    and a refresh token (`typ: rt+jwt`, valid until the session ends): ES256-signed JWTs with `iss`/`aud` =
-   `settings.issuer`, `sub` = the admin user's id (the bootstrap user's is their username) and `preferred_username` =
+   `settings.issuer`, `sub` = the admin user's id and `preferred_username` =
    their email.
 4. The client sends the access token as `Authorization: Bearer <token>`. Requests without a valid token get `401`
    with a `WWW-Authenticate: Bearer` challenge.
@@ -143,16 +143,30 @@ provider can take kawa's place later without changes to kawa studio.
 ### Admin users
 
 - The **bootstrap user** (`admin.auth.bootstrapUser`) comes from the YAML file, typically with
-  `password: ${KAWA_ADMIN_PASSWORD}`. It always exists, is held in memory only, and cannot be changed through the API.
+  `password: ${KAWA_ADMIN_PASSWORD}`. It is a seed, not a permanent account: when the gateway starts and no admin user
+  exists yet, it creates the bootstrap user as an ordinary stored admin user. From then on it is listed, edited,
+  disabled and deleted like any other, and `bootstrapUser` is ignored (the gateway logs that it was). Changing its
+  password in the YAML file later has no effect; change it through the API instead. A deleted bootstrap user stays
+  deleted. Gateway replicas starting together on an empty config topic all seed the same admin user: its id is derived
+  from its email.
 - **Admin users** are created with `POST /admin/users`, get a gateway-assigned UUID, and are read, changed and removed
   with `GET`/`PATCH`/`DELETE /admin/users/{id}`. They are stored in the config topic with their password as a
   PBKDF2-HMAC-SHA256 hash, like `PLAIN` client passwords. The email is the username: stored in lower case, unique
-  regardless of case and never the bootstrap user's. Each admin user also has an optional `displayName`, an `enabled`
+  regardless of case. Each admin user also has an optional `displayName`, an `enabled`
   flag (always `true` on creation) and a `createdAt` set by the gateway, never by the client. `PATCH` keeps every field it
   leaves out, so a user can be disabled or renamed without their password. Responses never contain the password or its
   hash. Tokens carry the admin user's id, so changing their email keeps them signed in. Deleting or disabling an admin
   user revokes their tokens immediately: every request checks that the token's `sub` still exists and is enabled. A
   disabled admin user cannot log in; the login fails like a wrong password.
+- The stored admin users are the only way in, so kawa refuses the changes that would lock everyone out, with a `409`
+  naming the reason: deleting or disabling your own admin user, and deleting or disabling the last enabled one.
+
+#### Recovering from a lockout
+
+If nobody can sign in any more (a forgotten password, say), start the gateway once with `KAWA_ADMIN_RESET=true`. That
+start enables the admin user with the bootstrap user's email and resets its password to `admin.auth.bootstrapUser`'s,
+or creates it if it was deleted, and logs a warning. Other admin users are left alone. Unset the variable again before
+the next start; without it, a start never changes existing admin users.
 
 Failed logins return `invalid_credentials` whether the username or the password is wrong, and take the same time either
 way.

@@ -2,13 +2,13 @@ package io.jonasg.kawa.plugin.auth;
 
 import java.util.Optional;
 
-/// kawa's local admin users: the bootstrap user from the gateway config file plus the admin users
-/// stored in the config topic (managed through `/admin/users`).
+/// kawa's local admin users: the admin users stored in the config topic (managed through
+/// `/admin/users`). The bootstrap user from the gateway config file is one of them once the gateway
+/// has seeded it on first start; there is no separate in-memory account.
 ///
 /// An admin user logs in with their username (their email address, case-insensitive) but is
 /// identified by a stable **subject**, the value an authentication provider puts in the tokens it
-/// issues. A stored admin user's subject is their gateway-assigned id, so their tokens survive a
-/// change of email; the bootstrap user's subject is their username.
+/// issues: their gateway-assigned id, so their tokens survive a change of email.
 public interface AdminUserDirectory {
 
     /// The subject of the enabled admin user `username` if `password` is their password. Costs the
@@ -20,6 +20,7 @@ public interface AdminUserDirectory {
     /// their tokens immediately.
     Optional<String> username(String subject);
 
-    /// The bootstrap user's name, if one is configured.
-    Optional<String> bootstrapUsername();
+    /// Whether at least one admin user is stored. A provider that only admits kawa's local admin
+    /// users needs one, or nobody could ever log in.
+    boolean hasAdminUsers();
 }

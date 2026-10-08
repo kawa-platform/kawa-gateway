@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 
 import static io.jonasg.kawa.http.AdminUserConfigMother.ALICE_ID;
+import static io.jonasg.kawa.http.AdminUserConfigMother.BOB_ID;
 import static io.jonasg.kawa.http.AdminUserConfigMother.adminUser;
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 
@@ -111,10 +112,12 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         // given
         enableOAuth();
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
+                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build())
+                .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").withPassword("bob-secret").build()));
         startServer();
         String token = login("alice@mycom.com", "alice-secret");
-        send("DELETE", "/admin/users/" + ALICE_ID, null, bearer(token));
+        var deleted = send("DELETE", "/admin/users/" + ALICE_ID, null, bearer(login("bob@mycom.com", "bob-secret")));
+        assertThat(deleted).hasStatusCode(204);
 
         // when
         var response = send("GET", "/topics", null, bearer(token));
@@ -128,10 +131,11 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         // given
         enableOAuth();
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
+                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build())
+                .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").withPassword("bob-secret").build()));
         startServer();
         String aliceToken = login("alice@mycom.com", "alice-secret");
-        String adminToken = login("admin@kawa", "s3cret");
+        String adminToken = login("bob@mycom.com", "bob-secret");
         var disabled = send("PATCH", "/admin/users/" + ALICE_ID, """
                 {"enabled":false}
                 """, bearer(adminToken));
@@ -149,10 +153,11 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         // given
         enableOAuth();
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
+                .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build())
+                .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").withPassword("bob-secret").build()));
         startServer();
         String aliceToken = login("alice@mycom.com", "alice-secret");
-        String adminToken = login("admin@kawa", "s3cret");
+        String adminToken = login("bob@mycom.com", "bob-secret");
         send("PATCH", "/admin/users/" + ALICE_ID, """
                 {"enabled":false}
                 """, bearer(adminToken));
