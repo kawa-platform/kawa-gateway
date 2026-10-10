@@ -19,6 +19,7 @@ import java.util.stream.Collectors;
 /// @param configTopic   the topic that holds the dynamic gateway config (defaults to `__kawa`)
 /// @param governance    topic governance configuration
 /// @param adminUsers    admin API users, keyed by their gateway-assigned UUID
+/// @param modules       gateway modules switched on or off, keyed by [ModuleId#id]
 public record GatewayConfig(
         List<ListenerConfig> listeners,
         Map<String, ClusterConfig> clusters,
@@ -29,7 +30,8 @@ public record GatewayConfig(
         AdminConfig admin,
         String configTopic,
         GovernanceConfig governance,
-        Map<String, AdminUserConfig> adminUsers) {
+        Map<String, AdminUserConfig> adminUsers,
+        Map<String, ModuleConfig> modules) {
 
     public GatewayConfig {
         if (listeners == null) {
@@ -59,6 +61,9 @@ public record GatewayConfig(
         if (adminUsers == null) {
             adminUsers = Map.of();
         }
+        if (modules == null) {
+            modules = Map.of();
+        }
         if (advertised == null) {
             ListenerConfig first = listeners.getFirst();
             advertised = new AdvertisedListener(null, null, first.port());
@@ -76,6 +81,20 @@ public record GatewayConfig(
             String configTopic,
             GovernanceConfig governance) {
         this(listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, null);
+    }
+
+    public GatewayConfig(
+            List<ListenerConfig> listeners,
+            Map<String, ClusterConfig> clusters,
+            Map<String, VirtualTopicConfig> virtualTopics,
+            AdvertisedListener advertised,
+            AuthConfig auth,
+            RbacConfig rbac,
+            AdminConfig admin,
+            String configTopic,
+            GovernanceConfig governance,
+            Map<String, AdminUserConfig> adminUsers) {
+        this(listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, adminUsers, null);
     }
 
     /// A fully-defaulted, empty gateway config: no virtual topics, no RBAC, no client auth.
@@ -177,9 +196,28 @@ public record GatewayConfig(
         return withAdminUsers(Map.copyOf(users));
     }
 
+    /// Returns a new [GatewayConfig] with the given module added or replaced.
+    public GatewayConfig upsertModule(ModuleConfig module) {
+        var newModules = new HashMap<>(modules);
+        newModules.put(module.id().id(), module);
+        return withModules(Map.copyOf(newModules));
+    }
+
+    /// Returns a new [GatewayConfig] with the module `id` removed.
+    public GatewayConfig removeModule(ModuleId id) {
+        var newModules = new HashMap<>(modules);
+        newModules.remove(id.id());
+        return withModules(Map.copyOf(newModules));
+    }
+
     private GatewayConfig withAdminUsers(Map<String, AdminUserConfig> adminUsers) {
         return new GatewayConfig(
-                listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, adminUsers);
+                listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, adminUsers, modules);
+    }
+
+    private GatewayConfig withModules(Map<String, ModuleConfig> modules) {
+        return new GatewayConfig(
+                listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, adminUsers, modules);
     }
 
     private GatewayConfig copyWith(
@@ -189,6 +227,6 @@ public record GatewayConfig(
             GovernanceConfig governance
     ) {
         return new GatewayConfig(
-                listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, adminUsers);
+                listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, adminUsers, modules);
     }
 }

@@ -16,6 +16,9 @@ import io.jonasg.kawa.config.RoleConfig;
 import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
+import io.jonasg.kawa.config.ModuleConfig;
+import io.jonasg.kawa.config.ModuleId;
+import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.governance.GovernancePolicy;
@@ -132,6 +135,43 @@ class DynamicConfigManagerTest {
         assertThat(virtualTopics.toPhysical("customers")).isEqualTo("customers");
         assertThat(authorizer.isAuthorized("alice", ResourceType.TOPIC, "orders", AclOperation.READ)).isTrue();
         assertThat(manager.getActiveConfig()).isSameAs(good);
+    }
+
+    @Test
+    void appliesTheModulesSectionToTheRegistry() {
+        // given
+        var modules = new ModuleRegistry();
+        var manager = new DynamicConfigManager(new FakeConfigTopicWriter(), new VirtualTopicManager(Map.of()),
+                new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())), new SaslAuthenticator(), emptyGovernance(),
+                modules, Duration.ofSeconds(1));
+        var config = config(Map.of(), null, null, null).upsertModule(new ModuleConfig(ModuleId.RBAC, false));
+
+        // when
+        manager.apply(config);
+
+        // then
+        assertThat(modules.isEnabled(ModuleId.RBAC))
+                .withFailMessage(() -> "Module 'rbac' is still enabled after a snapshot switched it off")
+                .isFalse();
+    }
+
+    @Test
+    void rejectedSnapshotLeavesTheModulesUntouched() {
+        // given
+        var modules = new ModuleRegistry();
+        var manager = new DynamicConfigManager(new FakeConfigTopicWriter(), new VirtualTopicManager(Map.of()),
+                new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())), new SaslAuthenticator(), emptyGovernance(),
+                modules, Duration.ofSeconds(1));
+        var broken = config(Map.of(),
+                new RbacConfig(Map.of(), Map.of("team", new GroupConfig(List.of("alice"), List.of("missing-role")))),
+                null, null)
+                .upsertModule(new ModuleConfig(ModuleId.RBAC, false));
+
+        // when / then
+        assertThatThrownBy(() -> manager.apply(broken)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(modules.isEnabled(ModuleId.RBAC))
+                .withFailMessage(() -> "A rejected snapshot switched module 'rbac' off")
+                .isTrue();
     }
 
     @Test

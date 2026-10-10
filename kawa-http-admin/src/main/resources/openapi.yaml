@@ -914,6 +914,81 @@ paths:
           $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalError'
+  /modules:
+    get:
+      summary: List modules
+      description: Every stored module, sorted by id.
+      responses:
+        '200':
+          description: The modules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Module'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /modules/{id}:
+    get:
+      summary: Get a module
+      parameters:
+        - $ref: '#/components/parameters/ModuleId'
+      responses:
+        '200':
+          description: The module
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Module'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      summary: Upsert a module
+      description: Adds or replaces the module `id`. An unknown module id is refused with `404`.
+      parameters:
+        - $ref: '#/components/parameters/ModuleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModuleRequest'
+      responses:
+        '200':
+          description: The stored module
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Module'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      summary: Delete a module
+      description: Removes the module `id` from the config.
+      parameters:
+        - $ref: '#/components/parameters/ModuleId'
+      responses:
+        '204':
+          description: Module deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   securitySchemes:
     bearerAuth:
@@ -945,6 +1020,14 @@ components:
       schema:
         type: string
         format: uuid
+    ModuleId:
+      name: id
+      in: path
+      required: true
+      description: The module's stable id.
+      schema:
+        type: string
+        enum: [virtual-topics, rbac, governance]
   responses:
     Unauthorized:
       description: |
@@ -995,6 +1078,24 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    Module:
+      type: object
+      required:
+        - id
+        - enabled
+      properties:
+        id:
+          type: string
+          enum: [virtual-topics, rbac, governance]
+        enabled:
+          type: boolean
+    ModuleRequest:
+      type: object
+      required:
+        - enabled
+      properties:
+        enabled:
+          type: boolean
     TokenResponse:
       type: object
       required:
