@@ -117,6 +117,7 @@ RBAC currently gates these APIs:
 | ConsumerGroupHeartbeat                         | `GROUP` (the groupId)                                                     | `READ`            |
 | DescribeGroups                                 | `GROUP` (per group)                                                       | `DESCRIBE`        |
 | ListGroups                                     | `GROUP` (response filter)                                                 | `DESCRIBE`        |
+| DescribeCluster                                | none: any authenticated principal, as in Kafka                            | —                 |
 | OffsetCommit                                   | `GROUP` (the groupId) + `TOPIC` (per topic)                               | `READ`            |
 | OffsetFetch                                    | `GROUP` (the groupId) + `TOPIC` (per topic)                               | `DESCRIBE`        |
 | OffsetDelete                                   | `GROUP` (the groupId) + `TOPIC` (per topic)                               | `DELETE` / `READ` |

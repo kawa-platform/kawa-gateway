@@ -94,6 +94,7 @@ public final class AuthorizationInterceptor implements Interceptor {
                 new MetadataAuthorizationCheck(authorizer, virtualTopics),
                 new DescribeTopicPartitionsAuthorizationCheck(authorizer),
                 new ListGroupsAuthorizationCheck(authorizer),
+                new DescribeClusterAuthorizationCheck(),
                 new DescribeGroupsAuthorizationCheck(authorizer),
                 new FindCoordinatorAuthorizationCheck(authorizer),
                 new CreatePartitionsAuthorizationCheck(authorizer),

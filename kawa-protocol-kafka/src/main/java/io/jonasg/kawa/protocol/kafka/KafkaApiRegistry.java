@@ -32,6 +32,8 @@ import org.apache.kafka.common.message.DeleteTopicsRequestData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData;
 import org.apache.kafka.common.message.DescribeAclsRequestData;
 import org.apache.kafka.common.message.DescribeAclsResponseData;
+import org.apache.kafka.common.message.DescribeClusterRequestData;
+import org.apache.kafka.common.message.DescribeClusterResponseData;
 import org.apache.kafka.common.message.DescribeConfigsRequestData;
 import org.apache.kafka.common.message.DescribeConfigsResponseData;
 import org.apache.kafka.common.message.DescribeGroupsRequestData;
@@ -120,6 +122,7 @@ public final class KafkaApiRegistry {
     public static final short DESCRIBE_TOPIC_PARTITIONS = 75;
     public static final short INIT_PRODUCER_ID = 22;
     public static final short CONSUMER_GROUP_HEARTBEAT = 68;
+    public static final short DESCRIBE_CLUSTER = 60;
 
     private final Map<Short, KafkaApiSpec> specs;
 
@@ -204,7 +207,9 @@ public final class KafkaApiRegistry {
                 new KafkaApiSpec(INIT_PRODUCER_ID, "InitProducerId", bundled(ApiKeys.INIT_PRODUCER_ID),
                         of(InitProducerIdRequestData::new), of(InitProducerIdResponseData::new)),
                 new KafkaApiSpec(CONSUMER_GROUP_HEARTBEAT, "ConsumerGroupHeartbeat", bundled(ApiKeys.CONSUMER_GROUP_HEARTBEAT),
-                        of(ConsumerGroupHeartbeatRequestData::new), of(ConsumerGroupHeartbeatResponseData::new))));
+                        of(ConsumerGroupHeartbeatRequestData::new), of(ConsumerGroupHeartbeatResponseData::new)),
+                new KafkaApiSpec(DESCRIBE_CLUSTER, "DescribeCluster", bundled(ApiKeys.DESCRIBE_CLUSTER),
+                        of(DescribeClusterRequestData::new), of(DescribeClusterResponseData::new))));
     }
 
     /// Every stable version the bundled Kafka client library can decode.
