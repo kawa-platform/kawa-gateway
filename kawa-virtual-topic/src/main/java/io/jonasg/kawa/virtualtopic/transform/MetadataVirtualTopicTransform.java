@@ -1,6 +1,5 @@
 package io.jonasg.kawa.virtualtopic.transform;
 
-import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.message.MetadataRequestData;
@@ -12,14 +11,9 @@ public final class MetadataVirtualTopicTransform
         implements VirtualTopicTransform<MetadataRequestData, MetadataResponseData> {
 
     private final VirtualTopicManager virtualTopics;
-    private final AdvertisedListener advertised;
 
-    public MetadataVirtualTopicTransform(
-            VirtualTopicManager virtualTopics,
-            AdvertisedListener advertised
-    ) {
+    public MetadataVirtualTopicTransform(VirtualTopicManager virtualTopics) {
         this.virtualTopics = virtualTopics;
-        this.advertised = advertised;
     }
 
     @Override
@@ -63,11 +57,6 @@ public final class MetadataVirtualTopicTransform
             } else {
                 topic.setName(virtual);
             }
-        }
-
-        for (MetadataResponseData.MetadataResponseBroker broker : data.brokers()) {
-            broker.setHost(advertised.host());
-            broker.setPort(advertised.port());
         }
     }
 }

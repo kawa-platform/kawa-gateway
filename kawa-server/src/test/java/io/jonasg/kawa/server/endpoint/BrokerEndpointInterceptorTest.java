@@ -5,6 +5,8 @@ import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.Response;
 import io.jonasg.kawa.protocol.kafka.KafkaApiRegistry;
 import org.apache.kafka.common.message.DescribeClusterResponseData;
+import org.apache.kafka.common.message.FindCoordinatorResponseData;
+import org.apache.kafka.common.message.MetadataResponseData;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -15,6 +17,53 @@ class BrokerEndpointInterceptorTest {
             new BrokerEndpointInterceptor(AdvertisedListener.of(1, "gateway.example.com", 9092));
 
     private final GatewayContext context = new GatewayContext("test", 0L);
+
+    @Test
+    void pointsMetadataBrokersAtTheAdvertisedListener() {
+        // given
+        var data = new MetadataResponseData();
+        data.brokers().add(new MetadataResponseData.MetadataResponseBroker()
+                .setNodeId(0).setHost("broker-internal").setPort(9093));
+        data.brokers().add(new MetadataResponseData.MetadataResponseBroker()
+                .setNodeId(1).setHost("broker-internal-2").setPort(9093));
+        data.topics().add(new MetadataResponseData.MetadataResponseTopic().setName("orders-v2"));
+
+        // when
+        interceptor.onResponse(context, response(KafkaApiRegistry.METADATA, data));
+
+        // then
+        assertThat(data.brokers())
+                .withFailMessage(() -> "Not every Metadata broker points at the gateway: " + data.brokers())
+                .allSatisfy(broker -> {
+                    assertThat(broker.host()).isEqualTo("gateway.example.com");
+                    assertThat(broker.port()).isEqualTo(9092);
+                });
+        assertThat(data.topics().iterator().next().name())
+                .withFailMessage(() -> "A topic name was changed by the broker endpoint rewrite")
+                .isEqualTo("orders-v2");
+    }
+
+    @Test
+    void pointsCoordinatorsAtTheAdvertisedListener() {
+        // given
+        var data = new FindCoordinatorResponseData().setNodeId(0).setHost("coordinator-internal").setPort(9093);
+        data.coordinators().add(new FindCoordinatorResponseData.Coordinator()
+                .setNodeId(0).setHost("coordinator-internal").setPort(9093));
+
+        // when
+        interceptor.onResponse(context, response(KafkaApiRegistry.FIND_COORDINATOR, data));
+
+        // then
+        assertThat(data.host() + ":" + data.port())
+                .withFailMessage(() -> "The v0-v3 coordinator endpoint was not rewritten: " + data.host() + ":" + data.port())
+                .isEqualTo("gateway.example.com:9092");
+        assertThat(data.coordinators())
+                .withFailMessage(() -> "Not every coordinator points at the gateway: " + data.coordinators())
+                .allSatisfy(coordinator -> {
+                    assertThat(coordinator.host()).isEqualTo("gateway.example.com");
+                    assertThat(coordinator.port()).isEqualTo(9092);
+                });
+    }
 
     @Test
     void pointsDescribedBrokersAtTheAdvertisedListener() {

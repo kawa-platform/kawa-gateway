@@ -1,6 +1,5 @@
 package io.jonasg.kawa.virtualtopic;
 
-import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
@@ -16,7 +15,6 @@ import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.record.internal.MemoryRecords;
 import org.apache.kafka.common.record.internal.Record;
 import org.apache.kafka.common.record.internal.SimpleRecord;
-import org.apache.kafka.common.message.FindCoordinatorResponseData;
 import org.apache.kafka.common.message.ListOffsetsRequestData;
 import org.apache.kafka.common.message.ListOffsetsResponseData;
 import org.apache.kafka.common.acl.AclOperation;
@@ -86,7 +84,6 @@ class VirtualTopicInterceptorTest {
     private static final int OFFSET_COMMIT = 8;
     private static final int OFFSET_FETCH = 9;
     private static final int OFFSET_FOR_LEADER_EPOCH = 23;
-    private static final int FIND_COORDINATOR = 10;
     private static final int CREATE_TOPICS = 19;
     private static final int CREATE_PARTITIONS = 37;
     private static final int DELETE_TOPICS = 20;
@@ -111,9 +108,7 @@ class VirtualTopicInterceptorTest {
                     new HeaderEqualsFilterConfig("tenant", "acme")),
             "legacy", new VirtualTopicConfig("legacy-v1", null, true)));
 
-    private final AdvertisedListener advertised = AdvertisedListener.of(1, "gateway.example.com", 9092);
-
-    private final VirtualTopicInterceptor interceptor = new VirtualTopicInterceptor(virtualTopics, advertised);
+    private final VirtualTopicInterceptor interceptor = new VirtualTopicInterceptor(virtualTopics);
 
     private final GatewayContext context = new GatewayContext("test", System.nanoTime());
 
@@ -352,12 +347,8 @@ class VirtualTopicInterceptorTest {
     }
 
     @Test
-    void rewritesMetadataResponseTopicsAndBrokers() {
+    void rewritesMetadataResponseTopics() {
         var data = new MetadataResponseData();
-        data.brokers().add(new MetadataResponseData.MetadataResponseBroker()
-                .setNodeId(0).setHost("broker-internal").setPort(9093).setRack(null));
-        data.brokers().add(new MetadataResponseData.MetadataResponseBroker()
-                .setNodeId(1).setHost("broker-internal-2").setPort(9093).setRack(null));
         addTopic(data, "orders-v2");
         addTopic(data, "customers-v2");
         addTopic(data, "internal-hidden-topic");
@@ -368,10 +359,6 @@ class VirtualTopicInterceptorTest {
         // place rather than exposed alongside it. Non-virtual topics pass through untouched.
         assertThat(data.topics()).extracting("name")
                 .containsExactly("orders", "customers", "internal-hidden-topic");
-        for (MetadataResponseData.MetadataResponseBroker broker : data.brokers()) {
-            assertThat(broker.host()).isEqualTo("gateway.example.com");
-            assertThat(broker.port()).isEqualTo(9092);
-        }
     }
 
     private static void addTopic(
@@ -564,7 +551,7 @@ class VirtualTopicInterceptorTest {
     void filtersIdleIncrementalFetchResponsesViaSession() {
         // given a fetch session bound on a full fetch for the filtered virtual topic
         var sessions = new FetchSessionRegistry();
-        var sessionInterceptor = new VirtualTopicInterceptor(virtualTopics, advertised, sessions);
+        var sessionInterceptor = new VirtualTopicInterceptor(virtualTopics, sessions);
 
         var create = new FetchRequestData();
         create.topics().add(new FetchRequestData.FetchTopic().setTopic("events"));
@@ -1354,21 +1341,6 @@ class VirtualTopicInterceptorTest {
     }
 
     @Test
-    void rewritesFindCoordinatorEndpoint() {
-        var responseData = new FindCoordinatorResponseData();
-        responseData.setNodeId(0);
-        responseData.coordinators().add(new FindCoordinatorResponseData.Coordinator()
-                .setNodeId(0).setHost("coordinator-internal").setPort(9093));
-
-        interceptor.onResponse(context, response(FIND_COORDINATOR, responseData));
-
-        assertThat(responseData.host()).isEqualTo("gateway.example.com");
-        assertThat(responseData.port()).isEqualTo(9092);
-        assertThat(first(responseData.coordinators()).host()).isEqualTo("gateway.example.com");
-        assertThat(first(responseData.coordinators()).port()).isEqualTo(9092);
-    }
-
-    @Test
     void unmappedTopicsPassThroughUnchanged() {
         var data = new MetadataResponseData();
         addTopic(data, "orders-v2");
@@ -1398,7 +1370,7 @@ class VirtualTopicInterceptorTest {
     @Test
     void idleIncrementalFetchResponseIsRenamedViaSession() {
         var sessions = new FetchSessionRegistry();
-        var sessionInterceptor = new VirtualTopicInterceptor(virtualTopics, advertised, sessions);
+        var sessionInterceptor = new VirtualTopicInterceptor(virtualTopics, sessions);
 
         var create = new FetchRequestData();
         create.topics().add(new FetchRequestData.FetchTopic().setTopic("customers"));
@@ -1424,7 +1396,7 @@ class VirtualTopicInterceptorTest {
     @Test
     void closingFetchSessionDropsRegistryEntry() {
         var sessions = new FetchSessionRegistry();
-        var sessionInterceptor = new VirtualTopicInterceptor(virtualTopics, advertised, sessions);
+        var sessionInterceptor = new VirtualTopicInterceptor(virtualTopics, sessions);
         bindSession(sessionInterceptor, sessions);
 
         var close = new FetchRequestData().setSessionId(42).setSessionEpoch(-1);
@@ -1436,7 +1408,7 @@ class VirtualTopicInterceptorTest {
     @Test
     void unknownSessionResponseDropsRegistryEntry() {
         var sessions = new FetchSessionRegistry();
-        var sessionInterceptor = new VirtualTopicInterceptor(virtualTopics, advertised, sessions);
+        var sessionInterceptor = new VirtualTopicInterceptor(virtualTopics, sessions);
         bindSession(sessionInterceptor, sessions);
 
         var error = new FetchResponseData().setSessionId(42)
@@ -1449,7 +1421,7 @@ class VirtualTopicInterceptorTest {
     @Test
     void forgottenTopicsAreRenamedAndDroppedFromSession() {
         var sessions = new FetchSessionRegistry();
-        var sessionInterceptor = new VirtualTopicInterceptor(virtualTopics, advertised, sessions);
+        var sessionInterceptor = new VirtualTopicInterceptor(virtualTopics, sessions);
         bindSession(sessionInterceptor, sessions);
 
         var forget = new FetchRequestData().setSessionId(42).setSessionEpoch(1);
@@ -1478,7 +1450,7 @@ class VirtualTopicInterceptorTest {
         var celTopics = new VirtualTopicManager(Map.of(
                 "orders", new VirtualTopicConfig("orders-v2",
                         new CelFilterConfig("headers.tenant == \"acme\""))));
-        var celInterceptor = new VirtualTopicInterceptor(celTopics, advertised);
+        var celInterceptor = new VirtualTopicInterceptor(celTopics);
 
         var create = new FetchRequestData();
         create.topics().add(new FetchRequestData.FetchTopic().setTopic("orders"));
@@ -1520,7 +1492,7 @@ class VirtualTopicInterceptorTest {
                         )
                 )
         );
-        var interceptor = new VirtualTopicInterceptor(virtualTopicMan, advertised);
+        var interceptor = new VirtualTopicInterceptor(virtualTopicMan);
 
         var requestData = new FetchRequestData();
         requestData.topics().add(new FetchRequestData.FetchTopic().setTopic("paid-orders"));

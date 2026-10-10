@@ -1,6 +1,5 @@
 package io.jonasg.kawa.virtualtopic;
 
-import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.Interceptor;
 import io.jonasg.kawa.core.Request;
@@ -20,7 +19,6 @@ import io.jonasg.kawa.virtualtopic.transform.DescribeLogDirsVirtualTopicTransfor
 import io.jonasg.kawa.virtualtopic.transform.DescribeTopicPartitionsVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.DescribeTransactionsVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.FetchVirtualTopicTransform;
-import io.jonasg.kawa.virtualtopic.transform.FindCoordinatorVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.IncrementalAlterConfigsVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.ListOffsetsVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.MetadataVirtualTopicTransform;
@@ -35,8 +33,7 @@ import io.jonasg.kawa.virtualtopic.transform.VirtualTopicTransformRegistry;
 import java.util.List;
 
 /// On the client-to-broker path it rewrites virtual
-/// topic names to their physical topics; on the broker-to-client path it maps them back and
-/// points every broker/coordinator endpoint at the gateway's advertised listener.
+/// topic names to their physical topics; on the broker-to-client path it maps them back.
 ///
 /// Only the APIs registered in the gateway's decode set are inspected; all other
 /// requests pass through untouched.
@@ -44,36 +41,28 @@ public final class VirtualTopicInterceptor implements Interceptor {
 
     private final VirtualTopicTransformRegistry registry;
 
-    public VirtualTopicInterceptor(
-            VirtualTopicManager virtualTopics,
-            AdvertisedListener advertised
-    ) {
-        this(virtualTopics, advertised, new FetchSessionRegistry());
+    public VirtualTopicInterceptor(VirtualTopicManager virtualTopics) {
+        this(virtualTopics, new FetchSessionRegistry());
     }
 
     public VirtualTopicInterceptor(
             VirtualTopicManager virtualTopics,
-            AdvertisedListener advertised,
             FetchSessionRegistry fetchSessions
     ) {
-        this.registry = defaultRegistry(
-                virtualTopics, advertised, fetchSessions,
-                new VirtualTopicRecordFilter());
+        this.registry = defaultRegistry(virtualTopics, fetchSessions, new VirtualTopicRecordFilter());
     }
 
     private static VirtualTopicTransformRegistry defaultRegistry(
             VirtualTopicManager virtualTopics,
-            AdvertisedListener advertised,
             FetchSessionRegistry fetchSessions,
             VirtualTopicRecordFilter recordFilter) {
         return new VirtualTopicTransformRegistry(List.of(
-                new MetadataVirtualTopicTransform(virtualTopics, advertised),
+                new MetadataVirtualTopicTransform(virtualTopics),
                 new ProduceVirtualTopicTransform(virtualTopics),
                 new FetchVirtualTopicTransform(virtualTopics, fetchSessions, recordFilter),
                 new ListOffsetsVirtualTopicTransform(virtualTopics),
                 new OffsetCommitVirtualTopicTransform(virtualTopics),
                 new OffsetFetchVirtualTopicTransform(virtualTopics),
-                new FindCoordinatorVirtualTopicTransform(advertised),
                 new CreateTopicVirtualTopicTransform(virtualTopics),
                 new CreatePartitionsVirtualTopicTransform(virtualTopics),
                 new DeleteTopicVirtualTopicTransform(virtualTopics),

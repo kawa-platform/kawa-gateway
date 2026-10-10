@@ -54,6 +54,13 @@ not forward between brokers.
 `InterceptorPipeline`. The virtual-topic interceptor is the flagship implementation —
 see [Virtual topics](/docs/concepts/virtual-topics).
 
+### Broker endpoints
+
+Every broker and coordinator endpoint returned to a client (Metadata, FindCoordinator, DescribeCluster) is rewritten to
+kawa's [`advertised`](/docs/configuration#advertised) endpoint by the broker endpoint interceptor. Clients therefore
+always talk to the gateway, never directly to a broker — even after leader redirects. This is gateway plumbing, not
+part of virtual topics: it always runs.
+
 ### Protocol layer
 
 Framing and codecs live in `kawa-protocol-kafka`. Requests are decoded only for APIs registered in `KafkaApiRegistry`;

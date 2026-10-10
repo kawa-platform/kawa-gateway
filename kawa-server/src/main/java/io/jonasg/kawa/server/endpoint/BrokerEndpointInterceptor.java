@@ -19,6 +19,8 @@ public final class BrokerEndpointInterceptor implements Interceptor {
 
     public BrokerEndpointInterceptor(AdvertisedListener advertised) {
         this.registry = new BrokerEndpointTransformRegistry(List.of(
+                new MetadataBrokerEndpointTransform(advertised),
+                new FindCoordinatorBrokerEndpointTransform(advertised),
                 new DescribeClusterBrokerEndpointTransform(advertised)));
     }
 
