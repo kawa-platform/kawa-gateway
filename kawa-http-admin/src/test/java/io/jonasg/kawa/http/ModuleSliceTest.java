@@ -8,17 +8,34 @@ import org.junit.jupiter.api.Test;
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 
-/// Slice tests for [GetModulesHandler], [GetModuleHandler], [PutModuleHandler] and
-/// [DeleteModuleHandler].
+/// Slice tests for [GetModulesHandler], [GetModuleHandler] and [PutModuleHandler].
 class ModuleSliceTest extends AdminHttpSliceTestBase {
 
     // --- GET /modules -------------------------------------------------------------------------
 
     @Test
-    void listsStoredModulesSortedById() throws Exception {
+    void listsEveryModuleAsEnabledWhenNothingIsStored() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var response = send("GET", "/modules");
+
+        // then
+        assertThat(response).hasStatusCode(200);
+        assertThatJson(response.body()).isEqualTo("""
+                [
+                  {"id":"governance","enabled":true},
+                  {"id":"rbac","enabled":true},
+                  {"id":"virtual-topics","enabled":true}
+                ]
+                """);
+    }
+
+    @Test
+    void listsEveryModuleWithItsStoredStateSortedById() throws Exception {
         // given
         repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .upsertModule(new ModuleConfig(ModuleId.VIRTUAL_TOPICS, true))
                 .upsertModule(new ModuleConfig(ModuleId.GOVERNANCE, false)));
         startServer();
 
@@ -30,6 +47,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body()).isEqualTo("""
                 [
                   {"id":"governance","enabled":false},
+                  {"id":"rbac","enabled":true},
                   {"id":"virtual-topics","enabled":true}
                 ]
                 """);
@@ -55,7 +73,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
-    void getOfAModuleThatIsNotStoredIsNotFound() throws Exception {
+    void getsAModuleThatIsNotStoredAsEnabled() throws Exception {
         // given
         startServer();
 
@@ -63,8 +81,23 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         var response = send("GET", "/modules/rbac");
 
         // then
+        assertThat(response).hasStatusCode(200);
+        assertThatJson(response.body()).isEqualTo("""
+                {"id":"rbac","enabled":true}
+                """);
+    }
+
+    @Test
+    void getOfAnUnknownModuleIsNotFound() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var response = send("GET", "/modules/rbca");
+
+        // then
         assertThat(response).hasStatusCode(404);
-        assertThat(response.body()).contains("module 'rbac' not found");
+        assertThat(response.body()).contains("module 'rbca' not found");
     }
 
     // --- PUT /modules/{id} --------------------------------------------------------------------
@@ -137,37 +170,5 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response).hasStatusCode(400);
         assertThat(response.body()).contains("module 'rbac': enabled is required");
-    }
-
-    // --- DELETE /modules/{id} -----------------------------------------------------------------
-
-    @Test
-    void deletesAStoredModule() throws Exception {
-        // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .upsertModule(new ModuleConfig(ModuleId.RBAC, false))
-                .upsertModule(new ModuleConfig(ModuleId.GOVERNANCE, true)));
-        startServer();
-
-        // when
-        var response = send("DELETE", "/modules/rbac");
-
-        // then
-        assertThat(response).hasStatusCode(204);
-        assertThat(repository.getActiveConfigOrEmpty().modules())
-                .withFailMessage(() -> "expected only module 'governance' to remain: " + repository.getActiveConfigOrEmpty().modules())
-                .containsOnlyKeys("governance");
-    }
-
-    @Test
-    void deleteOfAModuleThatIsNotStoredIsNotFound() throws Exception {
-        // given
-        startServer();
-
-        // when
-        var response = send("DELETE", "/modules/rbac");
-
-        // then
-        assertThat(response).hasStatusCode(404);
     }
 }

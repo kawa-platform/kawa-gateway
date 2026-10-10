@@ -1,9 +1,11 @@
 package io.jonasg.kawa.core;
 
+import io.jonasg.kawa.config.ModuleId;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -134,6 +136,81 @@ class InterceptorPipelineTest {
         assertThat(prepared)
                 .withFailMessage(() -> "A failed lookup failed the pipeline instead of being left to onRequest")
                 .isCompletedWithValue(null);
+    }
+
+    @Test
+    void runsEveryInterceptorUntilToldWhichModulesAreEnabled() {
+        // given
+        var pipeline = InterceptorPipeline.builder()
+                .always(new RecordingInterceptor("always"))
+                .module(ModuleId.VIRTUAL_TOPICS, new RecordingInterceptor("virtual-topics"))
+                .build();
+
+        // when
+        pipeline.onRequest(new GatewayContext("source", 0L), null);
+
+        // then
+        assertThat(events)
+                .withFailMessage(() -> "A freshly built pipeline skipped an interceptor: " + events)
+                .containsExactly("always.onRequest", "virtual-topics.onRequest");
+    }
+
+    @Test
+    void skipsTheInterceptorsOfADisabledModule() {
+        // given
+        var pipeline = InterceptorPipeline.builder()
+                .always(new RecordingInterceptor("first"))
+                .module(ModuleId.VIRTUAL_TOPICS, new RecordingInterceptor("virtual-topics"))
+                .always(new RecordingInterceptor("last"))
+                .build();
+        var ctx = new GatewayContext("source", 0L);
+
+        // when
+        pipeline.enable(Set.of(ModuleId.RBAC, ModuleId.GOVERNANCE));
+        pipeline.onRequest(ctx, null);
+        pipeline.onResponse(ctx, null);
+
+        // then
+        assertThat(events)
+                .withFailMessage(() -> "Disabled module 'virtual-topics' still ran: " + events)
+                .containsExactly("first.onRequest", "last.onRequest", "first.onResponse", "last.onResponse");
+    }
+
+    @Test
+    void runsAModuleAgainInItsPlaceOnceItIsReEnabled() {
+        // given
+        var pipeline = InterceptorPipeline.builder()
+                .always(new RecordingInterceptor("first"))
+                .module(ModuleId.VIRTUAL_TOPICS, new RecordingInterceptor("virtual-topics"))
+                .always(new RecordingInterceptor("last"))
+                .build();
+        pipeline.enable(Set.of());
+
+        // when
+        pipeline.enable(Set.of(ModuleId.VIRTUAL_TOPICS));
+        pipeline.onRequest(new GatewayContext("source", 0L), null);
+
+        // then
+        assertThat(events)
+                .withFailMessage(() -> "Re-enabled module 'virtual-topics' did not run in its declared place: " + events)
+                .containsExactly("first.onRequest", "virtual-topics.onRequest", "last.onRequest");
+    }
+
+    @Test
+    void doesNotStartTheLookupOfADisabledModule() {
+        // given
+        var pipeline = InterceptorPipeline.builder()
+                .module(ModuleId.GOVERNANCE, lookup(new CompletableFuture<>()))
+                .build();
+        pipeline.enable(Set.of());
+
+        // when
+        var prepared = pipeline.prepare(new GatewayContext("source", 0L), null);
+
+        // then
+        assertThat(prepared)
+                .withFailMessage(() -> "Disabled module 'governance' started a lookup the request waits on")
+                .isNull();
     }
 
     private static Interceptor lookup(CompletionStage<?> stage) {

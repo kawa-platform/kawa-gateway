@@ -143,7 +143,6 @@ public final class AdminHttpServer {
                 .get("/modules", new GetModulesHandler(moduleService, moduleMapper))
                 .get("/modules/{id}", new GetModuleHandler(moduleService, moduleMapper))
                 .put("/modules/{id}", new PutModuleHandler(moduleService, moduleMapper))
-                .delete("/modules/{id}", new DeleteModuleHandler(moduleService, moduleMapper))
 
                 .publicGet("/docs", new GetDocsHandler());
         this.authenticationProvider = authenticationProviders.require(adminAuthConfig.type()).create(

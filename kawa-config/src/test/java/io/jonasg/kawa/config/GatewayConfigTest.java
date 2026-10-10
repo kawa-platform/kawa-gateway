@@ -112,22 +112,6 @@ class GatewayConfigTest {
     }
 
     @Test
-    void removeModuleRemovesOnlyThatModule() {
-        // given
-        var config = GatewayConfig.empty()
-                .upsertModule(new ModuleConfig(ModuleId.RBAC, false))
-                .upsertModule(new ModuleConfig(ModuleId.GOVERNANCE, true));
-
-        // when
-        var updated = config.removeModule(ModuleId.RBAC);
-
-        // then
-        assertThat(updated.modules())
-                .withFailMessage(() -> "expected only module 'governance' to remain: " + updated.modules())
-                .containsOnlyKeys("governance");
-    }
-
-    @Test
     void upsertVirtualTopicAddsNewEntry() {
         // given
         var config = new GatewayConfig(null, null, null, null, null, null, null, null, null);

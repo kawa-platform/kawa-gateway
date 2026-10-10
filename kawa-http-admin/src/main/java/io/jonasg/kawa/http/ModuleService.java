@@ -4,9 +4,12 @@ import io.jonasg.kawa.config.GatewayConfigRepository;
 import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.ModuleId;
 
-import java.util.Collection;
+import java.util.Arrays;
+import java.util.List;
 
-/// Owns reading and writing the modules section of the gateway config snapshot.
+/// Owns reading and writing the modules section of the gateway config snapshot. Reads report every
+/// module's effective state: its stored entry, or enabled when nothing is stored for it, the same
+/// rule the gateway applies.
 final class ModuleService {
 
     private final GatewayConfigRepository repository;
@@ -17,33 +20,20 @@ final class ModuleService {
         this.updater = new ConsistencyAwareUpdater(repository);
     }
 
-    /// Every stored module.
-    Collection<ModuleConfig> listModules() {
-        return repository.getActiveConfigOrEmpty().modules().values();
+    /// Every module the gateway knows, with its effective state.
+    List<ModuleConfig> listModules() {
+        var modules = repository.getActiveConfigOrEmpty().modules();
+        return Arrays.stream(ModuleId.values()).map(id -> ModuleConfig.stateOf(id, modules)).toList();
     }
 
-    /// The module stored under `id`.
-    ///
-    /// @throws NotFoundException if the module is not stored
+    /// The effective state of module `id`.
     ModuleConfig getModule(ModuleId id) {
-        var module = repository.getActiveConfigOrEmpty().modules().get(id.id());
-        if (module == null) {
-            throw new NotFoundException("module '" + id.id() + "' not found");
-        }
-        return module;
+        return ModuleConfig.stateOf(id, repository.getActiveConfigOrEmpty().modules());
     }
 
     /// Adds or replaces a module.
     ModuleConfig upsertModule(ModuleConfig module, Consistency consistency) {
         updater.update(consistency, config -> config.upsertModule(module));
         return module;
-    }
-
-    /// Removes the module stored under `id`.
-    ///
-    /// @throws NotFoundException if the module is not stored
-    void deleteModule(ModuleId id, Consistency consistency) {
-        getModule(id);
-        updater.update(consistency, config -> config.removeModule(id));
     }
 }

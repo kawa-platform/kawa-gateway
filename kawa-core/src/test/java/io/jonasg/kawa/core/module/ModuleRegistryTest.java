@@ -4,7 +4,10 @@ import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.ModuleId;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -59,5 +62,41 @@ class ModuleRegistryTest {
         assertThat(registry.isEnabled(ModuleId.VIRTUAL_TOPICS))
                 .withFailMessage(() -> "Module 'virtual-topics' stayed off after it was switched back on")
                 .isTrue();
+    }
+
+    @Test
+    void tellsASubscriberTheCurrentSetRightAway() {
+        // given
+        registry.reload(Map.of("rbac", new ModuleConfig(ModuleId.RBAC, false)));
+        List<Set<ModuleId>> seen = new ArrayList<>();
+
+        // when
+        registry.subscribe(seen::add);
+
+        // then
+        assertThat(seen)
+                .withFailMessage(() -> "The subscriber was not told the current set on subscribing: " + seen)
+                .containsExactly(Set.of(ModuleId.VIRTUAL_TOPICS, ModuleId.GOVERNANCE));
+    }
+
+    @Test
+    void tellsASubscriberOnlyWhenTheSetChanges() {
+        // given
+        List<Set<ModuleId>> seen = new ArrayList<>();
+        registry.subscribe(seen::add);
+        var virtualTopicsOff = Map.of("virtual-topics", new ModuleConfig(ModuleId.VIRTUAL_TOPICS, false));
+
+        // when
+        registry.reload(virtualTopicsOff);
+        registry.reload(virtualTopicsOff);
+        registry.reload(Map.of());
+
+        // then
+        assertThat(seen)
+                .withFailMessage(() -> "Expected the initial set, the switch-off and the switch-on, got: " + seen)
+                .containsExactly(
+                        Set.of(ModuleId.values()),
+                        Set.of(ModuleId.RBAC, ModuleId.GOVERNANCE),
+                        Set.of(ModuleId.values()));
     }
 }

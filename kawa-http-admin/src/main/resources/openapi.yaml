@@ -917,7 +917,9 @@ paths:
   /modules:
     get:
       summary: List modules
-      description: Every stored module, sorted by id.
+      description: |
+        Every module the gateway knows, with its effective state, sorted by id. A module with no
+        stored state is enabled.
       responses:
         '200':
           description: The modules
@@ -934,6 +936,7 @@ paths:
   /modules/{id}:
     get:
       summary: Get a module
+      description: The module's effective state; enabled when no state is stored for it.
       parameters:
         - $ref: '#/components/parameters/ModuleId'
       responses:
@@ -944,7 +947,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/Module'
         '404':
-          $ref: '#/components/responses/NotFound'
+          description: Unknown module id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -969,20 +976,6 @@ paths:
                 $ref: '#/components/schemas/Module'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    delete:
-      summary: Delete a module
-      description: Removes the module `id` from the config.
-      parameters:
-        - $ref: '#/components/parameters/ModuleId'
-      responses:
-        '204':
-          description: Module deleted
         '404':
           $ref: '#/components/responses/NotFound'
         '405':

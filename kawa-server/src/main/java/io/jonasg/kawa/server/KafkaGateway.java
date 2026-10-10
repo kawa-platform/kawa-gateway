@@ -2,10 +2,10 @@ package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.ModuleId;
 import io.jonasg.kawa.core.Gateway;
 import io.jonasg.kawa.http.auth.AuthenticationProviderRegistry;
 import io.jonasg.kawa.server.plugin.PluginLoader;
-import io.jonasg.kawa.core.Interceptor;
 import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.core.metrics.GatewayMetrics;
@@ -27,7 +27,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
-import java.util.ArrayList;
 
 /// Netty-based Kafka gateway: accepts client connections, rewrites virtual topics and
 /// forwards traffic to the physical cluster.
@@ -189,18 +188,20 @@ public final class KafkaGateway implements Gateway {
 
     private RequestPipeline buildPipeline(DynamicGatewayState state, AdvertisedListener advertised, TopicDescriber topics) {
         var fetchSessions = new FetchSessionRegistry();
-        var interceptors = new ArrayList<Interceptor>();
-        interceptors.add(new AuthorizationInterceptor(state.authorizer(), state.virtualTopics()));
         if (!state.authorizer().hasAnyAcls()) {
             log.warn("RBAC has no roles or groups configured - every request will be denied");
         }
-        // After RBAC, so a refused request never reaches governance; before virtual topics, so
-        // rules judge the names clients asked for.
         var governance = state.governance();
-        interceptors.add(new GovernanceInterceptor(() -> governance, topics, state.virtualTopics()::toPhysical));
-        interceptors.add(new VirtualTopicInterceptor(state.virtualTopics(), fetchSessions));
-        interceptors.add(new BrokerEndpointInterceptor(advertised));
-        return new RequestPipeline(new InterceptorPipeline(interceptors), fetchSessions);
+        var pipeline = InterceptorPipeline.builder()
+                .always(new AuthorizationInterceptor(state.authorizer(), state.virtualTopics()))
+                // After RBAC, so a refused request never reaches governance; before virtual topics, so
+                // rules judge the names clients asked for.
+                .always(new GovernanceInterceptor(() -> governance, topics, state.virtualTopics()::toPhysical))
+                .module(ModuleId.VIRTUAL_TOPICS, new VirtualTopicInterceptor(state.virtualTopics(), fetchSessions))
+                .always(new BrokerEndpointInterceptor(advertised))
+                .build();
+        state.modules().subscribe(pipeline::enable);
+        return new RequestPipeline(pipeline, fetchSessions);
     }
 
     private record RequestPipeline(InterceptorPipeline pipeline, FetchSessionRegistry fetchSessions) {

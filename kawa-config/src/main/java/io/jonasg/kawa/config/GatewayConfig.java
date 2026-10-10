@@ -203,13 +203,6 @@ public record GatewayConfig(
         return withModules(Map.copyOf(newModules));
     }
 
-    /// Returns a new [GatewayConfig] with the module `id` removed.
-    public GatewayConfig removeModule(ModuleId id) {
-        var newModules = new HashMap<>(modules);
-        newModules.remove(id.id());
-        return withModules(Map.copyOf(newModules));
-    }
-
     private GatewayConfig withAdminUsers(Map<String, AdminUserConfig> adminUsers) {
         return new GatewayConfig(
                 listeners, clusters, virtualTopics, advertised, auth, rbac, admin, configTopic, governance, adminUsers, modules);
