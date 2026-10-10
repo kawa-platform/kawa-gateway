@@ -91,8 +91,3 @@ presence explicitly.
 CEL is non-Turing-complete and evaluates in linear time, so it is safe to run on the hot path. Expressions are compiled
 once and cached; only the evaluation runs per record.
 
-## Advertised-listener rewriting
-
-Alongside name mapping, every broker and coordinator endpoint returned to the client (Metadata, FindCoordinator) is
-rewritten to kawa's [`advertised`](/docs/configuration#advertised)
-endpoint. Clients therefore always talk to the gateway, never directly to a broker — even after leader redirects.

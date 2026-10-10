@@ -198,7 +198,7 @@ public final class KafkaGateway implements Gateway {
         // rules judge the names clients asked for.
         var governance = state.governance();
         interceptors.add(new GovernanceInterceptor(() -> governance, topics, state.virtualTopics()::toPhysical));
-        interceptors.add(new VirtualTopicInterceptor(state.virtualTopics(), advertised, fetchSessions));
+        interceptors.add(new VirtualTopicInterceptor(state.virtualTopics(), fetchSessions));
         interceptors.add(new BrokerEndpointInterceptor(advertised));
         return new RequestPipeline(new InterceptorPipeline(interceptors), fetchSessions);
     }
