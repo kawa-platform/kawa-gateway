@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-/// Serves `GET /modules/{id}`: one stored module.
+/// Serves `GET /modules/{id}`: one module's effective state. An unknown module id is a `404`.
 public final class GetModuleHandler implements Router.Handler {
 
     private final ModuleService service;
