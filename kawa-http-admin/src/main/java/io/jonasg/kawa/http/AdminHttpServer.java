@@ -34,7 +34,7 @@ import java.util.function.Function;
 /// Netty HTTP server exposing the gateway's admin/UI surface: `GET /topics` reads the
 /// [VirtualTopicManager] and [MetadataCache], `POST /topics` and `DELETE /topics/{name}`
 /// create/delete physical topics on the broker through the [TopicAdmin], and the
-/// `/rbac/...`, `/auth/...` and `/governance` endpoints read and write the dynamic config
+/// `/rbac/...`, `/auth/...`, `/governance` and `/modules` endpoints read and write the dynamic config
 /// through the [GatewayConfigRepository]. Config writes go to the config topic and are
 /// applied by the consumer.
 ///
@@ -99,6 +99,8 @@ public final class AdminHttpServer {
         var adminUsers = new AdminUserAuthenticator(configRepository);
         var adminUserService = new AdminUserService(configRepository);
         var adminUserMapper = new AdminUserMapper(Clock.systemUTC());
+        var moduleService = new ModuleService(configRepository);
+        var moduleMapper = new ModuleConfigMapper();
         this.router = new Router()
                 .get("/topics", new GetTopicsHandler(topicService))
                 .post("/topics", new PostTopicHandler(topicService))
@@ -137,6 +139,11 @@ public final class AdminHttpServer {
                 .get("/admin/users/{id}", new GetAdminUserHandler(adminUserService, adminUserMapper))
                 .patch("/admin/users/{id}", new PatchAdminUserHandler(adminUserService, adminUserMapper))
                 .delete("/admin/users/{id}", new DeleteAdminUserHandler(adminUserService))
+
+                .get("/modules", new GetModulesHandler(moduleService, moduleMapper))
+                .get("/modules/{id}", new GetModuleHandler(moduleService, moduleMapper))
+                .put("/modules/{id}", new PutModuleHandler(moduleService, moduleMapper))
+                .delete("/modules/{id}", new DeleteModuleHandler(moduleService, moduleMapper))
 
                 .publicGet("/docs", new GetDocsHandler());
         this.authenticationProvider = authenticationProviders.require(adminAuthConfig.type()).create(

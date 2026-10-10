@@ -91,6 +91,43 @@ class GatewayConfigTest {
     }
 
     @Test
+    void modulesSurviveAJsonRoundTripUnderTheirId() {
+        // given
+        var mapper = JsonMapper.builder().build();
+        var config = GatewayConfig.empty()
+                .upsertModule(new ModuleConfig(ModuleId.VIRTUAL_TOPICS, false))
+                .upsertModule(new ModuleConfig(ModuleId.RBAC, true));
+
+        // when
+        String json = mapper.writeValueAsString(config);
+        GatewayConfig restored = mapper.readValue(json, GatewayConfig.class);
+
+        // then
+        assertThat(json)
+                .withFailMessage(() -> "module 'virtual-topics' was not stored under its id: " + json)
+                .contains("\"virtual-topics\":{\"id\":\"virtual-topics\",\"enabled\":false}");
+        assertThat(restored.modules())
+                .withFailMessage(() -> "modules changed in the round trip: " + restored.modules())
+                .isEqualTo(config.modules());
+    }
+
+    @Test
+    void removeModuleRemovesOnlyThatModule() {
+        // given
+        var config = GatewayConfig.empty()
+                .upsertModule(new ModuleConfig(ModuleId.RBAC, false))
+                .upsertModule(new ModuleConfig(ModuleId.GOVERNANCE, true));
+
+        // when
+        var updated = config.removeModule(ModuleId.RBAC);
+
+        // then
+        assertThat(updated.modules())
+                .withFailMessage(() -> "expected only module 'governance' to remain: " + updated.modules())
+                .containsOnlyKeys("governance");
+    }
+
+    @Test
     void upsertVirtualTopicAddsNewEntry() {
         // given
         var config = new GatewayConfig(null, null, null, null, null, null, null, null, null);

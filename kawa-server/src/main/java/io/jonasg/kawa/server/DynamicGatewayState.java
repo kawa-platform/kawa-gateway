@@ -3,6 +3,7 @@ package io.jonasg.kawa.server;
 import io.jonasg.kawa.config.BrokerAuthConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.RbacConfig;
+import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.rbac.RbacAuthorizer;
@@ -13,8 +14,8 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.Properties;
 
-/// Owns the four dynamically-reloaded consumers ([VirtualTopicManager], [RbacAuthorizer],
-/// [SaslAuthenticator], [GovernancePolicy]) and the [DynamicConfigManager] that feeds them
+/// Owns the dynamically-reloaded consumers ([VirtualTopicManager], [RbacAuthorizer],
+/// [SaslAuthenticator], [GovernancePolicy], [ModuleRegistry]) and the [DynamicConfigManager] that feeds them
 /// from the config topic. Created empty, then [start] blocks until the config topic has been
 /// caught up, so the gateway can refuse to serve until it has applied the config that existed
 /// at boot. An empty config topic on first boot is valid - the gateway boots with no virtual
@@ -29,6 +30,7 @@ public final class DynamicGatewayState implements AutoCloseable {
     private final RbacAuthorizer authorizer;
     private final SaslAuthenticator saslAuthenticator;
     private final GovernancePolicy governance;
+    private final ModuleRegistry modules;
     private final DynamicConfigManager configManager;
 
     public DynamicGatewayState(String bootstrapServers, String topic, BrokerAuthConfig brokerAuth) {
@@ -38,13 +40,14 @@ public final class DynamicGatewayState implements AutoCloseable {
         authorizer = new RbacAuthorizer(new RbacConfig(Map.of(), Map.of()));
         saslAuthenticator = new SaslAuthenticator();
         governance = new GovernancePolicy(new GovernanceConfig(null));
+        modules = new ModuleRegistry();
         // Direct partition assignment: the config consumer re-reads the full topic from the
         // earliest offset on every boot, so no consumer group is needed (and none is
         // registered in the cluster).
         configManager = new DynamicConfigManager(
                 bootstrapServers, topic,
                 configTopicProps(brokerAuth),
-                virtualTopics, authorizer, saslAuthenticator, governance);
+                virtualTopics, authorizer, saslAuthenticator, governance, modules);
     }
 
     /// Starts the config-topic consumer and blocks until the initial load has been applied.
@@ -68,6 +71,10 @@ public final class DynamicGatewayState implements AutoCloseable {
 
     public GovernancePolicy governance() {
         return governance;
+    }
+
+    public ModuleRegistry modules() {
+        return modules;
     }
 
     public DynamicConfigManager configManager() {

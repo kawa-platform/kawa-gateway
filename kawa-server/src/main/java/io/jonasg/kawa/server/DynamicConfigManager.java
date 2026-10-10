@@ -6,6 +6,7 @@ import io.jonasg.kawa.config.ConfigWriteFencedException;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
 import io.jonasg.kawa.config.TransactionalConfigTopicWriter;
+import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.rbac.RbacAuthorizer;
@@ -23,8 +24,8 @@ import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 /// Owns the config-topic consumer and applies each [GatewayConfig] snapshot to the mutable
-/// consumers: [VirtualTopicManager], [RbacAuthorizer], [SaslAuthenticator] and
-/// [GovernancePolicy]. Also owns the config-topic writer, so it is the
+/// consumers: [VirtualTopicManager], [RbacAuthorizer], [SaslAuthenticator], [GovernancePolicy]
+/// and [ModuleRegistry]. Also owns the config-topic writer, so it is the
 /// [GatewayConfigRepository] the admin HTTP surface uses to read the current snapshot and
 /// persist changes.
 ///
@@ -33,7 +34,8 @@ import java.util.function.UnaryOperator;
 /// snapshot (an unknown role reference or an invalid CEL expression throws), so they run
 /// first. Each of them is atomic on its own - a failed reload keeps the previous state - and
 /// the non-risky consumers ([VirtualTopicManager], [SaslAuthenticator]) are only touched
-/// after both risky reloads have succeeded.
+/// after both risky reloads have succeeded. The [ModuleRegistry] goes last, so a rejected snapshot
+/// never switches a module on or off.
 ///
 /// [awaitInitialLoad] blocks until the config topic has been caught up from the earliest
 /// offset, so the gateway can refuse to serve until it has applied the config that existed
@@ -62,6 +64,7 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
     private final RbacAuthorizer authorizer;
     private final SaslAuthenticator saslAuthenticator;
     private final GovernancePolicy governance;
+    private final ModuleRegistry modules;
     private final Duration applyWaitTimeout;
     private final Object applyProgressLock = new Object();
     private final Object writeLock = new Object();
@@ -79,7 +82,8 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
             SaslAuthenticator saslAuthenticator,
             GovernancePolicy governance
     ) {
-        this(bootstrapServers, topic, new Properties(), virtualTopics, authorizer, saslAuthenticator, governance);
+        this(bootstrapServers, topic, new Properties(), virtualTopics, authorizer, saslAuthenticator, governance,
+                new ModuleRegistry());
     }
 
     /// Variant that accepts extra consumer/producer properties (e.g. SASL/security settings
@@ -91,10 +95,11 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
             VirtualTopicManager virtualTopics,
             RbacAuthorizer authorizer,
             SaslAuthenticator saslAuthenticator,
-            GovernancePolicy governance
+            GovernancePolicy governance,
+            ModuleRegistry modules
     ) {
         this(new TransactionalConfigTopicWriter(bootstrapServers, topic, extraProps), bootstrapServers, topic, extraProps,
-                virtualTopics, authorizer, saslAuthenticator, governance, DEFAULT_APPLY_WAIT_TIMEOUT);
+                virtualTopics, authorizer, saslAuthenticator, governance, modules, DEFAULT_APPLY_WAIT_TIMEOUT);
     }
 
     /// Test seam: injects the writer so the compare-and-set flow can be verified without a broker.
@@ -107,8 +112,21 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
             GovernancePolicy governance,
             Duration applyWaitTimeout
     ) {
+        this(writer, virtualTopics, authorizer, saslAuthenticator, governance, new ModuleRegistry(), applyWaitTimeout);
+    }
+
+    /// Test seam with the [ModuleRegistry] to reload.
+    DynamicConfigManager(
+            ConfigTopicWriter writer,
+            VirtualTopicManager virtualTopics,
+            RbacAuthorizer authorizer,
+            SaslAuthenticator saslAuthenticator,
+            GovernancePolicy governance,
+            ModuleRegistry modules,
+            Duration applyWaitTimeout
+    ) {
         this(writer, "localhost:9092", "__kawa", new Properties(), virtualTopics, authorizer, saslAuthenticator,
-                governance, applyWaitTimeout);
+                governance, modules, applyWaitTimeout);
     }
 
     private DynamicConfigManager(
@@ -120,6 +138,7 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
             RbacAuthorizer authorizer,
             SaslAuthenticator saslAuthenticator,
             GovernancePolicy governance,
+            ModuleRegistry modules,
             Duration applyWaitTimeout
     ) {
         this.writer = writer;
@@ -127,6 +146,7 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
         this.authorizer = authorizer;
         this.saslAuthenticator = saslAuthenticator;
         this.governance = governance;
+        this.modules = modules;
         this.applyWaitTimeout = applyWaitTimeout;
         this.consumer = new ConfigTopicConsumer(
                 bootstrapServers,
@@ -169,6 +189,7 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
         governance.reload(config.governance()); // risky: can throw on invalid CEL expression
         virtualTopics.reload(config.virtualTopics());
         saslAuthenticator.reload(config.auth().mechanisms(), config.auth().clients());
+        modules.reload(config.modules());
     }
 
     /// Starts the config-topic consumer. Idempotent.
