@@ -18,6 +18,7 @@ import io.jonasg.kawa.governance.TopicDescriber;
 import io.jonasg.kawa.http.KafkaTopicAdmin;
 import io.jonasg.kawa.rbac.AuthorizationInterceptor;
 import io.jonasg.kawa.server.broker.ClusterConnections;
+import io.jonasg.kawa.server.endpoint.BrokerEndpointInterceptor;
 import io.jonasg.kawa.server.netty.KafkaListener;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicInterceptor;
@@ -198,6 +199,7 @@ public final class KafkaGateway implements Gateway {
         var governance = state.governance();
         interceptors.add(new GovernanceInterceptor(() -> governance, topics, state.virtualTopics()::toPhysical));
         interceptors.add(new VirtualTopicInterceptor(state.virtualTopics(), advertised, fetchSessions));
+        interceptors.add(new BrokerEndpointInterceptor(advertised));
         return new RequestPipeline(new InterceptorPipeline(interceptors), fetchSessions);
     }
 

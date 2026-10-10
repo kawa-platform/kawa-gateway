@@ -88,6 +88,17 @@ depend on production modules such as `kawa-config`, but never on a module that u
 - `kawa-test-support`: shared test helpers (`KawaAssertions`, `HttpResponseAssert`). Its `src/main` is test code
   for other modules, so AssertJ is a compile dependency there.
 
+## Interceptors
+
+- An interceptor is named after the **concern** it owns (`AuthorizationInterceptor`, `VirtualTopicInterceptor`,
+  `BrokerEndpointInterceptor`), never after its input or the action it performs.
+- It dispatches to one class per protocol API, named `<Api><Concern><Kind>` (`MetadataAuthorizationCheck`,
+  `FetchVirtualTopicTransform`, `DescribeClusterBrokerEndpointTransform`), through a `<Concern><Kind>Registry` keyed
+  by api key, so the class list shows which APIs the concern covers. Supporting a new API is one new class and one
+  registry entry, not a branch inside the interceptor.
+- Gateway plumbing that must always run (such as broker endpoint rewriting) is its own concern, not folded into a
+  feature interceptor, so switching a feature off cannot break it.
+
 ## Code style (repo-specific)
 
 - Javadoc is Markdown `///` (Java 23+/JEP 467). `var` for obvious right-hand types; explicit type otherwise.
