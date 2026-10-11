@@ -1,6 +1,5 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.BrokerAuthConfig;
 import io.jonasg.kawa.governance.TopicDescriber.TopicState;
 import io.jonasg.kawa.governance.TopicSpec;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -11,7 +10,6 @@ import org.apache.kafka.clients.admin.DescribeTopicsOptions;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.admin.TopicDescription;
 import org.apache.kafka.common.config.ConfigResource;
-import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 
 import java.util.Collection;
@@ -26,7 +24,6 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 
 import static org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
-import static org.apache.kafka.clients.CommonClientConfigs.SECURITY_PROTOCOL_CONFIG;
 
 /// [TopicAdmin] backed by Kafka's [AdminClient]: creates, deletes and describes topics on the
 /// real cluster using the same bootstrap servers and broker credentials as the gateway. Also
@@ -38,8 +35,10 @@ public final class KafkaTopicAdmin implements TopicAdmin {
 
     private final AdminClient admin;
 
-    public KafkaTopicAdmin(String bootstrapServers, BrokerAuthConfig brokerAuth) {
-        this(AdminClient.create(props(bootstrapServers, brokerAuth)));
+    /// @param brokerSecurity the Kafka client settings for reaching the brokers (`security.protocol`,
+    ///                       `sasl.*`, `ssl.*`), see `BrokerSecurity.clientProperties`
+    public KafkaTopicAdmin(String bootstrapServers, Properties brokerSecurity) {
+        this(AdminClient.create(props(bootstrapServers, brokerSecurity)));
     }
 
     /// Package-private for tests.
@@ -106,18 +105,11 @@ public final class KafkaTopicAdmin implements TopicAdmin {
         admin.close();
     }
 
-    /// AdminClient properties: bootstrap servers plus the gateway's broker SASL credentials
-    /// when configured.
-    static Properties props(String bootstrapServers, BrokerAuthConfig brokerAuth) {
+    /// AdminClient properties: the bootstrap servers plus the broker security settings.
+    static Properties props(String bootstrapServers, Properties brokerSecurity) {
         Properties props = new Properties();
+        props.putAll(brokerSecurity);
         props.put(BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        if (brokerAuth != null) {
-            props.put(SECURITY_PROTOCOL_CONFIG, "SASL_PLAINTEXT");
-            props.put(SaslConfigs.SASL_MECHANISM, brokerAuth.mechanism());
-            props.put(SaslConfigs.SASL_JAAS_CONFIG,
-                    "org.apache.kafka.common.security.plain.PlainLoginModule required "
-                    + "username=\"" + brokerAuth.username() + "\" password=\"" + brokerAuth.password() + "\";");
-        }
         return props;
     }
 }

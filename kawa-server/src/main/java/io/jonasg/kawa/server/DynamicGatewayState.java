@@ -1,6 +1,5 @@
 package io.jonasg.kawa.server;
 
-import io.jonasg.kawa.config.BrokerAuthConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.RbacConfig;
 import io.jonasg.kawa.core.module.ModuleRegistry;
@@ -33,7 +32,9 @@ public final class DynamicGatewayState implements AutoCloseable {
     private final ModuleRegistry modules;
     private final DynamicConfigManager configManager;
 
-    public DynamicGatewayState(String bootstrapServers, String topic, BrokerAuthConfig brokerAuth) {
+    /// @param brokerSecurity the Kafka client settings for reaching the brokers (`security.protocol`,
+    ///                       `sasl.*`, `ssl.*`), see [io.jonasg.kawa.config.BrokerSecurity#clientProperties]
+    public DynamicGatewayState(String bootstrapServers, String topic, Properties brokerSecurity) {
         this.bootstrapServers = bootstrapServers;
         this.topic = topic;
         virtualTopics = new VirtualTopicManager(Map.of());
@@ -46,7 +47,7 @@ public final class DynamicGatewayState implements AutoCloseable {
         // registered in the cluster).
         configManager = new DynamicConfigManager(
                 bootstrapServers, topic,
-                configTopicProps(brokerAuth),
+                brokerSecurity,
                 virtualTopics, authorizer, saslAuthenticator, governance, modules);
     }
 
@@ -84,20 +85,5 @@ public final class DynamicGatewayState implements AutoCloseable {
     @Override
     public void close() {
         configManager.close();
-    }
-
-    /// Consumer properties for the config topic. The gateway's own broker connection is
-    /// PLAIN-only (see `BrokerSaslAuthenticator`), so the config-topic consumer uses the
-    /// same credentials when the broker requires SASL.
-    private static Properties configTopicProps(BrokerAuthConfig brokerAuth) {
-        Properties props = new Properties();
-        if (brokerAuth != null) {
-            props.put("security.protocol", "SASL_PLAINTEXT");
-            props.put("sasl.mechanism", brokerAuth.mechanism());
-            props.put("sasl.jaas.config",
-                    "org.apache.kafka.common.security.plain.PlainLoginModule required "
-                    + "username=\"" + brokerAuth.username() + "\" password=\"" + brokerAuth.password() + "\";");
-        }
-        return props;
     }
 }

@@ -37,7 +37,7 @@ class DynamicGatewayStateTest {
     @Test
     void applyReachesAllConsumers() {
         // given
-        var state = new DynamicGatewayState("localhost:9092", "__kawa", null);
+        var state = new DynamicGatewayState("localhost:9092", "__kawa", new java.util.Properties());
         var config = GatewayConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-physical"))
                 .updateRbac(new RbacConfig(

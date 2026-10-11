@@ -69,7 +69,7 @@ class BrokerClientSaslTest {
         var brokerClient = new BrokerClient(
                 1, "localhost", port, group, codec, new InterceptorPipeline(List.of()),
                 new GatewayMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
-                authConfig);
+                new BrokerConnectionSettings(authConfig, null));
 
         // when a request triggers connect (which should include SASL)
         var session = clientSession();
@@ -95,7 +95,7 @@ class BrokerClientSaslTest {
         var brokerClient = new BrokerClient(
                 1, "localhost", port, group, codec, new InterceptorPipeline(List.of()),
                 new GatewayMetrics(new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
-                null);
+                BrokerConnectionSettings.PLAINTEXT);
 
         // when a request triggers connect
         var session = clientSession();

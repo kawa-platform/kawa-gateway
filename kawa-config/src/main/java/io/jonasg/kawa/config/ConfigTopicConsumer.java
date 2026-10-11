@@ -54,6 +54,7 @@ public final class ConfigTopicConsumer implements AutoCloseable {
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
             .build();
     private final CountDownLatch initialLoad = new CountDownLatch(1);
+    private volatile Exception failure;
 
     private volatile boolean running;
     private Thread thread;
@@ -120,8 +121,15 @@ public final class ConfigTopicConsumer implements AutoCloseable {
 
     /// Blocks until the initial catch-up is complete, i.e. every config message that existed
     /// at assignment time has been delivered to the callback.
+    ///
+    /// @throws IllegalStateException when the consumer failed before catching up, e.g. because it
+    ///                               cannot authenticate to the brokers; startup must not hang
     public void awaitInitialLoad() throws InterruptedException {
         initialLoad.await();
+        Exception failed = failure;
+        if (failed != null) {
+            throw new IllegalStateException("Cannot read config topic '" + topic + "': " + failed.getMessage(), failed);
+        }
     }
 
     /// Whether the initial catch-up has completed.
@@ -173,6 +181,10 @@ public final class ConfigTopicConsumer implements AutoCloseable {
             // expected on close()
         } catch (Exception e) {
             log.error("config consumer for topic {} failed", topic, e);
+            if (initialLoad.getCount() > 0) {
+                failure = e;
+                initialLoad.countDown();
+            }
         } finally {
             consumer.close();
         }

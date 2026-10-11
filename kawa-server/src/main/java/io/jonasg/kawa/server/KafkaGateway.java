@@ -1,6 +1,7 @@
 package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.AdvertisedListener;
+import io.jonasg.kawa.config.BrokerSecurity;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.ModuleId;
 import io.jonasg.kawa.core.Gateway;
@@ -17,6 +18,7 @@ import io.jonasg.kawa.governance.GovernanceInterceptor;
 import io.jonasg.kawa.governance.TopicDescriber;
 import io.jonasg.kawa.http.KafkaTopicAdmin;
 import io.jonasg.kawa.rbac.AuthorizationInterceptor;
+import io.jonasg.kawa.server.broker.BrokerConnectionSettings;
 import io.jonasg.kawa.server.broker.ClusterConnections;
 import io.jonasg.kawa.server.endpoint.BrokerEndpointInterceptor;
 import io.jonasg.kawa.server.netty.KafkaListener;
@@ -104,6 +106,13 @@ public final class KafkaGateway implements Gateway {
         String bootstrapServers = clusterCfg.bootstrapServers().getFirst();
         InetSocketAddress bootstrap = parseBootstrap(bootstrapServers);
 
+        // How to reach the brokers (TLS and SASL), for the gateway's Netty connections and for its
+        // own Kafka clients. Loads the TLS stores now, so a bad one fails before anything connects.
+        var brokerAuth = config.auth().brokerAuth();
+        var brokerConnections = BrokerConnectionSettings.of(clusterCfg, brokerAuth);
+        var brokerSecurity = BrokerSecurity.clientProperties(clusterCfg.tls(), brokerAuth);
+        log.info("connecting to the cluster over {}", BrokerSecurity.protocol(clusterCfg.tls(), brokerAuth));
+
         // Shared infrastructure
         metrics = new GatewayMetrics(new SimpleMeterRegistry());
         var kawaApiRegistry = KafkaApiRegistry.create();
@@ -111,7 +120,7 @@ public final class KafkaGateway implements Gateway {
         apiVersionsBuilder = new ApiVersionsResponseBuilder(SupportedVersions.from(kawaApiRegistry));
 
         // Dynamic config from the config topic (blocks until caught up)
-        dynamicState = new DynamicGatewayState(bootstrapServers, config.configTopic(), config.auth().brokerAuth());
+        dynamicState = new DynamicGatewayState(bootstrapServers, config.configTopic(), brokerSecurity);
         dynamicState.start();
 
         // Bind the client listener; resolve the advertised endpoint
@@ -121,14 +130,14 @@ public final class KafkaGateway implements Gateway {
         AdvertisedListener advertised = resolveAdvertised(config.advertised(), boundPort);
 
         // Interceptor pipeline
-        topicDescriber = new KafkaTopicAdmin(bootstrapServers, config.auth().brokerAuth());
+        topicDescriber = new KafkaTopicAdmin(bootstrapServers, brokerSecurity);
         RequestPipeline requestPipeline = buildPipeline(dynamicState, advertised, topicDescriber);
 
         // Broker connections (metadata client) - the same static bootstrap that hosts the
         //    config topic. The dynamic snapshot's `clusters` map is carried in the message but
         //    not used for routing in this milestone.
         connections = new ClusterConnections(codec, requestPipeline.pipeline(), metrics, cache,
-                bootstrap.getHostString(), bootstrap.getPort(), config.auth().brokerAuth());
+                bootstrap.getHostString(), bootstrap.getPort(), brokerConnections);
         connections.start();
 
         // Dispatcher - installed only after the initial metadata fetch, so the listener
@@ -142,7 +151,7 @@ public final class KafkaGateway implements Gateway {
 
         //  Admin surface
         if (config.admin().enabled()) {
-            admin = new AdminSurface(config.admin(), dynamicState, cache, bootstrapServers, config.auth().brokerAuth(),
+            admin = new AdminSurface(config.admin(), dynamicState, cache, bootstrapServers, brokerSecurity,
                     authenticationProviders);
             admin.start();
         }

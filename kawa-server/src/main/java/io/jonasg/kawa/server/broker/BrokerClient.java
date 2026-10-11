@@ -1,6 +1,5 @@
 package io.jonasg.kawa.server.broker;
 
-import io.jonasg.kawa.config.BrokerAuthConfig;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.metrics.GatewayMetrics;
@@ -12,7 +11,6 @@ import io.jonasg.kawa.protocol.kafka.KafkaClientRequest;
 import io.jonasg.kawa.protocol.kafka.KafkaResponse;
 import io.jonasg.kawa.protocol.kafka.RequestHeaderCodec;
 import io.jonasg.kawa.protocol.kafka.ResponseHeaderCodec;
-import io.jonasg.kawa.server.auth.BrokerSaslAuthenticator;
 import io.jonasg.kawa.server.netty.ClientSession;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
@@ -51,7 +49,7 @@ public final class BrokerClient {
     private final KafkaBodyCodec codec;
     private final InterceptorPipeline pipeline;
     private final GatewayMetrics metrics;
-    private final BrokerAuthConfig brokerAuthConfig;
+    private final BrokerConnectionSettings settings;
     private final RequestHeaderCodec requestHeaderCodec = new RequestHeaderCodec();
     private final ResponseHeaderCodec responseHeaderCodec = new ResponseHeaderCodec();
     private final Map<Integer, PendingRequest> pending = new ConcurrentHashMap<>();
@@ -62,12 +60,12 @@ public final class BrokerClient {
 
     public BrokerClient(int brokerId, String host, int port, EventLoopGroup group,
                         KafkaBodyCodec codec, InterceptorPipeline pipeline, GatewayMetrics metrics) {
-        this(brokerId, host, port, group, codec, pipeline, metrics, null);
+        this(brokerId, host, port, group, codec, pipeline, metrics, BrokerConnectionSettings.PLAINTEXT);
     }
 
     public BrokerClient(int brokerId, String host, int port, EventLoopGroup group,
                         KafkaBodyCodec codec, InterceptorPipeline pipeline, GatewayMetrics metrics,
-                        BrokerAuthConfig brokerAuthConfig) {
+                        BrokerConnectionSettings settings) {
         this.brokerId = brokerId;
         this.host = host;
         this.port = port;
@@ -75,7 +73,7 @@ public final class BrokerClient {
         this.codec = codec;
         this.pipeline = pipeline;
         this.metrics = metrics;
-        this.brokerAuthConfig = brokerAuthConfig;
+        this.settings = settings;
     }
 
     public int brokerId() {
@@ -224,18 +222,17 @@ public final class BrokerClient {
                 .handler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
+                        settings.addTls(ch, host, port);
                         ch.pipeline().addLast("frameDecoder", new KafkaFrameDecoder());
                         ch.pipeline().addLast("frameEncoder", new KafkaFrameEncoder());
                         ch.pipeline().addLast("responseHandler", new BrokerResponseHandler(BrokerClient.this));
                     }
                 });
         Channel ch = bootstrap.connect(host, port).sync().channel();
-        if (brokerAuthConfig != null) {
-            var authenticator = new BrokerSaslAuthenticator(brokerAuthConfig, codec);
-            if (!authenticator.authenticate(ch)) {
-                ch.close();
-                throw new CorruptedFrameException("SASL authentication to broker " + brokerId + " failed");
-            }
+        try {
+            settings.establish(ch, codec, "broker " + brokerId + " at " + host + ":" + port);
+        } catch (IllegalStateException e) {
+            throw new CorruptedFrameException(e.getMessage(), e);
         }
         this.channel = ch;
         metrics.brokerConnectionOpened();

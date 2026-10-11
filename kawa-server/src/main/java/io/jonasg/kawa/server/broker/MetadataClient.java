@@ -1,6 +1,5 @@
 package io.jonasg.kawa.server.broker;
 
-import io.jonasg.kawa.config.BrokerAuthConfig;
 import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.core.cluster.MetadataSnapshot;
@@ -14,7 +13,6 @@ import io.jonasg.kawa.protocol.kafka.KafkaHeader;
 import io.jonasg.kawa.protocol.kafka.RequestHeaderCodec;
 import io.jonasg.kawa.protocol.kafka.ResponseHeaderCodec;
 import io.jonasg.kawa.protocol.kafka.VersionRange;
-import io.jonasg.kawa.server.auth.BrokerSaslAuthenticator;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
@@ -60,7 +58,7 @@ public final class MetadataClient {
     private final MetadataCache cache;
     private final BrokerClientPool pool;
     private final GatewayMetrics metrics;
-    private final BrokerAuthConfig brokerAuthConfig;
+    private final BrokerConnectionSettings settings;
     private final RequestHeaderCodec requestHeaderCodec = new RequestHeaderCodec();
     private final ResponseHeaderCodec responseHeaderCodec = new ResponseHeaderCodec();
     private final Map<Integer, Consumer<ByteBuf>> pending = new ConcurrentHashMap<>();
@@ -73,12 +71,12 @@ public final class MetadataClient {
 
     public MetadataClient(String host, int port, EventLoopGroup group, KafkaBodyCodec codec,
                           MetadataCache cache, BrokerClientPool pool, GatewayMetrics metrics) {
-        this(host, port, group, codec, cache, pool, metrics, null);
+        this(host, port, group, codec, cache, pool, metrics, BrokerConnectionSettings.PLAINTEXT);
     }
 
     public MetadataClient(String host, int port, EventLoopGroup group, KafkaBodyCodec codec,
                           MetadataCache cache, BrokerClientPool pool, GatewayMetrics metrics,
-                          BrokerAuthConfig brokerAuthConfig) {
+                          BrokerConnectionSettings settings) {
         this.host = host;
         this.port = port;
         this.group = group;
@@ -86,7 +84,7 @@ public final class MetadataClient {
         this.cache = cache;
         this.pool = pool;
         this.metrics = metrics;
-        this.brokerAuthConfig = brokerAuthConfig;
+        this.settings = settings;
     }
 
     public void start() throws Exception {
@@ -97,19 +95,14 @@ public final class MetadataClient {
                 .handler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
+                        settings.addTls(ch, host, port);
                         ch.pipeline().addLast("frameDecoder", new KafkaFrameDecoder());
                         ch.pipeline().addLast("frameEncoder", new KafkaFrameEncoder());
                         ch.pipeline().addLast("handler", new MetadataResponseHandler(MetadataClient.this));
                     }
                 });
         channel = connectWithRetry(bootstrap);
-        if (brokerAuthConfig != null) {
-            var authenticator = new BrokerSaslAuthenticator(brokerAuthConfig, codec);
-            if (!authenticator.authenticate(channel)) {
-                channel.close();
-                throw new IllegalStateException("SASL authentication to metadata broker failed");
-            }
-        }
+        settings.establish(channel, codec, "metadata broker " + host + ":" + port);
         metrics.brokerConnectionOpened();
         log.info("Metadata client connected to {}:{} remote {} active {} autoRead {}",
                 host, port, channel.remoteAddress(), channel.isActive(),

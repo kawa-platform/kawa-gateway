@@ -1,6 +1,5 @@
 package io.jonasg.kawa.server.broker;
 
-import io.jonasg.kawa.config.BrokerAuthConfig;
 import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
@@ -34,24 +33,24 @@ public final class BrokerClientPool {
     private final InterceptorPipeline pipeline;
     private final GatewayMetrics metrics;
     private final MetadataCache cache;
-    private final BrokerAuthConfig brokerAuthConfig;
+    private final BrokerConnectionSettings settings;
     private final String bootstrapHost;
     private final int bootstrapPort;
 
     public BrokerClientPool(EventLoopGroup group, KafkaBodyCodec codec, InterceptorPipeline pipeline,
                             GatewayMetrics metrics, MetadataCache cache, String bootstrapHost, int bootstrapPort) {
-        this(group, codec, pipeline, metrics, cache, bootstrapHost, bootstrapPort, null);
+        this(group, codec, pipeline, metrics, cache, bootstrapHost, bootstrapPort, BrokerConnectionSettings.PLAINTEXT);
     }
 
     public BrokerClientPool(EventLoopGroup group, KafkaBodyCodec codec, InterceptorPipeline pipeline,
                             GatewayMetrics metrics, MetadataCache cache, String bootstrapHost, int bootstrapPort,
-                            BrokerAuthConfig brokerAuthConfig) {
+                            BrokerConnectionSettings settings) {
         this.group = group;
         this.codec = codec;
         this.pipeline = pipeline;
         this.metrics = metrics;
         this.cache = cache;
-        this.brokerAuthConfig = brokerAuthConfig;
+        this.settings = settings;
         this.bootstrapHost = bootstrapHost;
         this.bootstrapPort = bootstrapPort;
     }
@@ -68,7 +67,7 @@ public final class BrokerClientPool {
     }
 
     private BrokerClient newClient(int brokerId, String host, int port) {
-        return new BrokerClient(brokerId, host, port, group, codec, pipeline, metrics, brokerAuthConfig);
+        return new BrokerClient(brokerId, host, port, group, codec, pipeline, metrics, settings);
     }
 
     /// Closes the connections of brokers that left the cluster, in every session.

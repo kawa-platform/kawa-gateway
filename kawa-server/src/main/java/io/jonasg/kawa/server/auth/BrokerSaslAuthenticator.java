@@ -3,6 +3,7 @@ package io.jonasg.kawa.server.auth;
 import io.jonasg.kawa.config.BrokerAuthConfig;
 import io.jonasg.kawa.protocol.kafka.KafkaApiRegistry;
 import io.jonasg.kawa.protocol.kafka.KafkaBodyCodec;
+import io.jonasg.kawa.protocol.kafka.KafkaFrameDecoder;
 import io.jonasg.kawa.protocol.kafka.KafkaHeader;
 import io.jonasg.kawa.protocol.kafka.RequestHeaderCodec;
 import io.jonasg.kawa.protocol.kafka.ResponseHeaderCodec;
@@ -10,7 +11,6 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.handler.codec.ByteToMessageDecoder;
 import org.apache.kafka.common.message.SaslAuthenticateRequestData;
 import org.apache.kafka.common.message.SaslAuthenticateResponseData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
@@ -133,8 +133,10 @@ public final class BrokerSaslAuthenticator {
                 }
             }
         };
+        // After the Kafka frame decoder, so the handler reads whole frames; a TLS handler before it is
+        // also a ByteToMessageDecoder, so look the frame decoder up by its own type.
         String decoderName = null;
-        ChannelHandlerContext decoderCtx = channel.pipeline().context(ByteToMessageDecoder.class);
+        ChannelHandlerContext decoderCtx = channel.pipeline().context(KafkaFrameDecoder.class);
         if (decoderCtx != null) {
             decoderName = decoderCtx.name();
         }
