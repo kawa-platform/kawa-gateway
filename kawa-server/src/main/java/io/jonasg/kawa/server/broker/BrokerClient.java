@@ -34,9 +34,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/// A single upstream connection to one physical broker, shared by all client connections.
-/// Requests are forwarded with a gateway-assigned correlation id so that correlation ids
-/// from different clients never collide on the shared broker channel.
+/// A single upstream connection to one physical broker, owned by one client connection (see
+/// [BrokerClientPool]). Requests are forwarded with a gateway-assigned correlation id.
 public final class BrokerClient {
 
     private static final Logger log = LoggerFactory.getLogger(BrokerClient.class);
@@ -59,6 +58,7 @@ public final class BrokerClient {
     private final AtomicInteger correlationIds = new AtomicInteger();
 
     private volatile Channel channel;
+    private volatile boolean closed;
 
     public BrokerClient(int brokerId, String host, int port, EventLoopGroup group,
                         KafkaBodyCodec codec, InterceptorPipeline pipeline, GatewayMetrics metrics) {
@@ -165,17 +165,10 @@ public final class BrokerClient {
         metrics.recordLatency(request.apiName(), System.nanoTime() - request.context().receivedAtNanos());
     }
 
-    public void closeSession(ClientSession session) {
-        pending.entrySet().removeIf(entry -> {
-            if (entry.getValue().session() == session) {
-                entry.getValue().timeoutTask().cancel(false);
-                return true;
-            }
-            return false;
-        });
-    }
-
+    /// Closes the connection on purpose, e.g. because its client disconnected: unlike a broker
+    /// dropping it, that is not worth a warning.
     public void close() {
+        closed = true;
         Channel ch = channel;
         if (ch != null) {
             ch.close();
@@ -256,6 +249,9 @@ public final class BrokerClient {
     }
 
     void onBrokerDisconnected() {
+        if (closed) {
+            return;
+        }
         log.warn("Broker {} connection lost", brokerId);
         pending.forEach((id, request) -> {
             request.timeoutTask().cancel(false);
