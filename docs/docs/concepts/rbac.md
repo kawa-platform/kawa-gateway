@@ -10,11 +10,15 @@ kawa enforces **role-based access control** on the client-to-broker path. Once
 of ACLs before forwarding it to the cluster. Requests that are not authorized are answered locally with a Kafka
 authorization error and never reach the broker.
 
-:::warning RBAC is always enforced — there is no opt-out RBAC cannot be disabled. There is no `rbac.enabled` flag and no
-way to turn it off. A gateway with **no roles or groups configured denies every request from every client** —
-`RbacAuthorizer` is default-deny, so nothing matches and nothing is allowed. If you want permissive behavior, you must
-configure it explicitly (see [Broad access](#broad-access)
-below); omitting RBAC configuration is not a way to get it.
+:::warning RBAC is on by default and default-deny
+A gateway with **no roles or groups configured denies every request from every client** — `RbacAuthorizer` is
+default-deny, so nothing matches and nothing is allowed. If you want permissive behavior, configure it explicitly (see
+[Broad access](#broad-access) below); omitting RBAC configuration is not a way to get it.
+
+RBAC is the `rbac` module and can be switched off at runtime with
+`PUT /modules/rbac` `{"enabled": false}`. Switched off, kawa is **fail-open**: every Kafka request is admitted without
+any access control, from any client, authenticated or not. kawa logs a warning while RBAC is off. Only switch it off
+when the network or the brokers' own ACLs control access.
 :::
 
 RBAC is **default-deny**: a request is only allowed if at least one matching ACL grants it, and any matching deny wins

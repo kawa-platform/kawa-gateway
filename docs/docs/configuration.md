@@ -228,8 +228,9 @@ before forwarding any client requests. This is transparent to clients — they a
 Dynamic — see [Dynamic config](#dynamic-config).
 
 Role-based access control. kawa checks each request against the principal's ACLs before forwarding it to the cluster.
-RBAC is **always enforced** — there is no way to disable it, and a gateway with no roles or groups configured denies
-every request from every client. RBAC is **default-deny**: a request is only allowed if at least one matching ACL grants
+RBAC is **on by default** and a gateway with no roles or groups configured denies every request from every client.
+It can be switched off with `PUT /modules/rbac`, which admits every request without access control (fail-open) - see
+[RBAC](/docs/concepts/rbac). RBAC is **default-deny**: a request is only allowed if at least one matching ACL grants
 it, and any matching deny wins.
 
 | Field    | Type | Default   | Description                                                           |

@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.Set;
 
 /// Netty-based Kafka gateway: accepts client connections, rewrites virtual topics and
 /// forwards traffic to the physical cluster.
@@ -188,18 +189,27 @@ public final class KafkaGateway implements Gateway {
 
     private RequestPipeline buildPipeline(DynamicGatewayState state, AdvertisedListener advertised, TopicDescriber topics) {
         var fetchSessions = new FetchSessionRegistry();
-        if (!state.authorizer().hasAnyAcls()) {
+        if (state.modules().isEnabled(ModuleId.RBAC) && !state.authorizer().hasAnyAcls()) {
             log.warn("RBAC has no roles or groups configured - every request will be denied");
         }
         var governance = state.governance();
         var pipeline = InterceptorPipeline.builder()
-                .always(new AuthorizationInterceptor(state.authorizer(), state.virtualTopics()))
+                .module(ModuleId.RBAC, new AuthorizationInterceptor(state.authorizer(), state.virtualTopics()))
                 .module(ModuleId.GOVERNANCE, new GovernanceInterceptor(() -> governance, topics, state.virtualTopics()::toPhysical))
                 .module(ModuleId.VIRTUAL_TOPICS, new VirtualTopicInterceptor(state.virtualTopics(), fetchSessions))
                 .always(new BrokerEndpointInterceptor(advertised))
                 .build();
         state.modules().subscribe(pipeline::enable);
+        state.modules().subscribe(KafkaGateway::warnWhenRbacIsDisabled);
         return new RequestPipeline(pipeline, fetchSessions);
+    }
+
+    /// RBAC is fail-open: switched off, every Kafka request is admitted without access control.
+    private static void warnWhenRbacIsDisabled(Set<ModuleId> enabled) {
+        if (!enabled.contains(ModuleId.RBAC)) {
+            log.warn("RBAC disabled - no authorization is enforced on the Kafka path; "
+                    + "requests are admitted without access control");
+        }
     }
 
     private record RequestPipeline(InterceptorPipeline pipeline, FetchSessionRegistry fetchSessions) {
