@@ -14,6 +14,7 @@ import org.apache.kafka.common.message.DeleteTopicsRequestData;
 import org.apache.kafka.common.message.DeleteTopicsResponseData;
 import org.apache.kafka.common.message.DescribeAclsResponseData;
 import org.apache.kafka.common.message.DescribeLogDirsResponseData;
+import org.apache.kafka.common.message.EndTxnResponseData;
 import org.apache.kafka.common.message.HeartbeatResponseData;
 import org.apache.kafka.common.message.JoinGroupResponseData;
 import org.apache.kafka.common.message.LeaveGroupResponseData;
@@ -27,8 +28,9 @@ import java.util.function.Function;
 /// Gates a whole-request API on a single resource: CLUSTER-resource APIs (CreateTopics,
 /// DeleteTopics) on the principal's CLUSTER CREATE/DELETE permission, and group-management
 /// APIs (JoinGroup, SyncGroup, Heartbeat, LeaveGroup, ConsumerGroupHeartbeat) on GROUP READ
-/// for the single groupId they carry. A request that reaches this check without an authenticated principal is denied
-/// rather than passed through, so skipping SASL cannot bypass RBAC.
+/// for the single groupId they carry, and EndTxn on TRANSACTIONAL_ID WRITE for its transactional id.
+/// A request that reaches this check without an authenticated principal is denied rather than
+/// passed through, so skipping SASL cannot bypass RBAC.
 public final class WholeRequestAuthorizationCheck implements AuthorizationCheck<Object, Object> {
 
     private final short apiKey;
@@ -118,6 +120,9 @@ public final class WholeRequestAuthorizationCheck implements AuthorizationCheck<
         }
         if (apiKey == ApiKeys.LEAVE_GROUP.id) {
             return new LeaveGroupResponseData().setErrorCode(error.code());
+        }
+        if (apiKey == ApiKeys.END_TXN.id) {
+            return new EndTxnResponseData().setErrorCode(error.code());
         }
         if (apiKey == ApiKeys.CONSUMER_GROUP_HEARTBEAT.id) {
             return new ConsumerGroupHeartbeatResponseData().setErrorCode(error.code()).setErrorMessage(error.message());

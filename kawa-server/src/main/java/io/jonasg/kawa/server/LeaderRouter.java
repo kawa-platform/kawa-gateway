@@ -4,26 +4,49 @@ import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.core.Route;
 import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
+import io.jonasg.kawa.protocol.kafka.KafkaApiRegistry;
+import org.apache.kafka.common.message.AddOffsetsToTxnRequestData;
+import org.apache.kafka.common.message.AddPartitionsToTxnRequestData;
+import org.apache.kafka.common.message.ConsumerGroupHeartbeatRequestData;
+import org.apache.kafka.common.message.DescribeGroupsRequestData;
+import org.apache.kafka.common.message.DescribeTransactionsRequestData;
+import org.apache.kafka.common.message.EndTxnRequestData;
 import org.apache.kafka.common.message.FetchRequestData;
+import org.apache.kafka.common.message.HeartbeatRequestData;
+import org.apache.kafka.common.message.InitProducerIdRequestData;
+import org.apache.kafka.common.message.JoinGroupRequestData;
+import org.apache.kafka.common.message.LeaveGroupRequestData;
 import org.apache.kafka.common.message.ListOffsetsRequestData;
 import org.apache.kafka.common.message.OffsetCommitRequestData;
+import org.apache.kafka.common.message.OffsetDeleteRequestData;
 import org.apache.kafka.common.message.OffsetFetchRequestData;
+import org.apache.kafka.common.message.OffsetForLeaderEpochRequestData;
 import org.apache.kafka.common.message.ProduceRequestData;
+import org.apache.kafka.common.message.SyncGroupRequestData;
+import org.apache.kafka.common.message.TxnOffsetCommitRequestData;
 import org.apache.kafka.common.utils.Utils;
 
-/// Routes each request to the physical broker leading its first partition. Requests that
-/// span multiple brokers are sent to the first leader; the broker replies with
-/// NOT_LEADER_OR_FENCED for the others and the client retries, converging on the correct
-/// brokers. Requests without topic data (Metadata, ApiVersions, group management, ...) go
-/// to any known broker, falling back to the bootstrap node.
+import java.util.List;
+
+/// Routes each request to the broker that must handle it:
+///
+/// - Partition-scoped requests (Produce, Fetch, ListOffsets, OffsetForLeaderEpoch) go to the
+///   leader of their first partition. Requests that span multiple brokers are sent to the first
+///   leader; the broker replies with NOT_LEADER_OR_FENCED for the others and the client retries,
+///   converging on the correct brokers.
+/// - Consumer-group requests go to the group's coordinator, and transactional requests to the
+///   transaction's coordinator: the leader of the `__consumer_offsets` or `__transaction_state`
+///   partition the group or transactional id maps to, exactly as the brokers map it. The client
+///   sent them to its coordinator, but behind the gateway's single advertised endpoint that choice
+///   is lost, so the gateway has to find the coordinator again.
+/// - Everything else (Metadata, FindCoordinator, ListGroups, ...) goes to any known broker.
+///
+/// Any request whose broker cannot be resolved (unknown topic, empty id, internal topic not known
+/// yet) falls back to any broker, which answers with a retriable error.
 public final class LeaderRouter {
 
-    private static final int PRODUCE = 0;
-    private static final int FETCH = 1;
-    private static final int LIST_OFFSETS = 2;
-    private static final int OFFSET_COMMIT = 8;
-    private static final int OFFSET_FETCH = 9;
     private static final String CONSUMER_OFFSETS_TOPIC = "__consumer_offsets";
+    private static final String TRANSACTION_STATE_TOPIC = "__transaction_state";
 
     private final MetadataCache cache;
 
@@ -36,15 +59,38 @@ public final class LeaderRouter {
         if (body == null) {
             return anyBroker();
         }
-        int leader = switch (request.apiKey()) {
-            case PRODUCE -> leaderOfFirstProduceTopic((ProduceRequestData) body);
-            case FETCH -> leaderOfFirstFetchTopic((FetchRequestData) body);
-            case LIST_OFFSETS -> leaderOfFirstListOffsetsTopic((ListOffsetsRequestData) body);
-            case OFFSET_COMMIT -> leaderOfFirstOffsetCommitTopic((OffsetCommitRequestData) body);
-            case OFFSET_FETCH -> leaderOfFirstOffsetFetchTopic((OffsetFetchRequestData) body);
-            default -> anyBrokerId();
+        int broker = switch ((short) request.apiKey()) {
+            case KafkaApiRegistry.PRODUCE -> leaderOfFirstProduceTopic((ProduceRequestData) body);
+            case KafkaApiRegistry.FETCH -> leaderOfFirstFetchTopic((FetchRequestData) body);
+            case KafkaApiRegistry.LIST_OFFSETS -> leaderOfFirstListOffsetsTopic((ListOffsetsRequestData) body);
+            case KafkaApiRegistry.OFFSET_FOR_LEADER_EPOCH ->
+                    leaderOfFirstOffsetForLeaderEpochTopic((OffsetForLeaderEpochRequestData) body);
+            case KafkaApiRegistry.OFFSET_COMMIT -> leaderOfFirstOffsetCommitTopic((OffsetCommitRequestData) body);
+            case KafkaApiRegistry.OFFSET_FETCH -> leaderOfFirstOffsetFetchTopic((OffsetFetchRequestData) body);
+            case KafkaApiRegistry.JOIN_GROUP -> groupCoordinator(((JoinGroupRequestData) body).groupId());
+            case KafkaApiRegistry.SYNC_GROUP -> groupCoordinator(((SyncGroupRequestData) body).groupId());
+            case KafkaApiRegistry.HEARTBEAT -> groupCoordinator(((HeartbeatRequestData) body).groupId());
+            case KafkaApiRegistry.LEAVE_GROUP -> groupCoordinator(((LeaveGroupRequestData) body).groupId());
+            case KafkaApiRegistry.CONSUMER_GROUP_HEARTBEAT ->
+                    groupCoordinator(((ConsumerGroupHeartbeatRequestData) body).groupId());
+            case KafkaApiRegistry.OFFSET_DELETE -> groupCoordinator(((OffsetDeleteRequestData) body).groupId());
+            case KafkaApiRegistry.DESCRIBE_GROUPS -> groupCoordinator(first(((DescribeGroupsRequestData) body).groups()));
+            // TxnOffsetCommit writes the group's offsets, so it goes to the group coordinator
+            case KafkaApiRegistry.TXN_OFFSET_COMMIT -> groupCoordinator(((TxnOffsetCommitRequestData) body).groupId());
+            // a non-transactional InitProducerId (an idempotent producer) has no id and goes to any broker
+            case KafkaApiRegistry.INIT_PRODUCER_ID ->
+                    transactionCoordinator(((InitProducerIdRequestData) body).transactionalId());
+            // only v0-3 is registered: the v4+ batch form is sent by brokers, not clients
+            case KafkaApiRegistry.ADD_PARTITIONS_TO_TXN ->
+                    transactionCoordinator(((AddPartitionsToTxnRequestData) body).v3AndBelowTransactionalId());
+            case KafkaApiRegistry.ADD_OFFSETS_TO_TXN ->
+                    transactionCoordinator(((AddOffsetsToTxnRequestData) body).transactionalId());
+            case KafkaApiRegistry.END_TXN -> transactionCoordinator(((EndTxnRequestData) body).transactionalId());
+            case KafkaApiRegistry.DESCRIBE_TRANSACTIONS ->
+                    transactionCoordinator(first(((DescribeTransactionsRequestData) body).transactionalIds()));
+            default -> -1;
         };
-        return leader >= 0 ? Route.to(leader) : anyBroker();
+        return broker >= 0 ? Route.to(broker) : anyBroker();
     }
 
     private int leaderOfFirstProduceTopic(ProduceRequestData data) {
@@ -83,8 +129,20 @@ public final class LeaderRouter {
         return -1;
     }
 
+    private int leaderOfFirstOffsetForLeaderEpochTopic(OffsetForLeaderEpochRequestData data) {
+        for (OffsetForLeaderEpochRequestData.OffsetForLeaderTopic topic : data.topics()) {
+            for (OffsetForLeaderEpochRequestData.OffsetForLeaderPartition partition : topic.partitions()) {
+                int leader = cache.leaderFor(topic.topic(), partition.partition());
+                if (leader >= 0) {
+                    return leader;
+                }
+            }
+        }
+        return -1;
+    }
+
     private int leaderOfFirstOffsetCommitTopic(OffsetCommitRequestData data) {
-        int coordinator = coordinatorForGroup(data.groupId());
+        int coordinator = groupCoordinator(data.groupId());
         if (coordinator >= 0) {
             return coordinator;
         }
@@ -98,7 +156,7 @@ public final class LeaderRouter {
     }
 
     private int leaderOfFirstOffsetFetchTopic(OffsetFetchRequestData data) {
-        int coordinator = coordinatorForGroup(data.groupId());
+        int coordinator = groupCoordinator(data.groupId());
         if (coordinator >= 0) {
             return coordinator;
         }
@@ -111,16 +169,30 @@ public final class LeaderRouter {
         return -1;
     }
 
-    private int coordinatorForGroup(String groupId) {
-        if (groupId == null || groupId.isEmpty()) {
+    private int groupCoordinator(String groupId) {
+        return coordinatorFor(groupId, CONSUMER_OFFSETS_TOPIC);
+    }
+
+    private int transactionCoordinator(String transactionalId) {
+        return coordinatorFor(transactionalId, TRANSACTION_STATE_TOPIC);
+    }
+
+    /// The leader of the `internalTopic` partition that `key` maps to, the way the brokers map it
+    /// (`GroupCoordinatorService.partitionFor` / `TransactionStateManager.partitionFor`), or `-1`
+    /// when the key is empty or the partition or its leader is not known yet.
+    private int coordinatorFor(String key, String internalTopic) {
+        if (key == null || key.isEmpty()) {
             return -1;
         }
-        int partitionCount = cache.partitionCount(CONSUMER_OFFSETS_TOPIC);
+        int partitionCount = cache.partitionCount(internalTopic);
         if (partitionCount <= 0) {
             return -1;
         }
-        int partition = Utils.toPositive(Utils.murmur2(groupId.getBytes())) % partitionCount;
-        return cache.leaderFor(CONSUMER_OFFSETS_TOPIC, partition);
+        return cache.leaderFor(internalTopic, Utils.abs(key.hashCode()) % partitionCount);
+    }
+
+    private static String first(List<String> ids) {
+        return ids.isEmpty() ? null : ids.getFirst();
     }
 
     private int anyBrokerId() {

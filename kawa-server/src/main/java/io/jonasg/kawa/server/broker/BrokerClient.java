@@ -23,6 +23,8 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.CorruptedFrameException;
+import org.apache.kafka.common.message.FetchRequestData;
+import org.apache.kafka.common.message.JoinGroupRequestData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,7 +40,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class BrokerClient {
 
     private static final Logger log = LoggerFactory.getLogger(BrokerClient.class);
-    private static final long REQUEST_TIMEOUT_SECONDS = 30;
+    private static final long REQUEST_TIMEOUT_MILLIS = TimeUnit.SECONDS.toMillis(30);
+    /// How long past the time a broker may legitimately hold a request the gateway still waits,
+    /// as Kafka's own client does for JoinGroup.
+    private static final long LONG_POLL_LAPSE_MILLIS = 5_000;
 
     private final int brokerId;
     private final String host;
@@ -93,7 +98,7 @@ public final class BrokerClient {
 
         ScheduledFuture<?> timeoutTask = session.channel().eventLoop().schedule(
                 () -> onTimeout(session, brokerCorrelationId),
-                REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                timeoutMillis(request.body()), TimeUnit.MILLISECONDS);
         var pendingRequest = new PendingRequest(
                 session, context, request.header(), brokerCorrelationId, timeoutTask);
         pending.put(brokerCorrelationId, pendingRequest);
@@ -177,6 +182,19 @@ public final class BrokerClient {
         }
         pending.values().forEach(p -> p.timeoutTask().cancel(false));
         pending.clear();
+    }
+
+    /// How long to wait for the broker's response. Some requests are long polls the broker holds on
+    /// purpose: JoinGroup until every member has rejoined, for up to the rebalance timeout, and Fetch
+    /// for up to its max wait. Those get that time plus a lapse, never less than the default.
+    static long timeoutMillis(Object body) {
+        long held = switch (body) {
+            // v0 has no rebalance timeout (-1): the session timeout bounds the rebalance instead
+            case JoinGroupRequestData join -> join.rebalanceTimeoutMs() >= 0 ? join.rebalanceTimeoutMs() : join.sessionTimeoutMs();
+            case FetchRequestData fetch -> fetch.maxWaitMs();
+            case null, default -> 0;
+        };
+        return Math.max(REQUEST_TIMEOUT_MILLIS, held + LONG_POLL_LAPSE_MILLIS);
     }
 
     private void onTimeout(

@@ -118,8 +118,9 @@ class KafkaBodyCodecTest {
     void returnsNullForUnregisteredApi() {
         ByteBuf buf = Unpooled.buffer(0);
 
-        assertThat(codec.decodeRequest((short) 25, (short) 1, buf)).isNull();
-        assertThat(codec.decodeResponse((short) 25, (short) 1, buf)).isNull();
+        // DescribeUserScramCredentials (50) is not registered
+        assertThat(codec.decodeRequest((short) 50, (short) 1, buf)).isNull();
+        assertThat(codec.decodeResponse((short) 50, (short) 1, buf)).isNull();
     }
 
     @Test

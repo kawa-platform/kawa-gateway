@@ -130,6 +130,8 @@ RBAC currently gates these APIs:
 | DescribeTransactions                           | `TRANSACTIONAL_ID` (per id)                                               | `DESCRIBE`        |
 | InitProducerId (transactional)                 | `TRANSACTIONAL_ID` (the id)                                               | `WRITE`           |
 | AddPartitionsToTxn                             | `TRANSACTIONAL_ID` (the id) + `TOPIC` (per topic)                         | `WRITE`           |
+| AddOffsetsToTxn                                | `TRANSACTIONAL_ID` (the id) + `GROUP` (the groupId)                       | `WRITE` / `READ`  |
+| EndTxn                                         | `TRANSACTIONAL_ID` (the id)                                               | `WRITE`           |
 | TxnOffsetCommit                                | `TRANSACTIONAL_ID` (the id) + `GROUP` (the groupId) + `TOPIC` (per topic) | `WRITE` / `READ`  |
 | DescribeTopicPartitions                        | `TOPIC` (per topic)                                                       | `DESCRIBE`        |
 | OffsetForLeaderEpoch                           | `TOPIC` (per topic)                                                       | `DESCRIBE`        |

@@ -28,7 +28,7 @@ class ApiVersionsResponseBuilderTest {
                 (short) 0, VersionRange.of((short) 0, (short) 11),
                 (short) 3, VersionRange.of((short) 0, (short) 12),
                 (short) 8, VersionRange.of((short) 0, (short) 8),
-                (short) 25, VersionRange.of((short) 0, (short) 9));
+                (short) 50, VersionRange.of((short) 0, (short) 9));
 
         var result = builder.build((short) 3, broker);
 
@@ -44,8 +44,9 @@ class ApiVersionsResponseBuilderTest {
         ApiVersionsResponseData.ApiVersion offsetCommit = find(result.data(), (short) 8);
         assertThat(offsetCommit.maxVersion()).isEqualTo((short) 7); // broker caps at 7
 
-        ApiVersionsResponseData.ApiVersion joinGroup = find(result.data(), (short) 25);
-        assertThat(joinGroup.maxVersion()).isEqualTo((short) 9); // passthrough -> broker range
+        // DescribeUserScramCredentials (50) is not registered
+        ApiVersionsResponseData.ApiVersion passthrough = find(result.data(), (short) 50);
+        assertThat(passthrough.maxVersion()).isEqualTo((short) 9); // passthrough -> broker range
     }
 
     @Test
