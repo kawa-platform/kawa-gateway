@@ -1,5 +1,7 @@
 package io.jonasg.kawa.protocol.kafka;
 
+import org.apache.kafka.common.message.AddOffsetsToTxnRequestData;
+import org.apache.kafka.common.message.AddOffsetsToTxnResponseData;
 import org.apache.kafka.common.message.AddPartitionsToTxnRequestData;
 import org.apache.kafka.common.message.AddPartitionsToTxnResponseData;
 import org.apache.kafka.common.message.AlterConfigsRequestData;
@@ -8,6 +10,8 @@ import org.apache.kafka.common.message.ConsumerGroupHeartbeatRequestData;
 import org.apache.kafka.common.message.ConsumerGroupHeartbeatResponseData;
 import org.apache.kafka.common.message.ApiVersionsRequestData;
 import org.apache.kafka.common.message.ApiVersionsResponseData;
+import org.apache.kafka.common.message.EndTxnRequestData;
+import org.apache.kafka.common.message.EndTxnResponseData;
 import org.apache.kafka.common.message.FetchRequestData;
 import org.apache.kafka.common.message.FetchResponseData;
 import org.apache.kafka.common.message.HeartbeatRequestData;
@@ -123,6 +127,8 @@ public final class KafkaApiRegistry {
     public static final short INIT_PRODUCER_ID = 22;
     public static final short CONSUMER_GROUP_HEARTBEAT = 68;
     public static final short DESCRIBE_CLUSTER = 60;
+    public static final short ADD_OFFSETS_TO_TXN = 25;
+    public static final short END_TXN = 26;
 
     private final Map<Short, KafkaApiSpec> specs;
 
@@ -209,7 +215,11 @@ public final class KafkaApiRegistry {
                 new KafkaApiSpec(CONSUMER_GROUP_HEARTBEAT, "ConsumerGroupHeartbeat", bundled(ApiKeys.CONSUMER_GROUP_HEARTBEAT),
                         of(ConsumerGroupHeartbeatRequestData::new), of(ConsumerGroupHeartbeatResponseData::new)),
                 new KafkaApiSpec(DESCRIBE_CLUSTER, "DescribeCluster", bundled(ApiKeys.DESCRIBE_CLUSTER),
-                        of(DescribeClusterRequestData::new), of(DescribeClusterResponseData::new))));
+                        of(DescribeClusterRequestData::new), of(DescribeClusterResponseData::new)),
+                new KafkaApiSpec(ADD_OFFSETS_TO_TXN, "AddOffsetsToTxn", bundled(ApiKeys.ADD_OFFSETS_TO_TXN),
+                        of(AddOffsetsToTxnRequestData::new), of(AddOffsetsToTxnResponseData::new)),
+                new KafkaApiSpec(END_TXN, "EndTxn", bundled(ApiKeys.END_TXN),
+                        of(EndTxnRequestData::new), of(EndTxnResponseData::new))));
     }
 
     /// Every stable version the bundled Kafka client library can decode.
