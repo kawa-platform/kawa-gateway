@@ -16,10 +16,10 @@ import io.jonasg.kawa.config.RoleConfig;
 import io.jonasg.kawa.server.KafkaGateway;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.consumer.CommitFailedException;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerGroupMetadata;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.KafkaProducer;
@@ -39,18 +39,17 @@ import org.apache.kafka.common.utils.Utils;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.apache.kafka.clients.CommonClientConfigs.SECURITY_PROTOCOL_CONFIG;
@@ -110,38 +109,56 @@ class ConsumerGroupMultiBrokerIT {
     }
 
     @Test
-    @Disabled("A broker handles one request per connection at a time, and the gateway shares one connection per broker"
-            + " across all clients: a JoinGroup the coordinator holds for the rebalance blocks the other member's"
-            + " heartbeats and rejoin behind it. Needs a broker connection per client connection.")
     void rebalancesAndCommitsAConsumerGroupCoordinatedByAnotherBroker() throws Exception {
         // given
         String group = groupNotCoordinatedByTheLowestBroker("orders-readers");
         produce(PARTITIONS);
+        Map<TopicPartition, Long> ends = endOffsets();
 
         try (var first = consumer(group); var second = consumer(group)) {
             first.subscribe(List.of(TOPIC));
             second.subscribe(List.of(TOPIC));
 
-            // when - both members poll until the group has rebalanced over them, read every record
-            // and committed; a commit made while the group is still settling is retried
-            List<ConsumerRecord<String, String>> consumed = new ArrayList<>();
-            Awaitility.await("group '" + group + "' to rebalance over both members, read every record and commit")
+            // when - both members poll until the group has rebalanced over them, together own every
+            // partition, have read it to its end and committed; a commit made while the group is
+            // still settling is retried
+            Awaitility.await("group '" + group + "' to rebalance over both members, read every partition and commit")
                     .atMost(Duration.ofSeconds(60))
                     .until(() -> {
-                        first.poll(Duration.ofMillis(200)).forEach(consumed::add);
-                        second.poll(Duration.ofMillis(200)).forEach(consumed::add);
+                        first.poll(Duration.ofMillis(200));
+                        second.poll(Duration.ofMillis(200));
                         return !first.assignment().isEmpty() && !second.assignment().isEmpty()
-                                && consumed.size() >= PARTITIONS
+                                && first.assignment().size() + second.assignment().size() == PARTITIONS
+                                && readToTheEnd(first, ends) && readToTheEnd(second, ends)
                                 && commits(first) && commits(second);
                     });
 
-            // then
+            // then - every partition is committed at its end
             var committed = brokerAdmin.listConsumerGroupOffsets(group).partitionsToOffsetAndMetadata()
                     .get(30, TimeUnit.SECONDS);
-            assertThat(committed.keySet())
-                    .withFailMessage(() -> "Group '" + group + "' did not commit every partition: " + committed)
-                    .hasSize(PARTITIONS);
+            assertThat(committed.entrySet().stream()
+                    .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().offset())))
+                    .withFailMessage(() -> "Group '" + group + "' did not commit every partition at its end " + ends
+                            + ": " + committed)
+                    .isEqualTo(ends);
         }
+    }
+
+    /// Whether the consumer has read every partition it owns up to the end offset in `ends`.
+    private static boolean readToTheEnd(KafkaConsumer<String, String> consumer, Map<TopicPartition, Long> ends) {
+        try {
+            return consumer.assignment().stream().allMatch(tp -> consumer.position(tp, Duration.ofSeconds(1)) >= ends.get(tp));
+        } catch (org.apache.kafka.common.errors.TimeoutException e) {
+            return false;
+        }
+    }
+
+    /// The end offset of every partition of the topic: other tests in this class write to it too.
+    private Map<TopicPartition, Long> endOffsets() throws Exception {
+        Map<TopicPartition, OffsetSpec> latest = IntStream.range(0, PARTITIONS).boxed()
+                .collect(Collectors.toMap(p -> new TopicPartition(TOPIC, p), _ -> OffsetSpec.latest()));
+        return brokerAdmin.listOffsets(latest).all().get(30, TimeUnit.SECONDS).entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().offset()));
     }
 
     private static boolean commits(KafkaConsumer<String, String> consumer) {

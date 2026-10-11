@@ -121,7 +121,7 @@ public final class KafkaClientRequestHandler {
         metrics.request(request.apiName(), "routed");
 
         session.requestInFlight();
-        brokerPool.forBroker(route.brokerId()).send(session, context, request);
+        brokerPool.forBroker(session, route.brokerId()).send(session, context, request);
     }
 
     private void handleApiVersions(
