@@ -194,9 +194,7 @@ public final class KafkaGateway implements Gateway {
         var governance = state.governance();
         var pipeline = InterceptorPipeline.builder()
                 .always(new AuthorizationInterceptor(state.authorizer(), state.virtualTopics()))
-                // After RBAC, so a refused request never reaches governance; before virtual topics, so
-                // rules judge the names clients asked for.
-                .always(new GovernanceInterceptor(() -> governance, topics, state.virtualTopics()::toPhysical))
+                .module(ModuleId.GOVERNANCE, new GovernanceInterceptor(() -> governance, topics, state.virtualTopics()::toPhysical))
                 .module(ModuleId.VIRTUAL_TOPICS, new VirtualTopicInterceptor(state.virtualTopics(), fetchSessions))
                 .always(new BrokerEndpointInterceptor(advertised))
                 .build();
