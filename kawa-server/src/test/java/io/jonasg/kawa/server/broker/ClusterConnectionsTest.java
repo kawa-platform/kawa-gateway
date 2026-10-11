@@ -21,7 +21,7 @@ class ClusterConnectionsTest {
         var codec = new KafkaBodyCodec(KafkaApiRegistry.create());
         var pipeline = new InterceptorPipeline(List.of());
         var cache = new MetadataCache();
-        var connections = new ClusterConnections(codec, pipeline, metrics, cache, "localhost", 9092, null);
+        var connections = new ClusterConnections(codec, pipeline, metrics, cache, "localhost", 9092, BrokerConnectionSettings.PLAINTEXT);
 
         // when
         connections.close();

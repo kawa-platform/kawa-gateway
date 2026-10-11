@@ -74,6 +74,7 @@ Map of cluster key → upstream Kafka cluster. The **first entry is the default 
 | Field              | Type        | Default      | Description                                             |
 |--------------------|-------------|--------------|---------------------------------------------------------|
 | `bootstrapServers` | string list | *(required)* | `host:port` list used for the initial broker connection |
+| `tls`              | object      | *(none)*     | TLS to the cluster's brokers — see below                |
 
 ```yaml
 clusters:
@@ -82,6 +83,71 @@ clusters:
       - broker1.internal:9092
       - broker2.internal:9092
 ```
+
+#### `clusters.<name>.tls`
+
+Startup-only. When present, every connection kawa opens to the cluster — the broker and metadata connections, the
+config-topic consumer and writer, and the topic admin — uses TLS. The security protocol follows from what is
+configured, there is no separate setting:
+
+| `tls`   | `auth.brokerAuth` | Protocol         |
+|---------|-------------------|------------------|
+| absent  | absent            | `PLAINTEXT`      |
+| absent  | present           | `SASL_PLAINTEXT` |
+| present | absent            | `SSL`            |
+| present | present           | `SASL_SSL`       |
+
+| Field            | Type    | Default      | Description                                                                         |
+|------------------|---------|--------------|-------------------------------------------------------------------------------------|
+| `truststore`     | store   | *(required)* | CA certificates the brokers' certificates are verified against                      |
+| `keystore`       | store   | *(none)*     | kawa's own certificate and private key, for brokers that require mutual TLS         |
+| `verifyHostname` | boolean | `true`       | Whether a broker's certificate must name the host kawa reached it on                |
+
+Each store:
+
+| Field         | Type   | Default      | Description                                                                              |
+|---------------|--------|--------------|------------------------------------------------------------------------------------------|
+| `location`    | string | *(required)* | Path of the store file                                                                   |
+| `type`        | enum   | `PKCS12`     | `PKCS12`, `JKS` or `PEM`                                                                 |
+| `password`    | string | —            | Store password; required for `PKCS12` and `JKS`, not allowed for `PEM`                   |
+| `keyPassword` | string | —            | Keystore only: the private key's password, or the passphrase of an encrypted `PEM` key   |
+
+A `PEM` truststore holds one or more CA certificates. A `PEM` keystore holds the private key (PKCS#8) followed by its
+certificate chain, in one file — the same format Kafka's own `ssl.keystore.type=PEM` expects. Passwords may reference
+environment variables (`${TRUSTSTORE_PASSWORD}`). TLS settings are never written to the config topic.
+
+```yaml
+# SSL with mutual TLS, PKCS12 stores
+clusters:
+  default:
+    bootstrapServers: [kafka-1.internal:9093]
+    tls:
+      truststore:
+        location: /etc/kawa/truststore.p12
+        password: ${TRUSTSTORE_PASSWORD}
+      keystore:
+        location: /etc/kawa/kawa.p12
+        password: ${KEYSTORE_PASSWORD}
+```
+
+```yaml
+# SASL_SSL with a PEM CA bundle
+clusters:
+  default:
+    bootstrapServers: [kafka-1.internal:9094]
+    tls:
+      truststore:
+        location: /etc/kawa/ca.pem
+        type: PEM
+auth:
+  brokerAuth:
+    mechanism: PLAIN
+    username: kawa
+    password: ${KAFKA_PASSWORD}
+```
+
+kawa fails to start when a store cannot be read, or when the brokers' certificate is not trusted, naming the store or
+the TLS error.
 
 ### `virtualTopics`
 

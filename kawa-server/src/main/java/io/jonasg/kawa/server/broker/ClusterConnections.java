@@ -1,6 +1,5 @@
 package io.jonasg.kawa.server.broker;
 
-import io.jonasg.kawa.config.BrokerAuthConfig;
 import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.core.metrics.GatewayMetrics;
@@ -21,9 +20,9 @@ public final class ClusterConnections implements AutoCloseable {
 
     public ClusterConnections(KafkaBodyCodec codec, InterceptorPipeline pipeline,
                               GatewayMetrics metrics, MetadataCache cache,
-                              String host, int port, BrokerAuthConfig brokerAuth) {
-        pool = new BrokerClientPool(brokerGroup, codec, pipeline, metrics, cache, host, port, brokerAuth);
-        metadataClient = new MetadataClient(host, port, brokerGroup, codec, cache, pool, metrics, brokerAuth);
+                              String host, int port, BrokerConnectionSettings settings) {
+        pool = new BrokerClientPool(brokerGroup, codec, pipeline, metrics, cache, host, port, settings);
+        metadataClient = new MetadataClient(host, port, brokerGroup, codec, cache, pool, metrics, settings);
         router = new LeaderRouter(cache);
     }
 
