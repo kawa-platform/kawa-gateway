@@ -196,6 +196,12 @@ abstract class GatewayTestSupport {
         return List.of();
     }
 
+    /// The upstream cluster in the static bootstrap. Defaults to the test broker; override to add
+    /// startup-only cluster settings such as a schema registry.
+    protected ClusterConfig clusterConfig() {
+        return new ClusterConfig(List.of(brokerBootstrap));
+    }
+
     protected String groupId() {
         return "gateway-it";
     }
@@ -255,7 +261,7 @@ abstract class GatewayTestSupport {
     protected GatewayConfig bootstrapConfig(ListenerConfig listener) {
         return new GatewayConfig(
                 List.of(listener),
-                Map.of("default", new ClusterConfig(List.of(brokerBootstrap))),
+                Map.of("default", clusterConfig()),
                 null,
                 new AdvertisedListener(1, "localhost", 0),
                 new AuthConfig(null, null, null),

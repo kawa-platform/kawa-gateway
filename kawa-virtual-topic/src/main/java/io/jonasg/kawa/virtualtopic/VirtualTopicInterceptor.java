@@ -4,6 +4,7 @@ import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.Interceptor;
 import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.core.Response;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
 import io.jonasg.kawa.virtualtopic.transform.AddPartitionsToTxnVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.AlterConfigsVirtualTopicTransform;
@@ -49,7 +50,17 @@ public final class VirtualTopicInterceptor implements Interceptor {
             VirtualTopicManager virtualTopics,
             FetchSessionRegistry fetchSessions
     ) {
-        this.registry = defaultRegistry(virtualTopics, fetchSessions, new VirtualTopicRecordFilter());
+        this(virtualTopics, fetchSessions, SchemaRegistries.NONE);
+    }
+
+    /// @param schemaRegistries finds the schema registry of a physical topic's cluster, to decode
+    ///                         Avro record values for consume filters
+    public VirtualTopicInterceptor(
+            VirtualTopicManager virtualTopics,
+            FetchSessionRegistry fetchSessions,
+            SchemaRegistries schemaRegistries
+    ) {
+        this.registry = defaultRegistry(virtualTopics, fetchSessions, new VirtualTopicRecordFilter(schemaRegistries));
     }
 
     private static VirtualTopicTransformRegistry defaultRegistry(

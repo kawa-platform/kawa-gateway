@@ -2,6 +2,7 @@ package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.BrokerSecurity;
+import io.jonasg.kawa.config.ClusterConfig;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.ModuleId;
 import io.jonasg.kawa.core.Gateway;
@@ -25,11 +26,18 @@ import io.jonasg.kawa.server.netty.KafkaListener;
 import io.jonasg.kawa.server.netty.ListenerTls;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicInterceptor;
+import io.jonasg.kawa.virtualtopic.filter.AvroSchemaResolver;
+import io.jonasg.kawa.virtualtopic.filter.CachingAvroSchemaResolver;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistryAvroSchemaResolver;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.Set;
 
 /// Netty-based Kafka gateway: accepts client connections, rewrites virtual topics and
@@ -59,6 +67,7 @@ public final class KafkaGateway implements Gateway {
     private ClusterConnections connections;
     private AdminSurface admin;
     private KafkaTopicAdmin topicDescriber;
+    private @Nullable HttpClient schemaRegistryClient;
 
     private final AuthenticationProviderRegistry authenticationProviders;
 
@@ -114,6 +123,10 @@ public final class KafkaGateway implements Gateway {
         var listenerConfig = config.listeners().getFirst();
         var listenerTls = listenerConfig.tls() == null ? null : ListenerTls.from(listenerConfig.tls());
 
+        // Schema registries for decoding Avro record values in consume filters. Set up now, so an
+        // unsupported registry config fails before anything connects.
+        SchemaRegistries schemaRegistries = schemaRegistries(clusterCfg);
+
         // Shared infrastructure
         metrics = new GatewayMetrics(new SimpleMeterRegistry());
         var kawaApiRegistry = KafkaApiRegistry.create();
@@ -131,7 +144,7 @@ public final class KafkaGateway implements Gateway {
 
         // Interceptor pipeline
         topicDescriber = new KafkaTopicAdmin(bootstrapServers, brokerSecurity);
-        RequestPipeline requestPipeline = buildPipeline(dynamicState, advertised, topicDescriber);
+        RequestPipeline requestPipeline = buildPipeline(dynamicState, advertised, topicDescriber, schemaRegistries);
 
         // Broker connections (metadata client) - the same static bootstrap that hosts the
         //    config topic. The dynamic snapshot's `clusters` map is carried in the message but
@@ -185,6 +198,9 @@ public final class KafkaGateway implements Gateway {
         if (topicDescriber != null) {
             topicDescriber.close();
         }
+        if (schemaRegistryClient != null) {
+            schemaRegistryClient.close();
+        }
     }
 
     public int boundPort() {
@@ -196,7 +212,31 @@ public final class KafkaGateway implements Gateway {
         return admin == null ? -1 : admin.boundPort();
     }
 
-    private RequestPipeline buildPipeline(DynamicGatewayState state, AdvertisedListener advertised, TopicDescriber topics) {
+    /// The schema registry of each physical topic's cluster. The gateway forwards to a single
+    /// cluster, so every physical topic lives on it and uses its registry, caching each schema id.
+    private SchemaRegistries schemaRegistries(ClusterConfig clusterCfg) {
+        var registry = clusterCfg.schemaRegistry();
+        if (registry == null) {
+            return SchemaRegistries.NONE;
+        }
+        if (registry.tls() != null) {
+            throw new IllegalStateException("schemaRegistry.tls is not supported yet; remove it to trust the JVM's default CAs");
+        }
+        schemaRegistryClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+        log.info("decoding Avro record values with the schema registry at {}", registry.url());
+        AvroSchemaResolver avroSchemas = new CachingAvroSchemaResolver(
+                new SchemaRegistryAvroSchemaResolver(registry.url(), registry.basicAuth(), schemaRegistryClient));
+        return physicalTopic -> avroSchemas;
+    }
+
+    private RequestPipeline buildPipeline(
+            DynamicGatewayState state,
+            AdvertisedListener advertised,
+            TopicDescriber topics,
+            SchemaRegistries schemaRegistries
+    ) {
         var fetchSessions = new FetchSessionRegistry();
         if (state.modules().isEnabled(ModuleId.RBAC) && !state.authorizer().hasAnyAcls()) {
             log.warn("RBAC has no roles or groups configured - every request will be denied");
@@ -205,7 +245,7 @@ public final class KafkaGateway implements Gateway {
         var pipeline = InterceptorPipeline.builder()
                 .module(ModuleId.RBAC, new AuthorizationInterceptor(state.authorizer(), state.virtualTopics()))
                 .module(ModuleId.GOVERNANCE, new GovernanceInterceptor(() -> governance, topics, state.virtualTopics()::toPhysical))
-                .module(ModuleId.VIRTUAL_TOPICS, new VirtualTopicInterceptor(state.virtualTopics(), fetchSessions))
+                .module(ModuleId.VIRTUAL_TOPICS, new VirtualTopicInterceptor(state.virtualTopics(), fetchSessions, schemaRegistries))
                 .always(new BrokerEndpointInterceptor(advertised))
                 .build();
         state.modules().subscribe(pipeline::enable);

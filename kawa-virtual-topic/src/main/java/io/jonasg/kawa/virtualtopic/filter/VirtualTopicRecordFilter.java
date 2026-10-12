@@ -1,5 +1,6 @@
 package io.jonasg.kawa.virtualtopic.filter;
 
+import io.jonasg.kawa.config.AvroFormatConfig;
 import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.HeaderContainsFilterConfig;
@@ -14,6 +15,7 @@ import org.apache.kafka.common.record.internal.MemoryRecords;
 import org.apache.kafka.common.record.internal.Record;
 import org.apache.kafka.common.record.internal.RecordBatch;
 import org.apache.kafka.common.utils.BufferSupplier;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,13 +41,29 @@ public final class VirtualTopicRecordFilter {
     /// fetches, instead of being rebuilt for every fetched partition.
     private final Map<FilterKey, EvaluatingRecordFilter> filters = new ConcurrentHashMap<>();
 
-    private record FilterKey(VirtualTopicFilterConfig filter, PayloadFormatConfig valueFormat) {
+    private final SchemaRegistries schemaRegistries;
+
+    public VirtualTopicRecordFilter() {
+        this(SchemaRegistries.NONE);
     }
 
-    /// Returns `records` filtered per `filter` - with record values decoded per `valueFormat`
-    /// when one is configured (`null` for raw values) - or `records` unchanged when
-    /// there is nothing to decode (null or empty - the fast path most partitions take).
+    /// @param schemaRegistries finds the schema registry of a physical topic's cluster, to decode
+    ///                         Avro record values with. Values of a topic whose cluster has none
+    ///                         fail to decode and are handled per its [DecodeErrorPolicy]
+    public VirtualTopicRecordFilter(SchemaRegistries schemaRegistries) {
+        this.schemaRegistries = schemaRegistries;
+    }
+
+    /// Also keyed by the Avro schema resolver, so the same filter on topics of different clusters
+    /// decodes each with its own cluster's schemas. Resolvers compare by identity.
+    private record FilterKey(VirtualTopicFilterConfig filter, PayloadFormatConfig valueFormat, @Nullable AvroSchemaResolver avroSchemas) {
+    }
+
+    /// Returns `records` of `physicalTopic` filtered per `filter` - with record values decoded
+    /// per `valueFormat` when one is configured (`null` for raw values) - or `records` unchanged
+    /// when there is nothing to decode (null or empty - the fast path most partitions take).
     public BaseRecords apply(
+            String physicalTopic,
             VirtualTopicFilterConfig filter,
             PayloadFormatConfig valueFormat,
             BaseRecords records
@@ -54,11 +72,14 @@ public final class VirtualTopicRecordFilter {
             return records;
         }
 
+        AvroSchemaResolver avroSchemas = valueFormat instanceof AvroFormatConfig
+                ? schemaRegistries.avroSchemasFor(physicalTopic)
+                : null;
         ByteBuffer output = ByteBuffer.allocate(memoryRecords.sizeInBytes());
         memoryRecords.filterTo(
                 filters.computeIfAbsent(
-                        new FilterKey(filter, valueFormat),
-                        key -> new EvaluatingRecordFilter(key.filter(), key.valueFormat())),
+                        new FilterKey(filter, valueFormat, avroSchemas),
+                        key -> new EvaluatingRecordFilter(key.filter(), key.valueFormat(), key.avroSchemas())),
                 output,
                 BufferSupplier.NO_CACHING);
         output.flip();
@@ -80,8 +101,14 @@ public final class VirtualTopicRecordFilter {
         }
 
         EvaluatingRecordFilter(VirtualTopicFilterConfig filterCfg, PayloadFormatConfig valueFormat) {
+            this(filterCfg, valueFormat, null);
+        }
+
+        /// @param avroSchemas the schemas of the physical topic's cluster, for the [AvroFormatConfig]
+        ///                    format; `null` when that cluster has no schema registry
+        EvaluatingRecordFilter(VirtualTopicFilterConfig filterCfg, PayloadFormatConfig valueFormat, @Nullable AvroSchemaResolver avroSchemas) {
             super(RecordBatch.NO_TIMESTAMP, -1L);
-            this.predicate = predicateFor(filterCfg, decoderFor(valueFormat));
+            this.predicate = predicateFor(filterCfg, decoderFor(valueFormat, avroSchemas));
             this.onDecodeError = valueFormat == null ? DecodeErrorPolicy.FAIL : valueFormat.onDecodeError();
         }
 
@@ -117,10 +144,19 @@ public final class VirtualTopicRecordFilter {
             }
         }
 
-        private static PayloadDecoder decoderFor(PayloadFormatConfig valueFormat) {
+        private static PayloadDecoder decoderFor(PayloadFormatConfig valueFormat, @Nullable AvroSchemaResolver avroSchemas) {
             return switch (valueFormat) {
                 case null -> null;
                 case JsonFormatConfig _ -> new JsonPayloadDecoder();
+                case AvroFormatConfig _ when avroSchemas != null -> new AvroPayloadDecoder(avroSchemas);
+                case AvroFormatConfig _ -> {
+                    log.warn("A virtual topic has an Avro value format but the cluster of its physical topic has no"
+                            + " schemaRegistry; its records cannot be decoded and are handled per its onDecodeError policy");
+                    yield _ -> {
+                        throw new PayloadDecodeException(
+                                "record value is Avro but the cluster of its physical topic has no schemaRegistry configured");
+                    };
+                }
             };
         }
 

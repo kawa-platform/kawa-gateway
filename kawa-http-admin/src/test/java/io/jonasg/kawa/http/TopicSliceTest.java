@@ -1,5 +1,6 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.config.AvroFormatConfig;
 import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.GatewayConfig;
@@ -462,6 +463,36 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                         new JsonFormatConfig(DecodeErrorPolicy.INCLUDE)));
         assertThatJson(response.body()).inPath("valueFormat").isEqualTo("""
                 {"type": "json", "onDecodeError": "include"}
+                """);
+    }
+
+    @Test
+    void createsVirtualTopicWithAvroValueFormat() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var response = send("POST", "/topics", """
+                {
+                  "type": "virtual",
+                  "name": "eu-orders",
+                  "topic": "orders",
+                  "filter": {"type": "cel", "expression": "value.region == \\"eu\\""},
+                  "valueFormat": {"type": "avro"}
+                }
+                """);
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(201);
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "Virtual topic was not persisted with its Avro value format")
+                .containsEntry("eu-orders", new VirtualTopicConfig(
+                        "orders",
+                        new CelFilterConfig("value.region == \"eu\""),
+                        false,
+                        new AvroFormatConfig(DecodeErrorPolicy.SKIP)));
+        assertThatJson(response.body()).inPath("valueFormat").isEqualTo("""
+                {"type": "avro", "onDecodeError": "skip"}
                 """);
     }
 

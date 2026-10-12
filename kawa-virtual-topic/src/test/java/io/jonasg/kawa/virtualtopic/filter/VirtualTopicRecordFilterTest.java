@@ -31,6 +31,7 @@ class VirtualTopicRecordFilterTest {
 
         // when
         var filtered = (MemoryRecords) filter.apply(
+                "orders",
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(),
                 records);
@@ -52,6 +53,7 @@ class VirtualTopicRecordFilterTest {
 
         // when
         var filtered = (MemoryRecords) filter.apply(
+                "orders",
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(),
                 records);
@@ -73,6 +75,7 @@ class VirtualTopicRecordFilterTest {
 
         // when
         var filtered = (MemoryRecords) filter.apply(
+                "orders",
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(),
                 records);
@@ -93,6 +96,7 @@ class VirtualTopicRecordFilterTest {
 
         // when
         var filtered = (MemoryRecords) filter.apply(
+                "orders",
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(),
                 records);
@@ -114,6 +118,7 @@ class VirtualTopicRecordFilterTest {
 
         // when
         var filtered = (MemoryRecords) filter.apply(
+                "orders",
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(DecodeErrorPolicy.INCLUDE),
                 records);
@@ -135,6 +140,7 @@ class VirtualTopicRecordFilterTest {
 
         // when / then
         assertThatThrownBy(() -> filter.apply(
+                "orders",
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(DecodeErrorPolicy.FAIL),
                 records))
@@ -151,6 +157,7 @@ class VirtualTopicRecordFilterTest {
 
         // when
         var filtered = (MemoryRecords) filter.apply(
+                "orders",
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(),
                 records);
@@ -172,6 +179,7 @@ class VirtualTopicRecordFilterTest {
 
         // when
         var filtered = (MemoryRecords) filter.apply(
+                "orders",
                 new CelFilterConfig("value.contains(\"PAID\")"),
                 null,
                 records);
