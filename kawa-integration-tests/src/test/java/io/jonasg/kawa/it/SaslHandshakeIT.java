@@ -1,10 +1,12 @@
 package io.jonasg.kawa.it;
 
 import io.jonasg.kawa.config.AuthConfig;
+import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.ByteBufferAccessor;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.requests.MetadataRequest;
 import org.apache.kafka.common.requests.RequestHeader;
 import org.apache.kafka.common.requests.ResponseHeader;
 import org.apache.kafka.common.requests.SaslHandshakeRequest;
@@ -65,6 +67,26 @@ class SaslHandshakeIT extends GatewayTestSupport {
         assertThat(response.data().mechanisms())
                 .describedAs("a real broker still lists what it does support, so the client can retry")
                 .isNotEmpty();
+    }
+
+    @Test
+    void gatewayClosesTheConnectionOnARequestBeforeSaslAuthentication() throws Exception {
+        String[] parts = gatewayBootstrap.split(":");
+        try (Socket socket = new Socket(parts[0], Integer.parseInt(parts[1]))) {
+            socket.setSoTimeout(5000);
+            RequestHeader header = new RequestHeader(ApiKeys.METADATA, (short) 12, "kawa-raw-it", 1);
+            var request = new MetadataRequest(new MetadataRequestData().setTopics(null), (short) 12);
+            ByteBuffer payload = request.serializeWithHeader(header);
+
+            DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+            out.writeInt(payload.remaining());
+            out.write(payload.array(), payload.position(), payload.remaining());
+            out.flush();
+
+            assertThat(socket.getInputStream().read())
+                    .describedAs("a broker's SASL listener closes a connection that skips authentication, without answering")
+                    .isEqualTo(-1);
+        }
     }
 
     private SaslHandshakeResponse sendHandshake(String mechanism) throws Exception {

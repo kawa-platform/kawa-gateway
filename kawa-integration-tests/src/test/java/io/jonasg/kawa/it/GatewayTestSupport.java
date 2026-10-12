@@ -246,8 +246,15 @@ abstract class GatewayTestSupport {
     /// name, listeners, advertised endpoint and admin. Virtual topics, RBAC and client auth
     /// come from the config topic snapshot.
     private GatewayConfig buildBootstrap() {
+        return bootstrapConfig(new ListenerConfig("127.0.0.1", 0));
+    }
+
+    /// The static bootstrap of [buildBootstrap], with clients connecting on `listener` instead.
+    /// For tests that start a further gateway, on the same broker and config topic, with their
+    /// own listener security.
+    protected GatewayConfig bootstrapConfig(ListenerConfig listener) {
         return new GatewayConfig(
-                List.of(new ListenerConfig("127.0.0.1", 0)),
+                List.of(listener),
                 Map.of("default", new ClusterConfig(List.of(brokerBootstrap))),
                 null,
                 new AdvertisedListener(1, "localhost", 0),

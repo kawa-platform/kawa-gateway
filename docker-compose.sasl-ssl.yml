@@ -1,0 +1,150 @@
+# SASL_SSL end to end: Kafka + kawa gateway, TLS and SASL on every hop.
+#
+# Usage:
+#   make up-sasl-ssl                     (or: docker compose -f docker-compose.sasl-ssl.yml up -d --build)
+#
+# The `certs` service first generates a demo CA and certificates into docker/sasl-ssl/certs (kept
+# across restarts; delete the directory to regenerate). `gateway-init` then creates the client
+# alice / alice-secret with access to everything, through the admin API on port 8080.
+#
+# Clients connect to the gateway on localhost:9092 over SASL_SSL (PLAIN, alice / alice-secret),
+# trusting docker/sasl-ssl/certs/truststore.p12 (password changeit). docker/sasl-ssl/certs/client.properties
+# has the settings; try it with the bundled CLI container:
+#   docker compose -f docker-compose.sasl-ssl.yml run --rm --no-deps kafka-cli \
+#     /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --command-config /etc/kawa/certs/client.properties --list
+#
+# Host tools can reach the broker directly on localhost:19092 (SASL_SSL, kawa / kawa-secret).
+
+x-tls-password: &tls-password changeit
+
+services:
+  certs:
+    image: eclipse-temurin:26-jdk-jammy
+    container_name: kawa-certs-sasl-ssl
+    environment:
+      PASS: *tls-password
+    entrypoint: [ "sh", "/scripts/generate-certs.sh", "/certs" ]
+    volumes:
+      - ./docker/sasl-ssl/generate-certs.sh:/scripts/generate-certs.sh:ro
+      - ./docker/sasl-ssl/certs:/certs
+    restart: "no"
+
+  kafka:
+    image: apache/kafka:4.3.1
+    container_name: kawa-kafka-sasl-ssl
+    depends_on:
+      certs:
+        condition: service_completed_successfully
+    ports:
+      - "19092:19092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # SASL_SSL is for clients inside the compose network (the gateway) and between brokers;
+      # EXTERNAL is published to the host so host-side tools can inspect the broker.
+      KAFKA_LISTENERS: SASL_SSL://kafka:9092,CONTROLLER://kafka:9093,EXTERNAL://kafka:19092
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka:9092,EXTERNAL://localhost:19092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,SASL_SSL:SASL_SSL,EXTERNAL:SASL_SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      # the keystore and its passwords, read from /etc/kafka/secrets
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka.p12
+      KAFKA_SSL_KEYSTORE_TYPE: PKCS12
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: credentials
+      KAFKA_SSL_KEY_CREDENTIALS: credentials
+      # the image only wires up a truststore for client auth, so it is set directly: the broker
+      # needs it to reach itself over SASL_SSL as the inter-broker listener
+      KAFKA_SSL_TRUSTSTORE_LOCATION: /etc/kafka/secrets/truststore.p12
+      KAFKA_SSL_TRUSTSTORE_TYPE: PKCS12
+      KAFKA_SSL_TRUSTSTORE_PASSWORD: *tls-password
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/kafka_jaas.conf"
+    volumes:
+      - ./docker/kafka_jaas.conf:/etc/kafka/kafka_jaas.conf:ro
+      - ./docker/sasl-ssl/certs:/etc/kafka/secrets:ro
+
+  kafka-init:
+    image: apache/kafka:4.3.1
+    container_name: kawa-kafka-init-sasl-ssl
+    depends_on:
+      - kafka
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        cat > /tmp/admin.properties << 'EOF'
+        security.protocol=SASL_SSL
+        ssl.truststore.location=/etc/kafka/secrets/truststore.p12
+        ssl.truststore.password=changeit
+        sasl.mechanism=PLAIN
+        sasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username="kawa" password="kawa-secret";
+        EOF
+        until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --command-config /tmp/admin.properties --list > /dev/null 2>&1; do
+          echo "waiting for kafka...";
+          sleep 1;
+        done
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
+          --command-config /tmp/admin.properties \
+          --create --if-not-exists --topic orders-v2 --partitions 1 --replication-factor 1
+        echo "orders-v2 ready"
+    volumes:
+      - ./docker/sasl-ssl/certs:/etc/kafka/secrets:ro
+    restart: "no"
+
+  gateway:
+    build: .
+    container_name: kawa-gateway-sasl-ssl
+    depends_on:
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      - "9092:9092"
+      - "8080:8080"
+    environment:
+      KAWA_LOG_LEVEL: DEBUG
+      KAWA_TLS_PASSWORD: *tls-password
+    volumes:
+      - ./docker/gateway-sasl-ssl.yaml:/etc/kawa/config.yaml:ro
+      - ./docker/sasl-ssl/certs:/etc/kawa/certs:ro
+
+  # Creates the demo client alice with access to everything. RBAC is default-deny and client auth
+  # is empty on first boot, so without this no client could do anything.
+  gateway-init:
+    image: curlimages/curl:8.11.1
+    container_name: kawa-gateway-init-sasl-ssl
+    depends_on:
+      - gateway
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        until curl -sf -o /dev/null http://gateway:8080/topics; do
+          echo "waiting for the gateway...";
+          sleep 1;
+        done
+        set -e
+        curl -sf -X PUT http://gateway:8080/auth/clients/alice -H 'Content-Type: application/json' \
+          -d '{"mechanism":"PLAIN","password":"alice-secret"}'
+        curl -sf -X PUT http://gateway:8080/rbac/roles/allow-all -H 'Content-Type: application/json' \
+          -d '{"acls":[{"resource":{"type":"TOPIC","pattern":"","patternType":"PREFIXED"},"operation":"ALL"},{"resource":{"type":"GROUP","pattern":"","patternType":"PREFIXED"},"operation":"ALL"},{"resource":{"type":"CLUSTER"},"operation":"ALL"}]}'
+        curl -sf -X PUT http://gateway:8080/rbac/groups/demo -H 'Content-Type: application/json' \
+          -d '{"clients":["alice"],"roles":["allow-all"]}'
+        echo "client alice ready"
+    restart: "no"
+
+  # Kafka CLI tools for trying the gateway; run on demand (see the top of this file). Shares the
+  # gateway's network namespace so localhost:9092 - the advertised address - reaches it, as from the host.
+  kafka-cli:
+    image: apache/kafka:4.3.1
+    profiles: [ "cli" ]
+    network_mode: "service:gateway"
+    entrypoint: [ ]
+    volumes:
+      - ./docker/sasl-ssl/certs:/etc/kawa/certs:ro
