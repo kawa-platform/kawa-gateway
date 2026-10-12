@@ -1,6 +1,7 @@
 # kawa - Kafka access gateway (virtual topics)
 #
 # Build:   docker build -t kawa-gateway .
+# Pull:    docker pull ghcr.io/kawa-platform/kawa-gateway:latest
 # Run:     docker run -p 9092:9092 -v $(pwd)/gateway.yaml:/etc/kawa/config.yaml:ro kawa-gateway
 #
 # The gateway is plaintext Kafka protocol only (Milestone 1). Clients connect to the
@@ -9,7 +10,9 @@
 # container. See docker-compose.yml + docker/gateway.yaml for a working example.
 
 # ---- build stage ------------------------------------------------------------
-FROM eclipse-temurin:26-jdk-jammy AS build
+# Maven always runs on the builder's native platform: the jar is architecture-independent, so a
+# multi-arch build (linux/amd64,linux/arm64) only builds the thin runtime stage per architecture.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:26-jdk-jammy AS build
 
 WORKDIR /workspace
 
@@ -53,6 +56,10 @@ RUN --mount=type=cache,target=/root/.m2 \
 
 # ---- runtime stage ----------------------------------------------------------
 FROM eclipse-temurin:26-jre-alpine AS runtime
+
+LABEL org.opencontainers.image.title="kawa-gateway" \
+      org.opencontainers.image.description="High-performance Kafka gateway" \
+      org.opencontainers.image.source="https://github.com/kawa-platform/kawa-gateway"
 
 RUN addgroup -S kawa && adduser -S kawa -G kawa \
     && mkdir -p /opt/kawa/plugins
