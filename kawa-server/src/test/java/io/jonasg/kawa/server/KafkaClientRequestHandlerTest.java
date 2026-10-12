@@ -38,9 +38,11 @@ import org.apache.kafka.common.message.CreateTopicsResponseData;
 import org.apache.kafka.common.message.SaslAuthenticateRequestData;
 import org.apache.kafka.common.message.SaslAuthenticateResponseData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
+import org.apache.kafka.common.message.SaslHandshakeResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.protocol.ObjectSerializationCache;
+import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -162,7 +164,7 @@ class KafkaClientRequestHandlerTest {
         // given
         KafkaClientRequestHandler dispatcher = dispatcher();
         var channel = new EmbeddedChannel(new KafkaFrameEncoder());
-        var session = new ClientSession(channel);
+        var session = new ClientSession(channel, SecurityProtocol.SASL_PLAINTEXT);
 
         // when
         dispatcher.handleRequest(session, saslHandshakeRequest("PLAIN", (short) 1));
@@ -186,6 +188,91 @@ class KafkaClientRequestHandlerTest {
 
         frame.release();
         encoded.release();
+    }
+
+    @Test
+    void closesASaslConnectionThatSendsARequestBeforeAuthenticating() {
+        // given
+        KafkaClientRequestHandler dispatcher = dispatcher(List.of(shortCircuitingCreateTopics()));
+        var channel = new EmbeddedChannel(new KafkaFrameEncoder());
+        var session = new ClientSession(channel, SecurityProtocol.SASL_PLAINTEXT);
+
+        // when
+        dispatcher.handleRequest(session, createTopicsRequest("orders", (short) 7));
+
+        // then
+        assertThat(channel.<ByteBuf>readOutbound())
+                .withFailMessage(() -> "A request before SASL authentication was answered")
+                .isNull();
+        assertThat(channel.isOpen())
+                .withFailMessage(() -> "The connection was not closed after a request before SASL authentication")
+                .isFalse();
+    }
+
+    @Test
+    void admitsRequestsOnASaslConnectionOnceAuthenticated() {
+        // given
+        KafkaClientRequestHandler dispatcher = dispatcher(List.of(shortCircuitingCreateTopics()));
+        var channel = new EmbeddedChannel(new KafkaFrameEncoder());
+        var session = new ClientSession(channel, SecurityProtocol.SASL_SSL);
+        dispatcher.handleRequest(session, saslHandshakeRequest("PLAIN", (short) 1));
+        dispatcher.handleRequest(session, saslAuthenticateRequest("\u0000alice\u0000secret", (short) 2));
+        release(channel.readOutbound());
+        release(channel.readOutbound());
+
+        // when
+        dispatcher.handleRequest(session, createTopicsRequest("orders", (short) 7));
+
+        // then
+        ByteBuf encoded = channel.readOutbound();
+        assertThat(encoded)
+                .withFailMessage(() -> "An authenticated request was not answered")
+                .isNotNull();
+        assertThat(channel.isOpen()).isTrue();
+        encoded.release();
+    }
+
+    @Test
+    void answersSaslHandshakeWithIllegalSaslStateOnANonSaslListener() {
+        // given
+        KafkaClientRequestHandler dispatcher = dispatcher();
+        var channel = new EmbeddedChannel(new KafkaFrameEncoder());
+        var session = new ClientSession(channel, SecurityProtocol.SSL);
+
+        // when
+        dispatcher.handleRequest(session, saslHandshakeRequest("PLAIN", (short) 1));
+
+        // then
+        ByteBuf encoded = channel.readOutbound();
+        ByteBuf frame = encoded.copy();
+        frame.readInt();
+        responseHeaderCodec.decodeCorrelationId(frame,
+                KafkaHeader.of((short) ApiKeys.SASL_HANDSHAKE.id, (short) 1, 42, "test").responseHeaderVersion());
+        var response = (SaslHandshakeResponseData) codec.decodeResponse(KafkaApiRegistry.SASL_HANDSHAKE, (short) 1, frame);
+        assertThat(response.errorCode())
+                .withFailMessage(() -> "SaslHandshake on an SSL listener was not refused with ILLEGAL_SASL_STATE")
+                .isEqualTo(Errors.ILLEGAL_SASL_STATE.code());
+
+        frame.release();
+        encoded.release();
+    }
+
+    private static Interceptor shortCircuitingCreateTopics() {
+        return new Interceptor() {
+            @Override
+            public void onRequest(
+                    GatewayContext context,
+                    Request request
+            ) {
+                context.shortCircuit(new ShortCircuitResult((short) ApiKeys.CREATE_TOPICS.id, (short) 7, new CreateTopicsResponseData()));
+            }
+        };
+    }
+
+    private static void release(ByteBuf buf) {
+        if (buf != null) {
+            buf.release();
+        }
     }
 
     private KafkaClientRequestHandler dispatcher() {

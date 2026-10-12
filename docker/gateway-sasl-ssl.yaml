@@ -1,0 +1,40 @@
+# kawa behind SASL_SSL on both sides: clients log in with SASL over TLS, and kawa reaches the
+# broker over SASL_SSL too. Used by docker-compose.sasl-ssl.yml; the certificates are generated
+# into docker/sasl-ssl/certs by its `certs` service.
+
+listeners:
+  - host: 0.0.0.0
+    port: 9092
+    securityProtocol: SASL_SSL
+    tls:
+      keystore:
+        location: /etc/kawa/certs/gateway.p12
+        password: ${KAWA_TLS_PASSWORD}
+
+clusters:
+  default:
+    bootstrapServers:
+      - kafka:9092
+    tls:
+      truststore:
+        location: /etc/kawa/certs/truststore.p12
+        password: ${KAWA_TLS_PASSWORD}
+
+auth:
+  brokerAuth:
+    mechanism: PLAIN
+    username: kawa
+    password: kawa-secret
+
+advertised:
+  nodeId: 1
+  host: localhost
+  port: 9092
+
+admin:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+  cors:
+    allowedOrigins:
+      - http://localhost:5173

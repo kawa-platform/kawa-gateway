@@ -22,6 +22,7 @@ import io.jonasg.kawa.server.broker.BrokerConnectionSettings;
 import io.jonasg.kawa.server.broker.ClusterConnections;
 import io.jonasg.kawa.server.endpoint.BrokerEndpointInterceptor;
 import io.jonasg.kawa.server.netty.KafkaListener;
+import io.jonasg.kawa.server.netty.ListenerTls;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicInterceptor;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -33,10 +34,6 @@ import java.util.Set;
 
 /// Netty-based Kafka gateway: accepts client connections, rewrites virtual topics and
 /// forwards traffic to the physical cluster.
-///
-/// Milestone 1 scope: a single cluster, plaintext only, one broker connection per
-/// physical broker, requests routed by the first partition's leader (clients converge
-/// across brokers via NOT_LEADER retries).
 ///
 /// The constructor takes the static bootstrap config: cluster bootstrap servers, broker
 /// credentials, config topic name, listeners, advertised endpoint and admin. Virtual topics,
@@ -113,6 +110,10 @@ public final class KafkaGateway implements Gateway {
         var brokerSecurity = BrokerSecurity.clientProperties(clusterCfg.tls(), brokerAuth);
         log.info("connecting to the cluster over {}", BrokerSecurity.protocol(clusterCfg.tls(), brokerAuth));
 
+        // How clients reach the gateway. Loads the listener's TLS stores now, for the same reason.
+        var listenerConfig = config.listeners().getFirst();
+        var listenerTls = listenerConfig.tls() == null ? null : ListenerTls.from(listenerConfig.tls());
+
         // Shared infrastructure
         metrics = new GatewayMetrics(new SimpleMeterRegistry());
         var kawaApiRegistry = KafkaApiRegistry.create();
@@ -124,8 +125,7 @@ public final class KafkaGateway implements Gateway {
         dynamicState.start();
 
         // Bind the client listener; resolve the advertised endpoint
-        var listenerConfig = config.listeners().getFirst();
-        listener = new KafkaListener(metrics, codec);
+        listener = new KafkaListener(metrics, codec, listenerConfig.securityProtocol(), listenerTls);
         int boundPort = listener.bind(listenerConfig.host(), listenerConfig.port());
         AdvertisedListener advertised = resolveAdvertised(config.advertised(), boundPort);
 
@@ -156,8 +156,8 @@ public final class KafkaGateway implements Gateway {
             admin.start();
         }
         running = true;
-        log.info("kawa gateway listening on {}:{} (advertised as {}:{})",
-                listenerConfig.host(), boundPort, advertised.host(), advertised.port());
+        log.info("kawa gateway listening on {}:{} over {} (advertised as {}:{})",
+                listenerConfig.host(), boundPort, listenerConfig.securityProtocol(), advertised.host(), advertised.port());
     }
 
     @Override

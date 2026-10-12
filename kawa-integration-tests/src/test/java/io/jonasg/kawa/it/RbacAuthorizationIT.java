@@ -24,7 +24,6 @@ import org.apache.kafka.common.message.ProduceRequestData;
 import org.apache.kafka.common.message.ProduceResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.ByteBufferAccessor;
-import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.record.internal.MemoryRecords;
 import org.apache.kafka.common.record.internal.SimpleRecord;
 import org.apache.kafka.common.requests.ProduceRequest;
@@ -42,6 +41,7 @@ import org.junit.jupiter.api.Timeout;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -301,15 +301,13 @@ class RbacAuthorizationIT extends GatewayTestSupport {
 
     @Test
     @Timeout(10)
-    void unauthenticatedProducerIsDeniedWithSaslAuthenticationFailed() throws Exception {
-        // when
-        ProduceResponseData response = produceWithoutAuthenticating("orders", 0, "k1", "v1");
-
-        // then
-        assertThat(response.responses()).hasSize(1);
-        ProduceResponseData.PartitionProduceResponse partition =
-                response.responses().iterator().next().partitionResponses().get(0);
-        assertThat(partition.errorCode()).isEqualTo(Errors.SASL_AUTHENTICATION_FAILED.code());
+    void unauthenticatedProducerIsDisconnectedBeforeReachingTheTopic() {
+        // when / then: on the SASL listener the gateway closes the connection, as a broker does,
+        // rather than answering - RBAC's own denial of a principal-less request is the fallback
+        // for listeners without SASL
+        assertThatThrownBy(() -> produceWithoutAuthenticating("orders", 0, "k1", "v1"))
+                .withFailMessage(() -> "A Produce request sent without SASL authentication was answered")
+                .isInstanceOf(EOFException.class);
     }
 
     private static Properties saslPropsFor(String username) {

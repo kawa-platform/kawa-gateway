@@ -19,7 +19,10 @@ import io.jonasg.kawa.server.auth.SaslAuthenticator;
 import io.jonasg.kawa.server.netty.ClientSession;
 import io.netty.buffer.ByteBuf;
 import org.apache.kafka.common.message.SaslAuthenticateRequestData;
+import org.apache.kafka.common.message.SaslAuthenticateResponseData;
 import org.apache.kafka.common.message.SaslHandshakeRequestData;
+import org.apache.kafka.common.message.SaslHandshakeResponseData;
+import org.apache.kafka.common.protocol.Errors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,6 +30,11 @@ import java.util.concurrent.CompletionStage;
 
 /// Handles a single decoded client frame: answers ApiVersions and SASL bootstrap APIs locally,
 /// otherwise runs the interceptor pipeline, routes to the right broker and forwards the request.
+///
+/// Enforces the listener's security protocol the way a Kafka broker does: on a `SASL_*` listener
+/// only ApiVersions and the SASL APIs are allowed until the client has authenticated, and any
+/// other request closes the connection; on a `PLAINTEXT` or `SSL` listener the SASL APIs are
+/// answered with `ILLEGAL_SASL_STATE`.
 public final class KafkaClientRequestHandler {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaClientRequestHandler.class);
@@ -68,6 +76,10 @@ public final class KafkaClientRequestHandler {
             KafkaClientRequest request
     ) {
         session.requestReceived(request.correlationId());
+        if (session.usesSasl() && !session.isAuthenticated() && !isSaslBootstrap(request.apiKey())) {
+            rejectUnauthenticated(session, request);
+            return;
+        }
         switch (request.apiKey()) {
             case KafkaApiRegistry.API_VERSIONS -> handleApiVersions(session, request.header());
             case KafkaApiRegistry.SASL_HANDSHAKE -> handleSaslHandshake(session, request);
@@ -75,6 +87,27 @@ public final class KafkaClientRequestHandler {
                     .onSuccess(session::setPrincipal);
             default -> maybeIntercept(session, request);
         }
+    }
+
+    private static boolean isSaslBootstrap(int apiKey) {
+        return apiKey == KafkaApiRegistry.API_VERSIONS
+               || apiKey == KafkaApiRegistry.SASL_HANDSHAKE
+               || apiKey == KafkaApiRegistry.SASL_AUTHENTICATE;
+    }
+
+    /// A Kafka broker closes a SASL connection that sends anything but the SASL bootstrap before
+    /// authenticating; so does the gateway, rather than answering on the client's behalf.
+    private void rejectUnauthenticated(
+            ClientSession session,
+            KafkaClientRequest request
+    ) {
+        log.warn("Closing client connection {}: unexpected {} request before SASL authentication",
+                session.channel().remoteAddress(), request.apiName());
+        metrics.request(request.apiName(), "rejected-unauthenticated");
+        if (request.rawBody() != null) {
+            request.rawBody().release();
+        }
+        session.close();
     }
 
     private void maybeIntercept(
@@ -152,7 +185,9 @@ public final class KafkaClientRequestHandler {
         var data = (SaslHandshakeRequestData) request.body();
         log.info("SaslHandshake request from {}: mechanism={}", session, data.mechanism());
 
-        var response = saslAuthenticator.handleHandshake(session, (SaslHandshakeRequestData) request.body());
+        var response = session.usesSasl()
+                ? saslAuthenticator.handleHandshake(session, data)
+                : new SaslHandshakeResponseData().setErrorCode(Errors.ILLEGAL_SASL_STATE.code());
         short version = request.apiVersion();
         short responseHeaderVersion = KafkaHeader.of(
                         KafkaApiRegistry.SASL_HANDSHAKE, version, request.correlationId(), null)
@@ -176,7 +211,11 @@ public final class KafkaClientRequestHandler {
 
         log.info("SaslAuthenticate request from {}: {} auth bytes", session, requestData.authBytes().length);
 
-        var result = saslAuthenticator.handleAuthenticate(session, requestData);
+        AuthenticationResult result = session.usesSasl()
+                ? saslAuthenticator.handleAuthenticate(session, requestData)
+                : new AuthenticationResult.Failure(new SaslAuthenticateResponseData()
+                        .setErrorCode(Errors.ILLEGAL_SASL_STATE.code())
+                        .setErrorMessage("SASL is not enabled on this " + session.securityProtocol() + " listener"));
         var response = result.response();
         short version = request.apiVersion();
         short responseHeaderVersion = KafkaHeader.of(
