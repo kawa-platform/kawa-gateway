@@ -1,5 +1,6 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AvroFormatConfig;
 import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
@@ -15,13 +16,20 @@ import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.governance.GovernancePolicy;
+import io.jonasg.kawa.test.TestSigningKeys;
 import io.jonasg.kawa.governance.TopicSpec;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.errors.TopicExistsException;
+import org.apache.kafka.common.resource.ResourceType;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
@@ -996,4 +1004,109 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                 Expression.cel("topic.replicationFactor >= 3"),
                 List.of(exemptions));
     }
+
+    @Test
+    void judgesAVirtualTopicAsThePrincipalADelegateActsFor() throws Exception {
+        // given: kawa-operator may act as k8s:*, and only k8s:team-a may create virtual topics
+        auth = operatorAuth();
+        governance = new GovernancePolicy(new GovernanceConfig(Map.of("teams", new GovernanceRuleConfig(
+                "teams", "only team-a manages virtual topics here", null,
+                new Selector(ResourceType.TOPIC, null, GovernanceRuleConfig.TopicScope.VIRTUAL,
+                        Set.of(GovernanceRuleConfig.Operation.CREATE)),
+                Expression.cel("principal == 'k8s:team-a'")))));
+        startServer();
+        String teamA = delegatedToken("k8s:team-a");
+        String teamB = delegatedToken("k8s:team-b");
+        String body = """
+                {"type": "virtual", "topic": "orders-v2"}
+                """;
+
+        // when
+        var teamBResp = send("PUT", "/topics/orders", body, bearer(teamB));
+        var teamAResp = send("PUT", "/topics/orders", body, bearer(teamA));
+
+        // then
+        assertThat(teamBResp).hasStatusCode(403);
+        assertThat(teamBResp.body()).contains("only team-a manages virtual topics here");
+        assertThat(teamAResp).hasStatusCode(200);
+    }
+
+    @Test
+    void anOperatorTokenReadsWritesAndDeletesVirtualTopics() throws Exception {
+        // given: the operator authenticates with the client credentials grant
+        auth = operatorAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .upsertVirtualTopic("old-orders", new VirtualTopicConfig("orders-v1")));
+        startServer();
+        var operator = bearer(operatorToken());
+
+        // when
+        var listed = send("GET", "/topics", null, operator);
+        var put = send("PUT", "/topics/orders?consistency=applied", "{\"type\":\"virtual\",\"topic\":\"orders-v2\"}", operator);
+        var deleted = send("DELETE", "/topics/old-orders?consistency=applied", null, operator);
+
+        // then
+        assertThat(listed).hasStatusCode(200);
+        assertThat(put).hasStatusCode(200);
+        assertThat(deleted).hasStatusCode(204);
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "the operator's PUT and DELETE were not applied to the gateway config")
+                .containsOnlyKeys("orders");
+    }
+
+    @Test
+    void judgesAVirtualTopicAsTheOperatorWhenItActsForItself() throws Exception {
+        // given: only the principal 'kawa-operator' may create virtual topics
+        auth = operatorAuth();
+        governance = new GovernancePolicy(new GovernanceConfig(Map.of("operator", new GovernanceRuleConfig(
+                "operator", "only the operator manages virtual topics here", null,
+                new Selector(ResourceType.TOPIC, null, GovernanceRuleConfig.TopicScope.VIRTUAL,
+                        Set.of(GovernanceRuleConfig.Operation.CREATE)),
+                Expression.cel("principal == 'kawa-operator'")))));
+        startServer();
+
+        // when
+        var response = send("PUT", "/topics/orders", "{\"type\":\"virtual\",\"topic\":\"orders-v2\"}", bearer(operatorToken()));
+
+        // then
+        assertThat(response)
+                .withFailMessage(() -> "governance did not see the principal 'kawa-operator': " + response.body())
+                .hasStatusCode(200);
+    }
+
+    /// An oauth admin auth config with the operator client enabled (secret `operator-secret`).
+    private static AdminAuthConfig operatorAuth() {
+        return new AdminAuthConfig("oauth", new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), Map.of(
+                "issuer", "kawa-test", "signingKey", TestSigningKeys.SEC1_P256,
+                "loginUrl", LOGIN_URL, "redirectUris", REDIRECT_URI,
+                "operatorSecret", "operator-secret"));
+    }
+
+    /// An access token of `kawa-operator` acting as itself, through the client credentials grant.
+    private String operatorToken() throws Exception {
+        var response = send("POST", "/oauth/token", "grant_type=client_credentials", operatorBasic());
+        assertThat(response).hasStatusCode(200);
+        return new JsonMapper().readTree(response.body()).get("access_token").asString();
+    }
+
+    private static Map<String, String> operatorBasic() {
+        return Map.of("Authorization", "Basic " + Base64.getEncoder().encodeToString(
+                "kawa-operator:operator-secret".getBytes(StandardCharsets.UTF_8)),
+                "Content-Type", "application/x-www-form-urlencoded");
+    }
+
+    /// An access token of `kawa-operator` acting as `principal`, through the token exchange grant.
+    private String delegatedToken(String principal) throws Exception {
+        var basic = operatorBasic();
+        String operatorToken = operatorToken();
+        var exchangeResp = send("POST", "/oauth/token",
+                "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange"
+                        + "&subject_token=" + operatorToken
+                        + "&subject_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token"
+                        + "&requested_subject=" + URLEncoder.encode(principal, StandardCharsets.UTF_8),
+                basic);
+        assertThat(exchangeResp).hasStatusCode(200);
+        return new JsonMapper().readTree(exchangeResp.body()).get("access_token").asString();
+    }
+
 }

@@ -9,17 +9,21 @@ import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import com.nimbusds.oauth2.sdk.token.BearerAccessToken;
 import com.nimbusds.oauth2.sdk.token.RefreshToken;
+import com.nimbusds.oauth2.sdk.token.TokenTypeURI;
 import com.nimbusds.oauth2.sdk.token.Tokens;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Map;
 import java.util.UUID;
 
 /// Issues kawa's admin tokens, ES256-signed JWTs carrying `iss`, `aud` (both the configured issuer),
-/// `sub` (the admin user's stable subject), `iat`, `exp` and `jti`. Session tokens also carry
-/// `preferred_username`, the admin user's username at the time, for display:
+/// `sub` (the admin user's stable subject), `client_id` (RFC 9068), `iat`, `exp` and `jti`. Session tokens
+/// also carry `preferred_username`, the admin user's username at the time, for display. Every token names
+/// the OAuth client it was issued to: [#STUDIO_CLIENT_ID] for admin users, [#OPERATOR_CLIENT_ID] for the
+/// operator (in both `sub` and `client_id` when it acts as itself):
 ///
 /// - access tokens (`typ: at+jwt`, RFC 9068), valid for the token TTL
 /// - refresh tokens (`typ: rt+jwt`), valid until the end of the session
@@ -33,6 +37,18 @@ public final class TokenIssuer {
 
     /// The JOSE `typ` of kawa refresh tokens.
     public static final JOSEObjectType REFRESH_TOKEN_TYPE = new JOSEObjectType("rt+jwt");
+
+    /// The client id of kawa studio, the UI the admin users log in with.
+    public static final String STUDIO_CLIENT_ID = "kawa-studio";
+
+    /// The client id of the kawa operator, the automation that uses the `client_credentials` grant.
+    public static final String OPERATOR_CLIENT_ID = "kawa-operator";
+
+    /// The claim naming the OAuth client a token was issued to (RFC 9068).
+    public static final String CLIENT_ID_CLAIM = "client_id";
+
+    /// The claim naming who acts on the subject's behalf in a delegated token (RFC 8693 §4.1).
+    public static final String ACT_CLAIM = "act";
 
     private final SigningKeys keys;
     private final String issuer;
@@ -58,7 +74,29 @@ public final class TokenIssuer {
     public BearerAccessToken issue(String subject) {
         Instant now = clock.instant();
         Instant expiry = now.plus(tokenTtl);
-        return accessToken(claims(now, expiry).subject(subject).build(), now, expiry);
+        return accessToken(claims(now, expiry).subject(subject).claim(CLIENT_ID_CLAIM, STUDIO_CLIENT_ID).build(), now, expiry);
+    }
+
+    /// A new access token for the operator, outside of any session and without a refresh token: the
+    /// operator authenticates again when it expires (RFC 6749 §4.4.3).
+    public BearerAccessToken issueForOperator() {
+        Instant now = clock.instant();
+        Instant expiry = now.plus(tokenTtl);
+        return accessToken(claims(now, expiry).subject(OPERATOR_CLIENT_ID).claim(CLIENT_ID_CLAIM, OPERATOR_CLIENT_ID).build(), now, expiry);
+    }
+
+    /// A new access token for the operator acting as `principal` (token exchange, RFC 8693): `sub` is
+    /// the principal, `act.sub` and `client_id` the operator.
+    public BearerAccessToken issueDelegated(String principal) {
+        Instant now = clock.instant();
+        Instant expiry = now.plus(tokenTtl);
+        JWTClaimsSet claims = claims(now, expiry)
+                .subject(principal)
+                .claim(CLIENT_ID_CLAIM, OPERATOR_CLIENT_ID)
+                .claim(ACT_CLAIM, Map.of("sub", OPERATOR_CLIENT_ID))
+                .build();
+        String jwt = sign(ACCESS_TOKEN_TYPE, claims);
+        return new BearerAccessToken(jwt, Duration.between(now, expiry).toSeconds(), null, TokenTypeURI.ACCESS_TOKEN);
     }
 
     /// Starts a session for `subject`, currently named `username` (after a login): an access token
@@ -82,7 +120,7 @@ public final class TokenIssuer {
     }
 
     private JWTClaimsSet claims(String subject, String username, Instant now, Instant expiry) {
-        return claims(now, expiry).subject(subject).claim("preferred_username", username).build();
+        return claims(now, expiry).subject(subject).claim(CLIENT_ID_CLAIM, STUDIO_CLIENT_ID).claim("preferred_username", username).build();
     }
 
     /// The claims every kawa token carries (`iss`, `aud`, `iat`, `exp`, `jti`), to be completed by the caller.

@@ -24,7 +24,12 @@ import java.util.stream.Collectors;
 ///   redirects to with a `login_challenge`; kawa serves no HTML itself
 /// - `redirectUris` (required): the redirect URIs the client may use, e.g. kawa studio's
 ///   `…/admin/auth/callback`
-/// - `clientId`: the client id of the UI (defaults to `kawa-studio`)
+/// - `operatorSecret`: the secret of the kawa operator (client id `kawa-operator`), which obtains tokens
+///   with the `client_credentials` grant; the operator is disabled when absent
+/// - `operatorActsAs`: the principals the operator may act as through token exchange (RFC 8693), an exact
+///   principal or a prefix ending in `*` with a `:` in it (defaults to `k8s:*`)
+///
+/// The UI is always the client `kawa-studio`.
 ///
 /// Users log in with the authorization code flow with PKCE (no password grant, per OAuth 2.1).
 ///
@@ -35,7 +40,6 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
     static final String DEFAULT_ISSUER = "kawa";
     static final Duration DEFAULT_TOKEN_TTL = Duration.ofMinutes(15);
     static final Duration DEFAULT_SESSION_TTL = Duration.ofHours(8);
-    static final String DEFAULT_CLIENT_ID = "kawa-studio";
 
     private final Clock clock;
 
@@ -63,24 +67,26 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
         Duration tokenTtl = positive("tokenTtl", settings.duration("tokenTtl").orElse(DEFAULT_TOKEN_TTL));
         Duration sessionTtl = positive("sessionTtl", settings.duration("sessionTtl").orElse(DEFAULT_SESSION_TTL));
         String loginUrl = absoluteUri("loginUrl", settings.requireString("loginUrl")).toString();
-        String clientId = settings.string("clientId").orElse(DEFAULT_CLIENT_ID);
         Set<URI> redirectUris = settings.strings("redirectUris").stream()
                 .map(uri -> absoluteUri("redirectUris", uri))
                 .collect(Collectors.toUnmodifiableSet());
         if (redirectUris.isEmpty()) {
             throw new IllegalArgumentException("admin.auth.settings.redirectUris is required");
         }
+        var operator = OperatorClient.from(settings.string("operatorSecret").orElse(null),
+                settings.string("operatorActsAs").orElse(OperatorClient.DEFAULT_ACTS_AS));
         var keys = SigningKeys.from(settings.string("signingKey").orElse(null));
         var tokenIssuer = new TokenIssuer(keys, issuer, tokenTtl, sessionTtl, clock);
         var refreshTokens = new TokenVerifier(keys, issuer, TokenIssuer.REFRESH_TOKEN_TYPE);
         var flow = new AuthorizationFlow(keys, issuer, tokenIssuer, clock);
 
-        context.publicEndpoint("GET", "/oauth/authorize", new AuthorizeEndpoint(flow, clientId, redirectUris, loginUrl));
+        context.publicEndpoint("GET", "/oauth/authorize", new AuthorizeEndpoint(flow, TokenIssuer.STUDIO_CLIENT_ID, redirectUris, loginUrl));
         context.publicEndpoint("POST", "/oauth/login", new LoginEndpoint(flow, context.adminUsers()));
-        context.publicEndpoint("POST", "/oauth/token", new TokenEndpoint(context.adminUsers(), tokenIssuer, refreshTokens, flow));
+        context.publicEndpoint("POST", "/oauth/token", new TokenEndpoint(context.adminUsers(), tokenIssuer, refreshTokens, flow, operator,
+                new TokenVerifier(keys, issuer, TokenIssuer.ACCESS_TOKEN_TYPE)));
         context.publicEndpoint("GET", "/.well-known/jwks.json", new JwksEndpoint(keys));
         context.publicEndpoint("GET", "/.well-known/oauth-authorization-server", new AuthorizationServerMetadataEndpoint(issuer));
-        return new KawaTokenAuthenticationProvider(keys, issuer, context.adminUsers());
+        return new KawaTokenAuthenticationProvider(keys, issuer, context.adminUsers(), operator);
     }
 
     private static URI absoluteUri(String setting, String value) {

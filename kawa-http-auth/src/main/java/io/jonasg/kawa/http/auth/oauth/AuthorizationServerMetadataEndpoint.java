@@ -15,7 +15,8 @@ import java.util.List;
 
 /// `GET /.well-known/oauth-authorization-server`: RFC 8414 metadata describing kawa's built-in
 /// authorization server (issuer, authorization and token endpoints, JWKS location, the authorization
-/// code flow with PKCE S256 and the refresh token grant). Endpoint URLs
+/// code flow with PKCE S256, the refresh token grant, and the client credentials and token exchange
+/// grants for service clients). Endpoint URLs
 /// are derived from the request's `Host` header (and `X-Forwarded-Proto`, when kawa sits behind a
 /// TLS-terminating proxy).
 final class AuthorizationServerMetadataEndpoint implements HttpEndpoint {
@@ -35,9 +36,12 @@ final class AuthorizationServerMetadataEndpoint implements HttpEndpoint {
         metadata.setTokenEndpointURI(URI.create(scheme + "://" + host + "/oauth/token"));
         metadata.setJWKSetURI(URI.create(scheme + "://" + host + "/.well-known/jwks.json"));
         metadata.setResponseTypes(List.of(ResponseType.CODE));
-        metadata.setGrantTypes(List.of(GrantType.AUTHORIZATION_CODE, GrantType.REFRESH_TOKEN));
+        metadata.setGrantTypes(List.of(GrantType.AUTHORIZATION_CODE, GrantType.REFRESH_TOKEN, GrantType.CLIENT_CREDENTIALS, GrantType.TOKEN_EXCHANGE));
         metadata.setCodeChallengeMethods(List.of(CodeChallengeMethod.S256));
-        metadata.setTokenEndpointAuthMethods(List.of(ClientAuthenticationMethod.NONE));
+        metadata.setTokenEndpointAuthMethods(List.of(
+                ClientAuthenticationMethod.NONE,
+                ClientAuthenticationMethod.CLIENT_SECRET_BASIC,
+                ClientAuthenticationMethod.CLIENT_SECRET_POST));
         return HttpResponse.json(200, metadata.toJSONObject().toJSONString());
     }
 }

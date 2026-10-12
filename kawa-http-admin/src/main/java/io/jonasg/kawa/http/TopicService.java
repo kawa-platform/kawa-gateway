@@ -25,10 +25,11 @@ import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 /// Owns the admin topic surface: virtual topic config CRUD, physical topic listing,
-/// broker create/delete, and governance admission.
+/// broker create/delete, and governance admission. Governance judges each change as the
+/// authenticated caller (`principal`): an admin user's email, a service client's id, or the
+/// principal a delegate acts for (e.g. `k8s:team-a`).
 final class TopicService {
 
-    private static final String PRINCIPAL = "admin";
     private static final String SERVICE = "kawa";
     private static final int DESCRIBE_TIMEOUT_SECONDS = 10;
 
@@ -68,7 +69,7 @@ final class TopicService {
         return new TopicListing(virtual, List.copyOf(cache.topics()));
     }
 
-    VirtualTopicConfig upsertVirtualTopic(String name, TopicRequest request, Consistency consistency) {
+    VirtualTopicConfig upsertVirtualTopic(String principal, String name, TopicRequest request, Consistency consistency) {
         if (!"virtual".equals(request.type())) {
             throw new IllegalArgumentException("only 'virtual' topics can be updated");
         }
@@ -79,7 +80,7 @@ final class TopicService {
             throw new IllegalArgumentException("virtual topic requires a physical 'topic'");
         }
         var operation = repository.getActiveConfigOrEmpty().virtualTopics().containsKey(name) ? Operation.ALTER : Operation.CREATE;
-        admit(name, GovernanceRequest.virtualTopic(PRINCIPAL, SERVICE, operation, name, request.topic()));
+        admit(name, GovernanceRequest.virtualTopic(principal, SERVICE, operation, name, request.topic()));
         var value = new VirtualTopicConfig(
                 request.topic(),
                 request.filter(),
@@ -89,7 +90,7 @@ final class TopicService {
         return value;
     }
 
-    VirtualTopicConfig updateVirtualTopic(String name, VirtualTopicConfigPatch patch, Consistency consistency) {
+    VirtualTopicConfig updateVirtualTopic(String principal, String name, VirtualTopicConfigPatch patch, Consistency consistency) {
         GatewayConfig base = repository.getActiveConfigOrEmpty();
         VirtualTopicConfig current = base.virtualTopics().get(name);
         if (current == null) {
@@ -111,7 +112,7 @@ final class TopicService {
         if (topic == null || topic.isBlank()) {
             throw new IllegalArgumentException("virtual topic requires a physical 'topic'");
         }
-        admit(newName, GovernanceRequest.virtualTopic(PRINCIPAL, SERVICE, Operation.ALTER, newName, topic));
+        admit(newName, GovernanceRequest.virtualTopic(principal, SERVICE, Operation.ALTER, newName, topic));
         var updated = new VirtualTopicConfig(
                 topic,
                 patch.filter(),
@@ -121,11 +122,11 @@ final class TopicService {
         return updated;
     }
 
-    void deleteTopic(String name, Consistency consistency) {
+    void deleteTopic(String principal, String name, Consistency consistency) {
         GatewayConfig base = repository.getActiveConfigOrEmpty();
         VirtualTopicConfig virtual = base.virtualTopics().get(name);
         if (virtual != null) {
-            admit(name, GovernanceRequest.virtualTopic(PRINCIPAL, SERVICE, Operation.DELETE, name, virtual.topic()));
+            admit(name, GovernanceRequest.virtualTopic(principal, SERVICE, Operation.DELETE, name, virtual.topic()));
             updater.update(consistency, config -> config.removeVirtualTopic(name));
             return;
         }
@@ -138,7 +139,7 @@ final class TopicService {
             if (current == null) {
                 throw new NotFoundException("topic '" + name + "' not found");
             }
-            admit(name, GovernanceRequest.topicDelete(PRINCIPAL, SERVICE,
+            admit(name, GovernanceRequest.topicDelete(principal, SERVICE,
                     new TopicSpec(name, current.partitions(), current.replicationFactor(), current.configs())));
         }
         try {
@@ -148,7 +149,7 @@ final class TopicService {
         }
     }
 
-    TopicSpec createPhysicalTopic(TopicRequest request) {
+    TopicSpec createPhysicalTopic(String principal, TopicRequest request) {
         if (!"physical".equals(request.type())) {
             throw new IllegalArgumentException("type must be 'physical' or 'virtual'");
         }
@@ -160,7 +161,7 @@ final class TopicService {
                 request.partitions() == null ? -1 : request.partitions(),
                 request.replicationFactor() == null ? -1 : request.replicationFactor(),
                 request.configs());
-        admit(spec.name(), GovernanceRequest.topic(PRINCIPAL, SERVICE, spec));
+        admit(spec.name(), GovernanceRequest.topic(principal, SERVICE, spec));
         try {
             topicAdmin.createTopic(spec);
         } catch (Exception e) {

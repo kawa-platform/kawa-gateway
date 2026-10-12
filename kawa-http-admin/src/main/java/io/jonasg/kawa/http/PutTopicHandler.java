@@ -23,7 +23,7 @@ public final class PutTopicHandler implements Router.Handler {
         }
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            var value = topicService.upsertVirtualTopic(name, body, consistency);
+            var value = topicService.upsertVirtualTopic(request.principalName(), name, body, consistency);
             return Router.Response.ok(new VirtualTopicConfigView(
                     value.topic(),
                     value.filter(),

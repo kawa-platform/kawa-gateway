@@ -24,7 +24,7 @@ public final class PostTopicHandler implements Router.Handler {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
             return switch (body.type()) {
                 case "virtual" -> {
-                    var value = topicService.upsertVirtualTopic(body.name(), body, consistency);
+                    var value = topicService.upsertVirtualTopic(request.principalName(), body.name(), body, consistency);
                     yield Router.Response.created(new VirtualTopicConfigView(
                             value.topic(),
                             value.filter(),
@@ -32,7 +32,7 @@ public final class PostTopicHandler implements Router.Handler {
                             value.valueFormat()));
                 }
                 case "physical" -> {
-                    var spec = topicService.createPhysicalTopic(body);
+                    var spec = topicService.createPhysicalTopic(request.principalName(), body);
                     yield Router.Response.created(new TopicSpecView(
                             spec.name(),
                             spec.partitions(),
