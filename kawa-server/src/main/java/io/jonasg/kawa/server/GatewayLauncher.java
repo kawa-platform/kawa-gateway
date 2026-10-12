@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 
 /// Entry point. The `--config` file is the static bootstrap: cluster bootstrap servers,
@@ -37,8 +38,13 @@ public final class GatewayLauncher {
         }));
 
         gateway.start();
-        log.info("kawa gateway started (bootstrap {})", configPath);
+        log.info("kawa gateway {} started (bootstrap {})", version(), configPath);
         shutdown.await();
+    }
+
+    /// Version from the shaded jar manifest; `dev` when running from an IDE or unpacked classes.
+    static String version() {
+        return Objects.requireNonNullElse(GatewayLauncher.class.getPackage().getImplementationVersion(), "dev");
     }
 
     private static Path parseConfigPath(String[] args) {
