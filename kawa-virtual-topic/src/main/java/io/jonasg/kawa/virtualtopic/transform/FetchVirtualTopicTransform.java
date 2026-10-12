@@ -6,7 +6,6 @@ import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicState;
-import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.message.FetchRequestData;
 import org.apache.kafka.common.message.FetchResponseData;
 import org.apache.kafka.common.protocol.Errors;
@@ -116,9 +115,9 @@ public final class FetchVirtualTopicTransform
                 continue;
             }
             var valueFormat = virtualTopics.valueFormatFor(topic.topic()).orElse(null);
+            String physical = virtualTopics.toPhysical(topic.topic());
             for (FetchResponseData.PartitionData partition : topic.partitions()) {
-                TopicPartition tp = new TopicPartition(topic.topic(), partition.partitionIndex());
-                partition.setRecords(recordFilter.apply(filter.get(), valueFormat, partition.records()));
+                partition.setRecords(recordFilter.apply(physical, filter.get(), valueFormat, partition.records()));
             }
         }
     }
