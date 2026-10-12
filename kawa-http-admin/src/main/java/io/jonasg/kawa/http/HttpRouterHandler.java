@@ -88,7 +88,18 @@ public final class HttpRouterHandler extends SimpleChannelInboundHandler<FullHtt
             write(ctx, request, HttpResponseStatus.INTERNAL_SERVER_ERROR, "{\"error\":\"handler failed\"}");
             return;
         }
+        logWrite(req, response);
         writeResponse(ctx, request, response);
+    }
+
+    /// Logs who changed what: every authenticated request that is not a read, with the principal
+    /// and, for a delegated request, the actor that made it on the principal's behalf.
+    private static void logWrite(Router.Request request, Router.Response<?> response) {
+        if (request.principal() == null || request.method().equals("GET") || request.method().equals("HEAD")) {
+            return;
+        }
+        log.info("admin {} {} -> {} principal={} actor={}", request.method(), request.path(), response.status(),
+                request.principal().name(), request.principal().actor() == null ? "-" : request.principal().actor());
     }
 
     private @Nullable KawaPrincipal authenticate(String method, String path, Map<String, List<String>> headers) {

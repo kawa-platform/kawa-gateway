@@ -26,6 +26,10 @@ class GetAuthorizationServerMetadataSliceTest extends AdminHttpSliceTestBase {
                 .containsEntry("token_endpoint", base + "/oauth/token")
                 .containsEntry("jwks_uri", base + "/.well-known/jwks.json");
         assertThatJson(response.body()).node("code_challenge_methods_supported").isArray().containsExactly("S256");
-        assertThatJson(response.body()).node("grant_types_supported").isArray().containsExactly("authorization_code", "refresh_token");
+        assertThatJson(response.body()).node("grant_types_supported").isArray()
+                .containsExactly("authorization_code", "refresh_token", "client_credentials",
+                        "urn:ietf:params:oauth:grant-type:token-exchange");
+        assertThatJson(response.body()).node("token_endpoint_auth_methods_supported").isArray()
+                .containsExactly("none", "client_secret_basic", "client_secret_post");
     }
 }

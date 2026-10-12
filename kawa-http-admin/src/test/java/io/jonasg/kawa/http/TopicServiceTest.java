@@ -57,7 +57,7 @@ class TopicServiceTest {
         var request = new TopicRequest("virtual", "orders", null, null, null, "orders-v2", null, null, null);
 
         // when
-        VirtualTopicConfig result = service.upsertVirtualTopic("orders", request, Consistency.PERSISTED);
+        VirtualTopicConfig result = service.upsertVirtualTopic("admin", "orders", request, Consistency.PERSISTED);
 
         // then
         assertThat(result.topic()).isEqualTo("orders-v2");
@@ -71,7 +71,7 @@ class TopicServiceTest {
         var patch = new VirtualTopicConfigPatch(null, "orders-v2", null, null, null);
 
         // when
-        VirtualTopicConfig result = service.updateVirtualTopic("orders", patch, Consistency.PERSISTED);
+        VirtualTopicConfig result = service.updateVirtualTopic("admin", "orders", patch, Consistency.PERSISTED);
 
         // then
         assertThat(result.topic()).isEqualTo("orders-v2");
@@ -85,7 +85,7 @@ class TopicServiceTest {
         var patch = new VirtualTopicConfigPatch("regional-orders", null, null, null, null);
 
         // when
-        VirtualTopicConfig result = service.updateVirtualTopic("orders", patch, Consistency.PERSISTED);
+        VirtualTopicConfig result = service.updateVirtualTopic("admin", "orders", patch, Consistency.PERSISTED);
 
         // then
         assertThat(result.topic()).isEqualTo("orders-v1");
@@ -99,7 +99,7 @@ class TopicServiceTest {
         repository.update(base -> base.upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
 
         // when
-        service.deleteTopic("orders", Consistency.PERSISTED);
+        service.deleteTopic("admin", "orders", Consistency.PERSISTED);
 
         // then
         assertThat(repository.getActiveConfig().virtualTopics()).isEmpty();
@@ -112,7 +112,7 @@ class TopicServiceTest {
         cacheWith(topic("orders", 1, 1));
 
         // when
-        service.deleteTopic("orders", Consistency.PERSISTED);
+        service.deleteTopic("admin", "orders", Consistency.PERSISTED);
 
         // then
         assertThat(topicAdmin.deleted).containsExactly("orders");
@@ -127,7 +127,7 @@ class TopicServiceTest {
         TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
 
         // when / then
-        assertThatThrownBy(() -> governedService.deleteTopic("orders", Consistency.PERSISTED))
+        assertThatThrownBy(() -> governedService.deleteTopic("admin", "orders", Consistency.PERSISTED))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessage("topic 'orders' rejected by governance: [keep-compacted] compacted topics are kept");
         assertThat(topicAdmin.deleted).isEmpty();
@@ -144,7 +144,7 @@ class TopicServiceTest {
         TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
 
         // when / then
-        assertThatThrownBy(() -> governedService.deleteTopic("orders-view", Consistency.PERSISTED))
+        assertThatThrownBy(() -> governedService.deleteTopic("admin", "orders-view", Consistency.PERSISTED))
                 .isInstanceOf(ForbiddenException.class);
         assertThat(repository.getActiveConfig().virtualTopics()).containsKey("orders-view");
     }
@@ -155,7 +155,7 @@ class TopicServiceTest {
         cacheWith(topic("orders", 1, 1));
 
         // then
-        assertThatThrownBy(() -> service.updateVirtualTopic(
+        assertThatThrownBy(() -> service.updateVirtualTopic("admin", 
                 "orders", new VirtualTopicConfigPatch(null, "x", null, null, null), Consistency.PERSISTED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("only virtual topics can be patched");
@@ -168,7 +168,7 @@ class TopicServiceTest {
                 "physical", "orders", 3, (short) 3, Map.of("cleanup.policy", "compact"), null, null, null, null);
 
         // when
-        var spec = service.createPhysicalTopic(request);
+        var spec = service.createPhysicalTopic("admin", request);
 
         // then
         assertThat(spec.name()).isEqualTo("orders");
@@ -185,7 +185,7 @@ class TopicServiceTest {
         var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null);
 
         // then
-        assertThatThrownBy(() -> governedService.createPhysicalTopic(request))
+        assertThatThrownBy(() -> governedService.createPhysicalTopic("admin", request))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("rejected by governance");
         assertThat(topicAdmin.created).isEmpty();
@@ -199,7 +199,7 @@ class TopicServiceTest {
         var request = new TopicRequest("virtual", "orders", null, null, null, "payments-v2", null, null, null);
 
         // when / then
-        assertThatThrownBy(() -> governedService.upsertVirtualTopic("orders", request, Consistency.PERSISTED))
+        assertThatThrownBy(() -> governedService.upsertVirtualTopic("admin", "orders", request, Consistency.PERSISTED))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessage("topic 'orders' rejected by governance: [aliases] virtual topics alias a topic of their own name");
         assertThat(repository.getActiveConfig().virtualTopics())
@@ -215,16 +215,16 @@ class TopicServiceTest {
         TopicService governedService = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);
 
         // when / then
-        assertThatThrownBy(() -> governedService.updateVirtualTopic("orders",
+        assertThatThrownBy(() -> governedService.updateVirtualTopic("admin", "orders",
                 new VirtualTopicConfigPatch(null, "payments-v1", null, null, null), Consistency.PERSISTED))
                 .isInstanceOf(ForbiddenException.class);
-        governedService.updateVirtualTopic("orders", new VirtualTopicConfigPatch(null, "orders-v2", null, null, null), Consistency.PERSISTED);
+        governedService.updateVirtualTopic("admin", "orders", new VirtualTopicConfigPatch(null, "orders-v2", null, null, null), Consistency.PERSISTED);
         assertThat(repository.getActiveConfig().virtualTopics().get("orders").topic()).isEqualTo("orders-v2");
     }
 
     @Test
     void acceptsExemptTopicAndCreatesOnBroker() throws Exception {
-        // given - the admin API's placeholder principal is `admin`
+        // given - the caller is `admin`
         var rule = minReplicationRule();
         governance = new GovernancePolicy(new GovernanceConfig(Map.of("min-replication", new GovernanceRuleConfig(
                 rule.name(),
@@ -238,7 +238,7 @@ class TopicServiceTest {
         var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null);
 
         // when
-        var spec = governedService.createPhysicalTopic(request);
+        var spec = governedService.createPhysicalTopic("admin", request);
 
         // then
         assertThat(spec.name()).isEqualTo("orders");
@@ -252,7 +252,7 @@ class TopicServiceTest {
         var request = new TopicRequest("physical", "orders", 3, (short) 3, null, null, null, null, null);
 
         // then
-        assertThatThrownBy(() -> service.createPhysicalTopic(request))
+        assertThatThrownBy(() -> service.createPhysicalTopic("admin", request))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("already exists");
     }

@@ -1,10 +1,13 @@
 package io.jonasg.kawa.http.auth.oauth;
 
 import io.jonasg.kawa.plugin.auth.AuthenticationRequest;
+import io.jonasg.kawa.plugin.auth.KawaPrincipal;
+import io.jonasg.kawa.plugin.http.HttpRequest;
 import io.jonasg.kawa.plugin.http.HttpResponse;
 import io.jonasg.kawa.test.TestSigningKeys;
 import org.junit.jupiter.api.Test;
 
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -326,6 +329,242 @@ class OAuthAuthenticationProviderFactoryTest {
     }
 
     @Test
+    void issuesAnAccessTokenToTheOperatorWithClientSecretBasic() {
+        // given
+        var context = context(Map.of("operatorSecret", "operator-secret"));
+        var provider = factory.create(context);
+
+        // when
+        HttpResponse response = tokenWithBasicAuth(context, "kawa-operator", "operator-secret");
+
+        // then
+        assertThat(response.status()).isEqualTo(200);
+        assertThatJson(body(response)).isObject()
+                .containsEntry("token_type", "Bearer")
+                .doesNotContainKey("refresh_token");
+        assertThat(provider.authenticate(bearer(jsonField(response, "access_token"))))
+                .withFailMessage(() -> "the provider rejected the operator's token")
+                .hasValue(new KawaPrincipal("kawa-operator"));
+    }
+
+    @Test
+    void issuesAnAccessTokenToTheOperatorWithClientSecretPost() {
+        // given
+        var context = context(Map.of("operatorSecret", "operator-secret"));
+        factory.create(context);
+
+        // when
+        HttpResponse response = new AuthorizationCodeFlow(context)
+                .token("grant_type=client_credentials&client_id=kawa-operator&client_secret=operator-secret");
+
+        // then
+        assertThat(response.status())
+                .withFailMessage(() -> "client_secret_post was not accepted: " + body(response))
+                .isEqualTo(200);
+    }
+
+    @Test
+    void rejectsTheOperatorWithTheWrongSecret() {
+        // given
+        var context = context(Map.of("operatorSecret", "operator-secret"));
+        factory.create(context);
+
+        // when
+        HttpResponse response = tokenWithBasicAuth(context, "kawa-operator", "wrong");
+
+        // then
+        assertThat(response.status()).isEqualTo(401);
+        assertThatJson(body(response)).isObject().containsEntry("error", "invalid_client");
+    }
+
+    @Test
+    void rejectsAnyOtherClientIdEvenWithTheOperatorSecret() {
+        // given
+        var context = context(Map.of("operatorSecret", "operator-secret"));
+        factory.create(context);
+
+        // when
+        HttpResponse response = tokenWithBasicAuth(context, "kawa-studio", "operator-secret");
+
+        // then
+        assertThat(response.status()).isEqualTo(401);
+        assertThatJson(body(response)).isObject().containsEntry("error", "invalid_client");
+    }
+
+    @Test
+    void issuesNoOperatorTokensWithoutAnOperatorSecret() {
+        // given
+        var context = context(Map.of());
+        factory.create(context);
+
+        // when
+        HttpResponse response = tokenWithBasicAuth(context, "kawa-operator", "");
+
+        // then
+        assertThat(response.status())
+                .withFailMessage(() -> "a token was issued to the operator although it is not configured: " + body(response))
+                .isIn(400, 401);
+    }
+
+    @Test
+    void rejectsTheClientCredentialsGrantWithoutClientAuthentication() {
+        // given
+        var context = context(Map.of("operatorSecret", "operator-secret"));
+        factory.create(context);
+
+        // when
+        HttpResponse response = new AuthorizationCodeFlow(context).token("grant_type=client_credentials");
+
+        // then
+        assertThat(response.status())
+                .withFailMessage(() -> "an unauthenticated client_credentials request was not refused: " + body(response))
+                .isIn(400, 401);
+        assertThatJson(body(response)).isObject().containsKey("error");
+    }
+
+    @Test
+    void stopsAcceptingTheOperatorTokenWhenTheOperatorIsRemoved() {
+        // given: a token issued while the operator was configured, then a restart without it
+        var before = context(Map.of("signingKey", TestSigningKeys.SEC1_P256, "operatorSecret", "operator-secret"));
+        factory.create(before);
+        String token = jsonField(tokenWithBasicAuth(before, "kawa-operator", "operator-secret"), "access_token");
+        var provider = factory.create(context(Map.of("signingKey", TestSigningKeys.SEC1_P256)));
+
+        // when / then
+        assertThat(provider.authenticate(bearer(token)))
+                .withFailMessage(() -> "the token of a removed operator was still accepted")
+                .isEmpty();
+    }
+
+    @Test
+    void rejectsATokenWithoutAClientId() {
+        // given: a validly signed access token for the admin user that names no client
+        var context = context(Map.of("signingKey", TestSigningKeys.SEC1_P256));
+        var provider = factory.create(context);
+        var issuer = new TokenIssuer(SigningKeys.from(TestSigningKeys.SEC1_P256), "kawa", Duration.ofMinutes(15), Duration.ofHours(8),
+                Clock.systemUTC());
+        Instant now = Instant.now();
+        String token = issuer.sign(TokenIssuer.ACCESS_TOKEN_TYPE, issuer.claims(now, now.plus(Duration.ofMinutes(5))).subject("admin").build());
+
+        // when / then
+        assertThat(provider.authenticate(bearer(token)))
+                .withFailMessage(() -> "a token without a client_id was accepted")
+                .isEmpty();
+    }
+
+    @Test
+    void theOperatorExchangesItsTokenForOneActingAsAnAllowedPrincipal() {
+        // given
+        var context = context(operatorSettings(Map.of()));
+        var provider = factory.create(context);
+        String operatorToken = jsonField(tokenWithBasicAuth(context, "kawa-operator", "operator-secret"), "access_token");
+
+        // when
+        HttpResponse response = exchange(context, "kawa-operator", "operator-secret", operatorToken, "k8s:team-a");
+
+        // then
+        assertThat(response.status())
+                .withFailMessage(() -> "the token exchange was refused: " + body(response))
+                .isEqualTo(200);
+        assertThatJson(body(response)).isObject()
+                .containsEntry("issued_token_type", "urn:ietf:params:oauth:token-type:access_token")
+                .doesNotContainKey("refresh_token");
+        assertThat(provider.authenticate(bearer(jsonField(response, "access_token"))))
+                .withFailMessage(() -> "the delegated token was not accepted as k8s:team-a acted by kawa-operator")
+                .hasValue(new KawaPrincipal("k8s:team-a", "kawa-operator"));
+    }
+
+    @Test
+    void refusesAnExchangeForAPrincipalOutsideTheActsAsPattern() {
+        // given
+        var context = context(operatorSettings(Map.of()));
+        factory.create(context);
+        String operatorToken = jsonField(tokenWithBasicAuth(context, "kawa-operator", "operator-secret"), "access_token");
+
+        // when
+        HttpResponse response = exchange(context, "kawa-operator", "operator-secret", operatorToken, "admin");
+
+        // then
+        assertThat(response.status()).isEqualTo(400);
+        assertThatJson(body(response)).isObject().containsEntry("error", "unauthorized_client");
+    }
+
+    @Test
+    void refusesAnExchangeForAnEmailShapedPrincipal() {
+        // given: an admin user whose email starts with the pattern's prefix
+        var context = context(operatorSettings(Map.of()));
+        factory.create(context);
+        String operatorToken = jsonField(tokenWithBasicAuth(context, "kawa-operator", "operator-secret"), "access_token");
+
+        // when
+        HttpResponse response = exchange(context, "kawa-operator", "operator-secret", operatorToken, "k8s:alice@acme.io");
+
+        // then
+        assertThat(response.status()).isEqualTo(400);
+        assertThatJson(body(response)).isObject().containsEntry("error", "unauthorized_client");
+    }
+
+    @Test
+    void refusesToExchangeTheTokenOfAnAdminUser() {
+        // given
+        var context = context(operatorSettings(Map.of()));
+        factory.create(context);
+        String userToken = jsonField(new AuthorizationCodeFlow(context).signIn("admin", "s3cret"), "access_token");
+
+        // when
+        HttpResponse response = exchange(context, "kawa-operator", "operator-secret", userToken, "k8s:team-a");
+
+        // then
+        assertThat(response.status()).isEqualTo(400);
+        assertThatJson(body(response)).isObject().containsEntry("error", "invalid_grant");
+    }
+
+    @Test
+    void refusesToExchangeADelegatedToken() {
+        // given: a token already acting as k8s:team-a must not be exchanged again
+        var context = context(operatorSettings(Map.of()));
+        factory.create(context);
+        String operatorToken = jsonField(tokenWithBasicAuth(context, "kawa-operator", "operator-secret"), "access_token");
+        String delegated = jsonField(exchange(context, "kawa-operator", "operator-secret", operatorToken, "k8s:team-a"), "access_token");
+
+        // when
+        HttpResponse response = exchange(context, "kawa-operator", "operator-secret", delegated, "k8s:team-b");
+
+        // then
+        assertThat(response.status()).isEqualTo(400);
+        assertThatJson(body(response)).isObject().containsEntry("error", "invalid_grant");
+    }
+
+    @Test
+    void stopsAcceptingDelegatedTokensWhenTheActsAsPatternNoLongerAllowsThem() {
+        // given
+        var before = context(operatorSettings(Map.of("signingKey", TestSigningKeys.SEC1_P256)));
+        factory.create(before);
+        String operatorToken = jsonField(tokenWithBasicAuth(before, "kawa-operator", "operator-secret"), "access_token");
+        String delegated = jsonField(exchange(before, "kawa-operator", "operator-secret", operatorToken, "k8s:team-a"), "access_token");
+        var provider = factory.create(context(operatorSettings(Map.of("signingKey", TestSigningKeys.SEC1_P256, "operatorActsAs", "k8s:team-b"))));
+
+        // when / then
+        assertThat(provider.authenticate(bearer(delegated)))
+                .withFailMessage(() -> "a delegated token was accepted after the operator could no longer act as its subject")
+                .isEmpty();
+    }
+
+    @Test
+    void rejectsAnActsAsPatternThatCouldMatchAdminUsers() {
+        assertThatThrownBy(() -> factory.create(context(Map.of("operatorSecret", "operator-secret", "operatorActsAs", "*"))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("admin.auth.settings.operatorActsAs '*' must be a principal or a prefix ending in '*' with a ':' in it, e.g. 'k8s:*'");
+    }
+
+    @Test
+    void rejectsABlankOperatorSecret() {
+        assertThatThrownBy(() -> factory.create(context(Map.of("operatorSecret", " "))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("admin.auth.settings.operatorSecret must not be blank");
+    }
+
+    @Test
     void rejectsNonPositiveTokenTtl() {
         assertThatThrownBy(() -> factory.create(context(Map.of("tokenTtl", "PT0S"))))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -364,6 +603,31 @@ class OAuthAuthenticationProviderFactoryTest {
             end++;
         }
         return Long.parseLong(payload.substring(start, end));
+    }
+
+    private static HttpResponse tokenWithBasicAuth(FakeProviderContext context, String clientId, String secret) {
+        String credentials = Base64.getEncoder().encodeToString((clientId + ":" + secret).getBytes(StandardCharsets.UTF_8));
+        return context.endpoints.get("POST /oauth/token").handle(new HttpRequest("POST", "/oauth/token", Map.of(),
+                Map.of("content-type", List.of("application/x-www-form-urlencoded"), "authorization", List.of("Basic " + credentials)),
+                "grant_type=client_credentials".getBytes(StandardCharsets.UTF_8)));
+    }
+
+    /// Settings with the operator enabled (it may act as `k8s:*` by default), on top of `settings`.
+    private static Map<String, String> operatorSettings(Map<String, String> settings) {
+        var all = new HashMap<>(Map.of("operatorSecret", "operator-secret"));
+        all.putAll(settings);
+        return all;
+    }
+
+    private static HttpResponse exchange(FakeProviderContext context, String clientId, String secret, String subjectToken, String principal) {
+        String credentials = Base64.getEncoder().encodeToString((clientId + ":" + secret).getBytes(StandardCharsets.UTF_8));
+        String form = "grant_type=" + URLEncoder.encode("urn:ietf:params:oauth:grant-type:token-exchange", StandardCharsets.UTF_8)
+                + "&subject_token=" + subjectToken
+                + "&subject_token_type=" + URLEncoder.encode("urn:ietf:params:oauth:token-type:access_token", StandardCharsets.UTF_8)
+                + "&requested_subject=" + URLEncoder.encode(principal, StandardCharsets.UTF_8);
+        return context.endpoints.get("POST /oauth/token").handle(new HttpRequest("POST", "/oauth/token", Map.of(),
+                Map.of("content-type", List.of("application/x-www-form-urlencoded"), "authorization", List.of("Basic " + credentials)),
+                form.getBytes(StandardCharsets.UTF_8)));
     }
 
     private static AuthenticationRequest bearer(String token) {

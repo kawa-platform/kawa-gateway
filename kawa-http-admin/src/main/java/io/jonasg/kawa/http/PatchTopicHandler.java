@@ -23,7 +23,7 @@ public final class PatchTopicHandler implements Router.Handler {
         }
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            var value = topicService.updateVirtualTopic(name, patch, consistency);
+            var value = topicService.updateVirtualTopic(request.principalName(), name, patch, consistency);
             return Router.Response.ok(new VirtualTopicConfigView(
                     value.topic(),
                     value.filter(),
