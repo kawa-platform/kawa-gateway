@@ -28,6 +28,8 @@ import org.apache.kafka.common.resource.PatternType;
 import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.awaitility.Awaitility;
+import org.awaitility.core.ThrowingRunnable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.TestInstance;
@@ -37,6 +39,8 @@ import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -50,6 +54,7 @@ import static org.apache.kafka.clients.consumer.ConsumerConfig.KEY_DESERIALIZER_
 import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
 import static org.apache.kafka.clients.producer.ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG;
 import static org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /// Shared lifecycle for integration tests: one Testcontainers Kafka broker, an in-JVM
 /// [KafkaGateway] in front of it, and admin/producer/consumer clients on both sides.
@@ -93,6 +98,15 @@ abstract class GatewayTestSupport {
     protected static AdminClient brokerAdmin;
     protected static AdminClient gatewayAdmin;
 
+    /// Admin writes (topics, partitions, configs, acls) commit on the KRaft controller before the
+    /// broker's metadata cache and authorizer see them, so reads that follow a write must poll.
+    protected static void eventually(ThrowingRunnable assertion) {
+        Awaitility.await()
+                .atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofMillis(500))
+                .untilAsserted(assertion);
+    }
+
     @BeforeAll
     void setUp() throws Exception {
         brokerBootstrap = kafka.getBootstrapServers();
@@ -101,6 +115,9 @@ abstract class GatewayTestSupport {
         brokerAdmin.createTopics(List.of(new NewTopic(CONFIG_TOPIC, 1, (short) 1)
                 .configs(Map.of("cleanup.policy", "compact")))).all().get();
         brokerAdmin.createTopics(initialTopics()).all().get();
+        List<String> expectedTopics = new ArrayList<>(List.of(CONFIG_TOPIC));
+        initialTopics().forEach(topic -> expectedTopics.add(topic.name()));
+        eventually(() -> assertThat(brokerAdmin.listTopics().names().get()).containsAll(expectedTopics));
         writeConfigSnapshot();
 
         gateway = new KafkaGateway(buildBootstrap());

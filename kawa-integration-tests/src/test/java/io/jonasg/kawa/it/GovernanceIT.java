@@ -151,9 +151,9 @@ class GovernanceIT extends AdminHTTPTestSupport {
         gatewayAdmin.createTopics(List.of(new NewTopic("workshop.robots.welding", 3, (short) 1))).all().get(10, TimeUnit.SECONDS);
 
         // then
-        assertThat(brokerTopics())
+        eventually(() -> assertThat(brokerTopics())
                 .withFailMessage(() -> "Compliant topic 'workshop.robots.welding' was not created on the broker")
-                .contains("workshop.robots.welding");
+                .contains("workshop.robots.welding"));
     }
 
     @Test
@@ -189,10 +189,10 @@ class GovernanceIT extends AdminHTTPTestSupport {
         result.values().get("orders.web.placed").get(10, TimeUnit.SECONDS);
         assertThatThrownBy(() -> result.values().get("orders.web.lost").get(10, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(PolicyViolationException.class);
-        assertThat(brokerTopics())
+        eventually(() -> assertThat(brokerTopics())
                 .withFailMessage(() -> "Batch did not end with only the compliant topic on the broker")
                 .contains("orders.web.placed")
-                .doesNotContain("orders.web.lost");
+                .doesNotContain("orders.web.lost"));
     }
 
     @Test
@@ -203,7 +203,7 @@ class GovernanceIT extends AdminHTTPTestSupport {
         gatewayAdmin.createTopics(List.of(new NewTopic("scratch.anything", 2, (short) 1))).all().get(10, TimeUnit.SECONDS);
 
         // then
-        assertThat(brokerTopics()).contains("lab-bouncy-ball", "scratch.anything");
+        eventually(() -> assertThat(brokerTopics()).contains("lab-bouncy-ball", "scratch.anything"));
     }
 
     @Test
@@ -228,15 +228,15 @@ class GovernanceIT extends AdminHTTPTestSupport {
                 .all().get(10, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(PolicyViolationException.class)
                 .cause().hasMessageContaining("[qa-retention] QA topics keep results for at least a day.");
-        assertThat(retentionMs("workshop.qa.inspect"))
+        eventually(() -> assertThat(retentionMs("workshop.qa.inspect"))
                 .withFailMessage(() -> "Refused config change reached the broker")
-                .isEqualTo(DAY_MS);
+                .isEqualTo(DAY_MS));
 
         // and - lengthening it is fine
         gatewayAdmin.incrementalAlterConfigs(Map.of(topic, List.of(
                         new AlterConfigOp(new ConfigEntry("retention.ms", "172800000"), AlterConfigOp.OpType.SET))))
                 .all().get(10, TimeUnit.SECONDS);
-        assertThat(retentionMs("workshop.qa.inspect")).isEqualTo("172800000");
+        eventually(() -> assertThat(retentionMs("workshop.qa.inspect")).isEqualTo("172800000"));
     }
 
     @Test
@@ -250,7 +250,7 @@ class GovernanceIT extends AdminHTTPTestSupport {
                 .all().get(10, TimeUnit.SECONDS);
 
         // then
-        assertThat(retentionMs("legacy_orders")).isEqualTo("3600000");
+        eventually(() -> assertThat(retentionMs("legacy_orders")).isEqualTo("3600000"));
     }
 
     @Test
@@ -263,13 +263,13 @@ class GovernanceIT extends AdminHTTPTestSupport {
                 .all().get(10, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(PolicyViolationException.class)
                 .cause().hasMessageContaining("[sizing > limits > tier] Partitions must be 1 or 3.");
-        assertThat(partitions("workshop.robots.lift"))
+        eventually(() -> assertThat(partitions("workshop.robots.lift"))
                 .withFailMessage(() -> "Refused partitions were added on the broker")
-                .isEqualTo(1);
+                .isEqualTo(1));
 
         // and - 3 is a tier
         gatewayAdmin.createPartitions(Map.of("workshop.robots.lift", NewPartitions.increaseTo(3))).all().get(10, TimeUnit.SECONDS);
-        assertThat(partitions("workshop.robots.lift")).isEqualTo(3);
+        eventually(() -> assertThat(partitions("workshop.robots.lift")).isEqualTo(3));
     }
 
     @Test
@@ -289,7 +289,7 @@ class GovernanceIT extends AdminHTTPTestSupport {
         gatewayAdmin.incrementalAlterConfigs(Map.of(topic, List.of(
                         new AlterConfigOp(new ConfigEntry("retention.ms", DAY_MS), AlterConfigOp.OpType.SET))))
                 .all().get(10, TimeUnit.SECONDS);
-        assertThat(retentionMs("workshop.qa.legacy")).isEqualTo(DAY_MS);
+        eventually(() -> assertThat(retentionMs("workshop.qa.legacy")).isEqualTo(DAY_MS));
     }
 
     @Test
@@ -316,9 +316,9 @@ class GovernanceIT extends AdminHTTPTestSupport {
         assertThatThrownBy(() -> gatewayAdmin.deleteTopics(List.of("workshop.qa.archive")).all().get(10, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(PolicyViolationException.class)
                 .cause().hasMessageContaining("[keep-qa] QA results are never deleted.");
-        assertThat(brokerTopics())
+        eventually(() -> assertThat(brokerTopics())
                 .withFailMessage(() -> "A protected topic was deleted on the broker")
-                .contains("workshop.qa.archive");
+                .contains("workshop.qa.archive"));
 
         // and - other topics can go
         gatewayAdmin.deleteTopics(List.of("workshop.robots.retired")).all().get(10, TimeUnit.SECONDS);

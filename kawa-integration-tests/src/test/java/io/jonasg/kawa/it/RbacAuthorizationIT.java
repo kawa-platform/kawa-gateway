@@ -228,7 +228,7 @@ class RbacAuthorizationIT extends GatewayTestSupport {
         admin.createTopics(List.of(new NewTopic(topic, 1, (short) 1))).all().get(10, TimeUnit.SECONDS);
 
         // then
-        assertThat(admin.listTopics().names().get(10, TimeUnit.SECONDS)).contains(topic);
+        eventually(() -> assertThat(admin.listTopics().names().get(10, TimeUnit.SECONDS)).contains(topic));
 
         // when
         admin.deleteTopics(List.of(topic)).all().get(10, TimeUnit.SECONDS);

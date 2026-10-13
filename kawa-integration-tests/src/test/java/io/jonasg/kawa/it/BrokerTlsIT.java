@@ -39,6 +39,7 @@ import org.apache.kafka.common.resource.ResourceType;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.AfterAll;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -179,9 +180,10 @@ class BrokerTlsIT {
             assertThat(created.statusCode())
                     .withFailMessage(() -> "The admin API could not create a topic over TLS: " + created.body())
                     .isEqualTo(201);
-            assertThat(brokerAdmin.listTopics().names().get(30, TimeUnit.SECONDS))
-                    .withFailMessage(() -> "Topic 'ssl-admin' created through the admin API is not on the broker")
-                    .contains("ssl-admin");
+            Awaitility.await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(500)).untilAsserted(() ->
+                    assertThat(brokerAdmin.listTopics().names().get(30, TimeUnit.SECONDS))
+                            .withFailMessage(() -> "Topic 'ssl-admin' created through the admin API is not on the broker")
+                            .contains("ssl-admin"));
         } finally {
             gateway.stop();
         }

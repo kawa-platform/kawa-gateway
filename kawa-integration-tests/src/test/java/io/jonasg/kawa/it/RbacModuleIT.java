@@ -45,9 +45,9 @@ class RbacModuleIT extends AdminHTTPTestSupport {
 
             // then
             visitor.createTopics(List.of(new NewTopic("visitor.while-off", 1, (short) 1))).all().get(10, TimeUnit.SECONDS);
-            assertThat(brokerTopics())
+            eventually(() -> assertThat(brokerTopics())
                     .withFailMessage(() -> "'visitor' could not create a topic while RBAC was off")
-                    .contains("visitor.while-off");
+                    .contains("visitor.while-off"));
 
             // and when
             switchRbac(true);

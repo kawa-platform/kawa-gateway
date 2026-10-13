@@ -39,9 +39,9 @@ class GovernanceModuleIT extends AdminHTTPTestSupport {
 
         // then
         gatewayAdmin.createTopics(List.of(new NewTopic("misc.while-off", 1, (short) 1))).all().get(10, TimeUnit.SECONDS);
-        assertThat(brokerTopics())
+        eventually(() -> assertThat(brokerTopics())
                 .withFailMessage(() -> "Non-compliant topic 'misc.while-off' was not created while governance was off")
-                .contains("misc.while-off");
+                .contains("misc.while-off"));
 
         // and when
         switchGovernance(true);

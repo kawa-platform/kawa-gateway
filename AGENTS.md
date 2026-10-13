@@ -45,6 +45,13 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
   Prefer the lazy `Supplier<String>` form so the message is only built on failure.
 - `GatewayTestSupport` (kawa-integration-tests) is the shared lifecycle; subclasses override `authConfig()`/
   `rbacConfig()`/`initialTopics()`.
+- **Always verify asynchronous outcomes with Awaitility, never with a one-shot read.** Kafka admin writes (create/delete
+  topics, create partitions, alter configs, create/delete ACLs) complete once the KRaft controller commits them; the
+  broker's metadata cache and authorizer catch up later. A read right after the write passes locally and fails
+  intermittently on CI. In ITs extending `GatewayTestSupport` use `eventually(() -> assertThat(...))` (30s timeout,
+  500ms poll); elsewhere use `Awaitility.await()` directly. The same applies to anything else that settles in the
+  background (config reloads, consumer group rebalances, gateway state picked up from the config topic). Negative
+  checks (`doesNotContain` after a refused request) may stay immediate.
 - Test helpers used by more than one module (custom AssertJ assertions, fixtures, Object Mothers) live in
   `kawa-test-support`, not in a module's `src/test`. Statically import `assertThat` from
   `io.jonasg.kawa.test.KawaAssertions` instead of from AssertJ's `Assertions`; it adds `HttpResponseAssert`
