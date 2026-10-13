@@ -167,7 +167,7 @@ class VirtualTopicsIT extends GatewayTestSupport {
     void creatingPhysicalTopicThroughGatewaySucceeds() throws Exception {
         String topic = "baz-" + System.nanoTime();
         gatewayAdmin.createTopics(List.of(new NewTopic(topic, 1, (short) 1))).all().get(5, TimeUnit.SECONDS);
-        assertThat(brokerAdmin.listTopics().names().get()).contains(topic);
+        eventually(() -> assertThat(brokerAdmin.listTopics().names().get()).contains(topic));
     }
 
     @Test
@@ -201,9 +201,8 @@ class VirtualTopicsIT extends GatewayTestSupport {
         gatewayAdmin.createPartitions(Map.of("foo", NewPartitions.increaseTo(current + 1)))
                 .all().get(5, TimeUnit.SECONDS);
 
-        int updated = brokerAdmin.describeTopics(List.of(physical)).allTopicNames().get()
-                .get(physical).partitions().size();
-        assertThat(updated).isEqualTo(current + 1);
+        eventually(() -> assertThat(brokerAdmin.describeTopics(List.of(physical)).allTopicNames().get()
+                .get(physical).partitions()).hasSize(current + 1));
     }
 
     @Test
@@ -234,13 +233,15 @@ class VirtualTopicsIT extends GatewayTestSupport {
         gatewayAdmin.createAcls(List.of(virtualBinding)).all().get(5, TimeUnit.SECONDS);
 
         // then the acl is stored under the physical topic name, not the virtual one
-        Collection<AclBinding> physical = brokerAdmin.describeAcls(new AclBindingFilter(
-                        new ResourcePatternFilter(ResourceType.TOPIC, "foo-v2", PatternType.LITERAL),
-                        AccessControlEntryFilter.ANY))
-                .values().get(5, TimeUnit.SECONDS);
-        assertThat(physical).hasSize(1);
-        assertThat(physical.iterator().next().pattern().name()).isEqualTo("foo-v2");
-        assertThat(physical.iterator().next().entry().principal()).isEqualTo("User:alice");
+        eventually(() -> {
+            Collection<AclBinding> physical = brokerAdmin.describeAcls(new AclBindingFilter(
+                            new ResourcePatternFilter(ResourceType.TOPIC, "foo-v2", PatternType.LITERAL),
+                            AccessControlEntryFilter.ANY))
+                    .values().get(5, TimeUnit.SECONDS);
+            assertThat(physical).hasSize(1);
+            assertThat(physical.iterator().next().pattern().name()).isEqualTo("foo-v2");
+            assertThat(physical.iterator().next().entry().principal()).isEqualTo("User:alice");
+        });
 
         Collection<AclBinding> virtual = brokerAdmin.describeAcls(new AclBindingFilter(
                         new ResourcePatternFilter(ResourceType.TOPIC, "foo", PatternType.LITERAL),
@@ -258,18 +259,19 @@ class VirtualTopicsIT extends GatewayTestSupport {
                 .all().get(5, TimeUnit.SECONDS);
 
         // when describing acls for the virtual topic through the gateway
-        Collection<AclBinding> described = gatewayAdmin.describeAcls(new AclBindingFilter(
-                        new ResourcePatternFilter(ResourceType.TOPIC, "foo", PatternType.LITERAL),
-                        AccessControlEntryFilter.ANY))
-                .values().get(5, TimeUnit.SECONDS);
-
         // then the acl is returned under the virtual topic name
-        assertThat(described).hasSize(1);
-        AclBinding binding = described.iterator().next();
-        assertThat(binding.pattern().name()).isEqualTo("foo");
-        assertThat(binding.pattern().patternType()).isEqualTo(PatternType.LITERAL);
-        assertThat(binding.entry().principal()).isEqualTo("User:alice");
-        assertThat(binding.entry().operation()).isEqualTo(AclOperation.READ);
+        eventually(() -> {
+            Collection<AclBinding> described = gatewayAdmin.describeAcls(new AclBindingFilter(
+                            new ResourcePatternFilter(ResourceType.TOPIC, "foo", PatternType.LITERAL),
+                            AccessControlEntryFilter.ANY))
+                    .values().get(5, TimeUnit.SECONDS);
+            assertThat(described).hasSize(1);
+            AclBinding binding = described.iterator().next();
+            assertThat(binding.pattern().name()).isEqualTo("foo");
+            assertThat(binding.pattern().patternType()).isEqualTo(PatternType.LITERAL);
+            assertThat(binding.entry().principal()).isEqualTo("User:alice");
+            assertThat(binding.entry().operation()).isEqualTo(AclOperation.READ);
+        });
     }
 
     @Test
@@ -283,6 +285,9 @@ class VirtualTopicsIT extends GatewayTestSupport {
                                 new ResourcePattern(ResourceType.GROUP, "orders", PatternType.LITERAL),
                                 new AccessControlEntry("User:bob", "*", AclOperation.READ, AclPermissionType.ALLOW))))
                 .all().get(5, TimeUnit.SECONDS);
+        eventually(() -> assertThat(brokerAdmin.describeAcls(AclBindingFilter.ANY).values().get(5, TimeUnit.SECONDS))
+                .extracting(binding -> binding.pattern().name())
+                .contains("foo-v2", "orders"));
 
         // when deleting acls filtered by the virtual topic name through the gateway
         Collection<AclBinding> deleted = gatewayAdmin.deleteAcls(List.of(new AclBindingFilter(
@@ -294,11 +299,13 @@ class VirtualTopicsIT extends GatewayTestSupport {
         assertThat(deleted).hasSize(1);
         assertThat(deleted.iterator().next().pattern().name()).isEqualTo("foo");
 
-        Collection<AclBinding> remaining = brokerAdmin.describeAcls(AclBindingFilter.ANY)
-                .values().get(5, TimeUnit.SECONDS);
-        assertThat(remaining).hasSize(1);
-        assertThat(remaining.iterator().next().pattern().resourceType()).isEqualTo(ResourceType.GROUP);
-        assertThat(remaining.iterator().next().pattern().name()).isEqualTo("orders");
+        eventually(() -> {
+            Collection<AclBinding> remaining = brokerAdmin.describeAcls(AclBindingFilter.ANY)
+                    .values().get(5, TimeUnit.SECONDS);
+            assertThat(remaining).hasSize(1);
+            assertThat(remaining.iterator().next().pattern().resourceType()).isEqualTo(ResourceType.GROUP);
+            assertThat(remaining.iterator().next().pattern().name()).isEqualTo("orders");
+        });
     }
 
     @Test
@@ -397,13 +404,15 @@ class VirtualTopicsIT extends GatewayTestSupport {
                 .all().get(5, TimeUnit.SECONDS);
 
         // then the physical topic carries the new config value
-        Map<ConfigResource, Config> configs = brokerAdmin
-                .describeConfigs(List.of(new ConfigResource(ConfigResource.Type.TOPIC, "session-v3")))
-                .all().get(5, TimeUnit.SECONDS);
-        assertThat(configs.get(new ConfigResource(ConfigResource.Type.TOPIC, "session-v3"))
-                .get("retention.ms").value())
-                .describedAs("config altered under the virtual name must land on the physical topic")
-                .isEqualTo("111111111");
+        eventually(() -> {
+            Map<ConfigResource, Config> configs = brokerAdmin
+                    .describeConfigs(List.of(new ConfigResource(ConfigResource.Type.TOPIC, "session-v3")))
+                    .all().get(5, TimeUnit.SECONDS);
+            assertThat(configs.get(new ConfigResource(ConfigResource.Type.TOPIC, "session-v3"))
+                    .get("retention.ms").value())
+                    .describedAs("config altered under the virtual name must land on the physical topic")
+                    .isEqualTo("111111111");
+        });
     }
 
     @Test
@@ -416,13 +425,15 @@ class VirtualTopicsIT extends GatewayTestSupport {
                 .all().get(5, TimeUnit.SECONDS);
 
         // then the physical topic carries the incremented config value
-        Map<ConfigResource, Config> configs = brokerAdmin
-                .describeConfigs(List.of(new ConfigResource(ConfigResource.Type.TOPIC, "session-v3")))
-                .all().get(5, TimeUnit.SECONDS);
-        assertThat(configs.get(new ConfigResource(ConfigResource.Type.TOPIC, "session-v3"))
-                .get("retention.ms").value())
-                .describedAs("incremental config change must land on the physical topic")
-                .isEqualTo("222222222");
+        eventually(() -> {
+            Map<ConfigResource, Config> configs = brokerAdmin
+                    .describeConfigs(List.of(new ConfigResource(ConfigResource.Type.TOPIC, "session-v3")))
+                    .all().get(5, TimeUnit.SECONDS);
+            assertThat(configs.get(new ConfigResource(ConfigResource.Type.TOPIC, "session-v3"))
+                    .get("retention.ms").value())
+                    .describedAs("incremental config change must land on the physical topic")
+                    .isEqualTo("222222222");
+        });
     }
 
     @Test
