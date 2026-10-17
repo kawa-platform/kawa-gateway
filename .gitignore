@@ -42,12 +42,6 @@ build/
 ### shade plugin artifact
 /gateway-server/dependency-reduced-pom.xml
 
-### docusaurus ###
-docs/node_modules/
-docs/build/
-docs/.docusaurus/
-docs/.cache-loader/
-
 ### opencode ###
 maven-20*
 

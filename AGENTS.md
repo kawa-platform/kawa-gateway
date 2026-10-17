@@ -112,11 +112,3 @@ depend on production modules such as `kawa-config`, but never on a module that u
 - Java source and tests use four-space indentation and no tabs. Checkstyle enforces this, along with a 160-character
   line limit, naming conventions, import hygiene, modifier order, blank-line rules, and newline-at-EOF. The
   configuration lives in `checkstyle.xml` and runs during `validate`.
-
-## Docs
-
-`docs/` is a separate Docusaurus site (Node ≥ 20): `npm run start` (dev),
-`npm run build`, `npm run typecheck`. Authoritative concept pages live in
-`docs/docs/concepts/` (`architecture.md`, `authentication.md`, `rbac.md`,
-`virtual-topics.md`). Keep the "What is enforced today" RBAC table in
-`rbac.md` in sync with `kawa-rbac`'s `AuthorizationInterceptor` registry.
