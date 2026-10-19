@@ -55,7 +55,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     ./mvnw -B clean package -DskipTests -pl kawa-server -am
 
 # ---- runtime stage ----------------------------------------------------------
-FROM eclipse-temurin:26-jre-alpine AS runtime
+FROM eclipse-temurin:27-jre-alpine AS runtime
 
 LABEL org.opencontainers.image.title="kawa-gateway" \
       org.opencontainers.image.description="High-performance Kafka gateway" \
