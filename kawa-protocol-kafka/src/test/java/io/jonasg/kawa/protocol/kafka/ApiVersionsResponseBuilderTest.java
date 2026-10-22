@@ -25,7 +25,7 @@ class ApiVersionsResponseBuilderTest {
     void intersectsDecodedRangesWithBrokerRanges() {
         Map<Short, VersionRange> broker = Map.of(
                 (short) 18, VersionRange.of((short) 0, (short) 3),
-                (short) 0, VersionRange.of((short) 0, (short) 11),
+                (short) 0, VersionRange.of((short) 0, (short) 13),
                 (short) 3, VersionRange.of((short) 0, (short) 12),
                 (short) 8, VersionRange.of((short) 0, (short) 8),
                 (short) 50, VersionRange.of((short) 0, (short) 9));
@@ -39,7 +39,7 @@ class ApiVersionsResponseBuilderTest {
         assertThat(metadata.maxVersion()).isEqualTo((short) 8); // our max, not broker 12
 
         ApiVersionsResponseData.ApiVersion produce = find(result.data(), (short) 0);
-        assertThat(produce.maxVersion()).isEqualTo((short) 8);
+        assertThat(produce.maxVersion()).isEqualTo((short) 12); // our max, not broker 13 (topic ids)
 
         ApiVersionsResponseData.ApiVersion offsetCommit = find(result.data(), (short) 8);
         assertThat(offsetCommit.maxVersion()).isEqualTo((short) 7); // broker caps at 7

@@ -148,7 +148,7 @@ public final class KafkaApiRegistry {
                         of(ApiVersionsRequestData::new), of(ApiVersionsResponseData::new)),
                 new KafkaApiSpec(METADATA, "Metadata", VersionRange.of(0, 8),
                         of(MetadataRequestData::new), of(MetadataResponseData::new)),
-                new KafkaApiSpec(PRODUCE, "Produce", VersionRange.of(0, 8),
+                new KafkaApiSpec(PRODUCE, "Produce", VersionRange.of(0, 12),
                         of(ProduceRequestData::new), of(ProduceResponseData::new)),
                 new KafkaApiSpec(FETCH, "Fetch", VersionRange.of(0, 11),
                         of(FetchRequestData::new), of(FetchResponseData::new)),
