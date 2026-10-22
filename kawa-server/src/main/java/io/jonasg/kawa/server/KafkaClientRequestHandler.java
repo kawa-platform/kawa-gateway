@@ -169,7 +169,7 @@ public final class KafkaClientRequestHandler {
 
         ByteBuf out = session.channel().alloc().buffer();
         responseHeaderCodec.encode(out, responseHeaderVersion, header.correlationId());
-        codec.encodeResponse(KafkaApiRegistry.API_VERSIONS, result.responseVersion(), result.data(), out);
+        codec.encodeResponse(result.responseVersion(), result.data(), out);
         session.writeResponse(header.correlationId(), out);
         metrics.request("ApiVersions", "answered-locally");
         metrics.response("ApiVersions", "ok");
@@ -195,7 +195,7 @@ public final class KafkaClientRequestHandler {
 
         ByteBuf out = session.channel().alloc().buffer();
         responseHeaderCodec.encode(out, responseHeaderVersion, request.correlationId());
-        codec.encodeResponse(KafkaApiRegistry.SASL_HANDSHAKE, version, response, out);
+        codec.encodeResponse(version, response, out);
         session.writeResponse(request.correlationId(), out);
         metrics.request("SaslHandshake", "answered-locally");
         metrics.response("SaslHandshake", "ok");
@@ -224,7 +224,7 @@ public final class KafkaClientRequestHandler {
 
         ByteBuf out = session.channel().alloc().buffer();
         responseHeaderCodec.encode(out, responseHeaderVersion, request.correlationId());
-        codec.encodeResponse(KafkaApiRegistry.SASL_AUTHENTICATE, version, response, out);
+        codec.encodeResponse(version, response, out);
         session.writeResponse(request.correlationId(), out);
         metrics.request("SaslAuthenticate", "answered-locally");
         metrics.response("SaslAuthenticate", result instanceof AuthenticationResult.Failure ? "error" : "ok");
@@ -242,7 +242,7 @@ public final class KafkaClientRequestHandler {
 
         ByteBuf out = session.channel().alloc().buffer();
         responseHeaderCodec.encode(out, responseHeaderVersion, request.correlationId());
-        codec.encodeResponse(result.apiKey(), result.apiVersion(), result.body(), out);
+        codec.encodeResponse(result.apiVersion(), result.body(), out);
         session.writeResponse(request.correlationId(), out);
         metrics.request(request.apiName(), "short-circuited");
         metrics.response(request.apiName(), "ok");

@@ -79,7 +79,7 @@ public final class BrokerSaslAuthenticator {
                 KafkaApiRegistry.SASL_HANDSHAKE, (short) 1, correlationId, "kawa-gateway");
         ByteBuf out = channel.alloc().buffer();
         requestHeaderCodec.encode(out, header);
-        codec.encodeRequest(KafkaApiRegistry.SASL_HANDSHAKE, (short) 1,
+        codec.encodeRequest((short) 1,
                 new SaslHandshakeRequestData().setMechanism(config.mechanism()), out);
         channel.writeAndFlush(out);
 
@@ -106,7 +106,7 @@ public final class BrokerSaslAuthenticator {
                 .getBytes(StandardCharsets.UTF_8);
         ByteBuf out = channel.alloc().buffer();
         requestHeaderCodec.encode(out, header);
-        codec.encodeRequest(KafkaApiRegistry.SASL_AUTHENTICATE, (short) 2,
+        codec.encodeRequest((short) 2,
                 new SaslAuthenticateRequestData().setAuthBytes(authBytes), out);
         channel.writeAndFlush(out);
 

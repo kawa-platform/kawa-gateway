@@ -204,7 +204,7 @@ class BrokerClientSaslTest {
         KafkaHeader header = KafkaHeader.of(apiKey, apiVersion, correlationId, "test-server");
         ByteBuf out = ctx.alloc().buffer();
         responseHeaderCodec.encode(out, header.responseHeaderVersion(), correlationId);
-        codec.encodeRequest(apiKey, apiVersion, body, out);
+        codec.encodeRequest(apiVersion, body, out);
         ctx.writeAndFlush(out);
     }
 }
