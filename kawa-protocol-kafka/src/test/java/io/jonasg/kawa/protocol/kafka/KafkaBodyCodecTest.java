@@ -52,6 +52,23 @@ class KafkaBodyCodecTest {
     }
 
     @Test
+    void roundTripsProduceRequestAtHighestVersion() {
+        var request = new ProduceRequestData().setAcks((short) 1).setTimeoutMs(30000);
+        request.topicData().add(new ProduceRequestData.TopicProduceData().setName("orders-v2")
+                .setPartitionData(List.of(new ProduceRequestData.PartitionProduceData()
+                        .setIndex(0)
+                        .setRecords(MemoryRecords.readableRecords(ByteBuffer.wrap(new byte[]{1, 2, 3}))))));
+
+        ByteBuf buf = Unpooled.buffer();
+        codec.encodeRequest(KafkaApiRegistry.PRODUCE, (short) 12, request, buf);
+
+        ProduceRequestData data = (ProduceRequestData) codec.decodeRequest(KafkaApiRegistry.PRODUCE, (short) 12, buf);
+        assertThat(first(data.topicData()).name())
+                .withFailMessage(() -> "Produce v12 request did not decode the topic name")
+                .isEqualTo("orders-v2");
+    }
+
+    @Test
     void roundTripsMetadataResponse() {
         var response = new MetadataResponseData();
         response.brokers().add(new MetadataResponseData.MetadataResponseBroker()
