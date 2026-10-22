@@ -162,7 +162,7 @@ class BrokerSaslAuthenticatorTest {
                             responseHeaderCodec.encode(responsePayload,
                                     header.responseHeaderVersion(), 1);
                             codec.encodeRequest(
-                                    KafkaApiRegistry.SASL_HANDSHAKE, apiVersion,
+                                    apiVersion,
                                     handshakeResponse, responsePayload);
                         } else if (apiKey == ApiKeys.SASL_AUTHENTICATE.id) {
                             KafkaHeader header = KafkaHeader.of(
@@ -170,7 +170,7 @@ class BrokerSaslAuthenticatorTest {
                             responseHeaderCodec.encode(responsePayload,
                                     header.responseHeaderVersion(), 2);
                             codec.encodeRequest(
-                                    KafkaApiRegistry.SASL_AUTHENTICATE, apiVersion,
+                                    apiVersion,
                                     authenticateResponse, responsePayload);
                         }
 

@@ -39,7 +39,7 @@ class KafkaBodyCodecTest {
                         .setRecords(MemoryRecords.readableRecords(ByteBuffer.wrap(new byte[]{1, 2, 3, 4, 5}))))));
 
         ByteBuf buf = Unpooled.buffer();
-        codec.encodeRequest(KafkaApiRegistry.PRODUCE, (short) 8, request, buf);
+        codec.encodeRequest((short) 8, request, buf);
 
         Object decoded = codec.decodeRequest(KafkaApiRegistry.PRODUCE, (short) 8, buf);
         ProduceRequestData data = (ProduceRequestData) decoded;
@@ -60,7 +60,7 @@ class KafkaBodyCodecTest {
                         .setRecords(MemoryRecords.readableRecords(ByteBuffer.wrap(new byte[]{1, 2, 3}))))));
 
         ByteBuf buf = Unpooled.buffer();
-        codec.encodeRequest(KafkaApiRegistry.PRODUCE, (short) 12, request, buf);
+        codec.encodeRequest((short) 12, request, buf);
 
         ProduceRequestData data = (ProduceRequestData) codec.decodeRequest(KafkaApiRegistry.PRODUCE, (short) 12, buf);
         assertThat(first(data.topicData()).name())
@@ -83,7 +83,7 @@ class KafkaBodyCodecTest {
         response.topics().add(topic);
 
         ByteBuf buf = Unpooled.buffer();
-        codec.encodeResponse(KafkaApiRegistry.METADATA, (short) 8, response, buf);
+        codec.encodeResponse((short) 8, response, buf);
 
         Object decoded = codec.decodeResponse(KafkaApiRegistry.METADATA, (short) 8, buf);
         MetadataResponseData data = (MetadataResponseData) decoded;
@@ -101,7 +101,7 @@ class KafkaBodyCodecTest {
                 .setClientSoftwareVersion("3.8.0");
 
         ByteBuf buf = Unpooled.buffer();
-        codec.encodeRequest(KafkaApiRegistry.API_VERSIONS, (short) 3, request, buf);
+        codec.encodeRequest((short) 3, request, buf);
 
         Object decoded = codec.decodeRequest(KafkaApiRegistry.API_VERSIONS, (short) 3, buf);
         ApiVersionsRequestData data = (ApiVersionsRequestData) decoded;
@@ -121,7 +121,7 @@ class KafkaBodyCodecTest {
                         .setLastFetchedEpoch(-1).setLogStartOffset(0L).setPartitionMaxBytes(1_000_000))));
 
         ByteBuf buf = Unpooled.buffer();
-        codec.encodeRequest(KafkaApiRegistry.FETCH, (short) 11, request, buf);
+        codec.encodeRequest((short) 11, request, buf);
 
         Object decoded = codec.decodeRequest(KafkaApiRegistry.FETCH, (short) 11, buf);
         FetchRequestData data = (FetchRequestData) decoded;
@@ -149,7 +149,7 @@ class KafkaBodyCodecTest {
                         .setIndex(0).setErrorCode((short) 0).setBaseOffset(42L))));
 
         ByteBuf buf = Unpooled.buffer();
-        codec.encodeResponse(KafkaApiRegistry.PRODUCE, (short) 8, response, buf);
+        codec.encodeResponse((short) 8, response, buf);
 
         assertThat(codec.bodySize((short) 8, response)).isEqualTo(buf.readableBytes());
     }
@@ -162,7 +162,7 @@ class KafkaBodyCodecTest {
         var response = new AddPartitionsToTxnResponseData().setErrorCode(Errors.TOPIC_AUTHORIZATION_FAILED.code());
 
         ByteBuf buf = Unpooled.buffer();
-        codec.encodeResponse(KafkaApiRegistry.ADD_PARTITIONS_TO_TXN, (short) 3, response, buf);
+        codec.encodeResponse((short) 3, response, buf);
 
         Object decoded = codec.decodeResponse(KafkaApiRegistry.ADD_PARTITIONS_TO_TXN, (short) 3, buf);
         AddPartitionsToTxnResponseData data = (AddPartitionsToTxnResponseData) decoded;

@@ -106,7 +106,7 @@ public final class BrokerClient {
         ByteBuf out = channel.alloc().buffer();
         requestHeaderCodec.encode(out, forwarded);
         if (request.body() != null) {
-            codec.encodeRequest((short) request.apiKey(), request.apiVersion(), request.body(), out);
+            codec.encodeRequest(request.apiVersion(), request.body(), out);
         } else {
             out.writeBytes(request.rawBody());
             request.rawBody().release();
@@ -152,7 +152,7 @@ public final class BrokerClient {
         responseHeaderCodec.encode(out, response.header().responseHeaderVersion(),
                 request.requestHeader().correlationId());
         if (body != null) {
-            codec.encodeResponse(request.apiKey(), request.apiVersion(), body, out);
+            codec.encodeResponse(request.apiVersion(), body, out);
         } else {
             out.writeBytes(frame);
             frame.release();

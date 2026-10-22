@@ -54,7 +54,6 @@ public final class KafkaBodyCodec {
     }
 
     public void encodeRequest(
-            short apiKey,
             short version,
             Object body,
             ByteBuf out
@@ -63,7 +62,6 @@ public final class KafkaBodyCodec {
     }
 
     public void encodeResponse(
-            short apiKey,
             short version,
             Object body,
             ByteBuf out

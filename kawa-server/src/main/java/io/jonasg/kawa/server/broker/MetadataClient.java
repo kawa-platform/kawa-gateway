@@ -183,7 +183,7 @@ public final class MetadataClient {
         var header = KafkaHeader.of(apiKey, version, correlationId, "kawa-metadata-client");
         ByteBuf out = ch.alloc().buffer();
         requestHeaderCodec.encode(out, header);
-        codec.encodeRequest(apiKey, version, body, out);
+        codec.encodeRequest(version, body, out);
         if (log.isDebugEnabled()) {
             log.debug("Sending {} v{} (correlation {}) to broker: {}",
                     apiKey, version, correlationId, hex(out));
