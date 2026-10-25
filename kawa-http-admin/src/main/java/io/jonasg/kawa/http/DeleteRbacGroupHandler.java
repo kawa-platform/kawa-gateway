@@ -14,7 +14,7 @@ public final class DeleteRbacGroupHandler implements Router.Handler {
         String name = request.pathParams().get("name");
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            service.deleteGroup(name, consistency);
+            service.deleteGroup(request.principal(), name, consistency);
             return Router.Response.noContent();
         } catch (ConflictException e) {
             return Router.Response.conflict(e.getMessage());

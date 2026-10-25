@@ -37,6 +37,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static io.jonasg.kawa.test.KawaAssertions.assertThat;
+
 /// Shared setup for the admin HTTP slice tests: boots a real [AdminHttpServer] on an ephemeral
 /// port wired to in-memory fakes, and sends real HTTP requests through the full Netty pipeline.
 /// The slice tests assert the JSON wire format the admin UI consumes, so they exercise the
@@ -186,6 +188,41 @@ abstract class AdminHttpSliceTestBase {
 
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    /// An oauth admin auth config with the operator client enabled (secret `operator-secret`).
+    protected static AdminAuthConfig operatorAuth() {
+        return new AdminAuthConfig("oauth", new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), Map.of(
+                "issuer", "kawa-test", "signingKey", TestSigningKeys.SEC1_P256,
+                "loginUrl", LOGIN_URL, "redirectUris", REDIRECT_URI,
+                "operatorSecret", "operator-secret"));
+    }
+
+    /// An access token of `kawa-operator` acting as itself, through the client credentials grant.
+    protected String operatorToken() throws Exception {
+        var response = send("POST", "/oauth/token", "grant_type=client_credentials", operatorBasic());
+        assertThat(response).hasStatusCode(200);
+        return JsonMapper.builder().build().readTree(response.body()).get("access_token").asString();
+    }
+
+    private static Map<String, String> operatorBasic() {
+        return Map.of("Authorization", "Basic " + Base64.getEncoder().encodeToString(
+                "kawa-operator:operator-secret".getBytes(StandardCharsets.UTF_8)),
+                "Content-Type", "application/x-www-form-urlencoded");
+    }
+
+    /// An access token of `kawa-operator` acting as `principal`, through the token exchange grant.
+    protected String delegatedToken(String principal) throws Exception {
+        var basic = operatorBasic();
+        String operatorToken = operatorToken();
+        var exchangeResp = send("POST", "/oauth/token",
+                "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange"
+                        + "&subject_token=" + operatorToken
+                        + "&subject_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token"
+                        + "&requested_subject=" + URLEncoder.encode(principal, StandardCharsets.UTF_8),
+                basic);
+        assertThat(exchangeResp).hasStatusCode(200);
+        return JsonMapper.builder().build().readTree(exchangeResp.body()).get("access_token").asString();
     }
 
     /// The `Authorization` header carrying `token`.

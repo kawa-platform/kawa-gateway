@@ -4,9 +4,15 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/// A SASL client the gateway authenticates.
+///
+/// @param mechanism the SASL mechanism (e.g. PLAIN, SCRAM-SHA-256)
+/// @param password  the hashed password
+/// @param managedBy the owner of this entry, or `null` when it is unmanaged
 public record ClientConfig(
         String mechanism,
-        HashedPassword password
+        HashedPassword password,
+        ManagedBy managedBy
 ) {
 
     private static final Pattern ENV_VAR_PATTERN =
@@ -16,6 +22,15 @@ public record ClientConfig(
         if (password == null) {
             throw new IllegalArgumentException("password must not be null");
         }
+    }
+
+    public ClientConfig(String mechanism, HashedPassword password) {
+        this(mechanism, password, null);
+    }
+
+    /// Returns a copy owned by `managedBy` (`null` for unmanaged).
+    public ClientConfig withManagedBy(ManagedBy managedBy) {
+        return new ClientConfig(mechanism, password, managedBy);
     }
 
     /// Creates a client configuration by hashing a plaintext password before it enters the

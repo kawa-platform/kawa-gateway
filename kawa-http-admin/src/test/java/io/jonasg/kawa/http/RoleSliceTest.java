@@ -2,10 +2,12 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GroupConfig;
+import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.RoleConfig;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
@@ -13,6 +15,8 @@ import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 /// Slice tests for the `/rbac/roles` admin surface: real HTTP requests through a booted
 /// [AdminHttpServer], asserting the JSON wire format the admin UI consumes.
 class RoleSliceTest extends AdminHttpSliceTestBase {
+
+    private static final ManagedBy OPERATOR = new ManagedBy("kawa-operator");
 
     @Test
     void listsConfiguredRoles() throws Exception {
@@ -27,7 +31,7 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(200);
         assertThatJson(response.body()).isEqualTo("""
-                [{"name":"reader","acls":[]}]
+                [{"name":"reader","acls":[],"managedBy":null}]
                 """);
     }
 
@@ -47,8 +51,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
         assertThat(response.statusCode()).isEqualTo(200);
         assertThatJson(response.body()).isEqualTo("""
                 [
-                  {"name":"reader","acls":[]},
-                  {"name":"writer","acls":[]}
+                  {"name":"reader","acls":[],"managedBy":null},
+                  {"name":"writer","acls":[],"managedBy":null}
                 ]
                 """);
     }
@@ -84,7 +88,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
                     "resource": {"type": "TOPIC", "pattern": "orders", "patternType": "LITERAL"},
                     "operation": "READ",
                     "permission": "ALLOW"
-                  }]
+                  }],
+                  "managedBy": null
                 }
                 """);
         assertThat(repository.getActiveConfig().rbac().roles()).containsKey("reader");
@@ -164,7 +169,7 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(rolesResp.statusCode()).isEqualTo(200);
         assertThat(rolesResp)
-                .containsExactlyTopLevelPropertyNames("name", "acls");
+                .containsExactlyTopLevelPropertyNames("name", "acls", "managedBy");
     }
 
     @Test
@@ -177,6 +182,144 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(putResp.statusCode()).isEqualTo(200);
-        assertThat(putResp).containsExactlyTopLevelPropertyNames("acls");
+        assertThat(putResp).containsExactlyTopLevelPropertyNames("acls", "managedBy");
+    }
+
+    @Test
+    void anOperatorWriteMarksTheRoleAsManagedByTheOperator() throws Exception {
+        // given
+        auth = operatorAuth();
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/rbac/roles/reader", "{\"acls\":[]}", bearer(operatorToken()));
+
+        // then
+        assertThat(putResp).hasStatusCode(200);
+        assertThatJson(putResp.body()).isEqualTo("""
+                {"acls": [], "managedBy": {"principal": "kawa-operator"}}
+                """);
+        assertThat(repository.getActiveConfig().rbac().roles().get("reader"))
+                .withFailMessage(() -> "role 'reader' was not stamped as managed by the operator")
+                .isEqualTo(new RoleConfig(List.of(), OPERATOR));
+    }
+
+    @Test
+    void listsTheOwnerOfAManagedRole() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .updateRbac(GatewayConfig.empty().rbac().upsertRole("reader", new RoleConfig(List.of(), OPERATOR))));
+        startServer();
+
+        // when
+        var rolesResp = send("GET", "/rbac/roles", null);
+
+        // then
+        assertThat(rolesResp).hasStatusCode(200);
+        assertThatJson(rolesResp.body()).isEqualTo("""
+                [{"name": "reader", "acls": [], "managedBy": {"principal": "kawa-operator"}}]
+                """);
+    }
+
+    @Test
+    void refusesChangesToAManagedRoleByAnyoneButItsOwner() throws Exception {
+        // given
+        auth = operatorAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .updateRbac(GatewayConfig.empty().rbac().upsertRole("reader", new RoleConfig(List.of(), OPERATOR))));
+        startServer();
+        var studio = bearer(login("admin@kawa", "s3cret"));
+
+        // when
+        var putResp = send("PUT", "/rbac/roles/reader", "{\"acls\":[]}", studio);
+        var deleteResp = send("DELETE", "/rbac/roles/reader", null, studio);
+
+        // then
+        for (var response : List.of(putResp, deleteResp)) {
+            assertThat(response).hasStatusCode(409);
+            assertThatJson(response.body()).isEqualTo("""
+                    {"error": "role 'reader' is managed by kawa-operator; change it through Kubernetes"}
+                    """);
+        }
+        assertThat(repository.getActiveConfig().rbac().roles())
+                .withFailMessage(() -> "a refused write changed managed role 'reader': " + repository.getActiveConfig().rbac().roles())
+                .containsExactly(Map.entry("reader", new RoleConfig(List.of(), OPERATOR)));
+    }
+
+    @Test
+    void refusesDeletingARoleAManagedGroupReferences() throws Exception {
+        // given
+        auth = operatorAuth();
+        var rbac = GatewayConfig.empty().rbac()
+                .upsertRole("reader", new RoleConfig(List.of()))
+                .upsertGroup("producers", new GroupConfig(List.of(), List.of("reader"), OPERATOR));
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateRbac(rbac));
+        startServer();
+
+        // when
+        var deleteResp = send("DELETE", "/rbac/roles/reader", null, bearer(login("admin@kawa", "s3cret")));
+
+        // then
+        assertThat(deleteResp).hasStatusCode(409);
+        assertThatJson(deleteResp.body()).isEqualTo("""
+                {"error": "group 'producers' is managed by kawa-operator; change it through Kubernetes"}
+                """);
+        assertThat(repository.getActiveConfig().rbac())
+                .withFailMessage(() -> "a refused role delete changed the rbac section: " + repository.getActiveConfig().rbac())
+                .isEqualTo(rbac);
+    }
+
+    @Test
+    void theOwnerRewritesItsManagedRoleAndOthersKeepEditingUnmanagedOnes() throws Exception {
+        // given
+        auth = operatorAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateRbac(GatewayConfig.empty().rbac()
+                .upsertRole("reader", new RoleConfig(List.of(), OPERATOR))
+                .upsertRole("writer", new RoleConfig(List.of()))));
+        startServer();
+        var acls = """
+                {"acls": [{"resource": {"type": "TOPIC", "pattern": "orders"}, "operation": "READ"}]}
+                """;
+
+        // when
+        var operatorPutResp = send("PUT", "/rbac/roles/reader", acls, bearer(operatorToken()));
+        var studioPutResp = send("PUT", "/rbac/roles/writer", acls, bearer(login("admin@kawa", "s3cret")));
+
+        // then
+        assertThat(operatorPutResp).hasStatusCode(200);
+        assertThat(studioPutResp).hasStatusCode(200);
+        assertThatJson(studioPutResp.body()).inPath("managedBy").isNull();
+        var roles = repository.getActiveConfig().rbac().roles();
+        assertThat(roles.get("reader").managedBy())
+                .withFailMessage(() -> "the operator's rewrite of role 'reader' dropped its owner")
+                .isEqualTo(OPERATOR);
+        assertThat(roles.get("writer").managedBy())
+                .withFailMessage(() -> "a studio write did not leave role 'writer' unmanaged")
+                .isNull();
+        assertThat(roles.get("writer").acls())
+                .withFailMessage(() -> "the studio write to unmanaged role 'writer' was not applied")
+                .hasSize(1);
+    }
+
+    @Test
+    void onlyTheOwnerReleasesAManagedRole() throws Exception {
+        // given
+        auth = operatorAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .updateRbac(GatewayConfig.empty().rbac().upsertRole("reader", new RoleConfig(List.of(), OPERATOR))));
+        startServer();
+
+        // when
+        var studioReleaseResp = send("DELETE", "/rbac/roles/reader/managed-by", null, bearer(login("admin@kawa", "s3cret")));
+        var operatorReleaseResp = send("DELETE", "/rbac/roles/reader/managed-by", null, bearer(operatorToken()));
+        var missingReleaseResp = send("DELETE", "/rbac/roles/missing/managed-by", null, bearer(operatorToken()));
+
+        // then
+        assertThat(studioReleaseResp).hasStatusCode(409);
+        assertThat(operatorReleaseResp).hasStatusCode(204);
+        assertThat(missingReleaseResp).hasStatusCode(404);
+        assertThat(repository.getActiveConfig().rbac().roles().get("reader"))
+                .withFailMessage(() -> "the operator's release did not clear the owner of role 'reader'")
+                .isEqualTo(new RoleConfig(List.of()));
     }
 }

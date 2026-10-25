@@ -75,7 +75,7 @@ public record AuthConfig(
                 throw new IllegalArgumentException("client '" + username
                                                    + "' has no mechanism and no global mechanism is configured");
             }
-            return new ClientConfig(globalMechanism, client.password());
+            return new ClientConfig(globalMechanism, client.password(), client.managedBy());
         }
         return client;
     }

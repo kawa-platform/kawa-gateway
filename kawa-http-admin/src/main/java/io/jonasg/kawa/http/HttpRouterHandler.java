@@ -93,7 +93,7 @@ public final class HttpRouterHandler extends SimpleChannelInboundHandler<FullHtt
     }
 
     /// Logs who changed what: every authenticated request that is not a read, with the principal
-    /// and, for a delegated request, the actor that made it on the principal's behalf.
+    /// and the service client that made it, if any (the operator, for itself or on the principal's behalf).
     private static void logWrite(Router.Request request, Router.Response<?> response) {
         if (request.principal() == null || request.method().equals("GET") || request.method().equals("HEAD")) {
             return;

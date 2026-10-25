@@ -4,6 +4,7 @@ import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.HashedPassword;
+import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.Mechanism;
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +16,8 @@ import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 /// Slice tests for the `/auth/clients` admin surface: real HTTP requests through a booted
 /// [AdminHttpServer], asserting the JSON wire format the admin UI consumes.
 class ClientSliceTest extends AdminHttpSliceTestBase {
+
+    private static final ManagedBy OPERATOR = new ManagedBy("kawa-operator");
 
     private static ClientConfig client(String mechanism, String password) {
         return new ClientConfig(mechanism,
@@ -34,7 +37,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(200);
         assertThatJson(response.body()).isEqualTo("""
-                [{"username":"alice","mechanism":"PLAIN"}]
+                [{"username":"alice","mechanism":"PLAIN","managedBy":null}]
                 """);
     }
 
@@ -54,8 +57,8 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
         assertThat(response.statusCode()).isEqualTo(200);
         assertThatJson(response.body()).isEqualTo("""
                 [
-                  {"username":"alice","mechanism":"PLAIN"},
-                  {"username":"bob","mechanism":"PLAIN"}
+                  {"username":"alice","mechanism":"PLAIN","managedBy":null},
+                  {"username":"bob","mechanism":"PLAIN","managedBy":null}
                 ]
                 """);
     }
@@ -388,7 +391,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(clientsResp.statusCode()).isEqualTo(200);
-        assertThat(clientsResp).containsExactlyTopLevelPropertyNames("username", "mechanism");
+        assertThat(clientsResp).containsExactlyTopLevelPropertyNames("username", "mechanism", "managedBy");
     }
 
     @Test
@@ -401,7 +404,7 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(putResp.statusCode()).isEqualTo(200);
-        assertThat(putResp).containsExactlyTopLevelPropertyNames("username", "mechanism");
+        assertThat(putResp).containsExactlyTopLevelPropertyNames("username", "mechanism", "managedBy");
     }
 
     @Test
@@ -416,6 +419,149 @@ class ClientSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(patchResp.statusCode()).isEqualTo(200);
-        assertThat(patchResp).containsExactlyTopLevelPropertyNames("username", "mechanism");
+        assertThat(patchResp).containsExactlyTopLevelPropertyNames("username", "mechanism", "managedBy");
+    }
+
+    @Test
+    void anOperatorWriteMarksTheClientAsManagedByTheOperator() throws Exception {
+        // given
+        auth = operatorAuth();
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/auth/clients/alice", "{\"mechanism\":\"PLAIN\",\"password\":\"secret\"}", bearer(operatorToken()));
+
+        // then
+        assertThat(putResp).hasStatusCode(200);
+        assertThatJson(putResp.body()).isEqualTo("""
+                {"username": "alice", "mechanism": "PLAIN", "managedBy": {"principal": "kawa-operator"}}
+                """);
+        assertThat(repository.getActiveConfig().auth().clients().get("alice").managedBy())
+                .withFailMessage(() -> "client 'alice' was not stamped as managed by the operator")
+                .isEqualTo(OPERATOR);
+    }
+
+    @Test
+    void listsTheOwnerOfAManagedClient() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret").withManagedBy(OPERATOR))));
+        startServer();
+
+        // when
+        var clientsResp = send("GET", "/auth/clients", null);
+
+        // then
+        assertThat(clientsResp).hasStatusCode(200);
+        assertThatJson(clientsResp.body()).isEqualTo("""
+                [{"username": "alice", "mechanism": "PLAIN", "managedBy": {"principal": "kawa-operator"}}]
+                """);
+    }
+
+    @Test
+    void refusesChangesToAManagedClientByAnyoneButItsOwner() throws Exception {
+        // given
+        auth = operatorAuth();
+        var config = GatewayConfig.empty()
+                .updateAuth(GatewayConfig.empty().auth().upsertClient("alice", client("PLAIN", "secret").withManagedBy(OPERATOR)));
+        repository = new FakeGatewayConfigRepository(config);
+        startServer();
+        var studio = bearer(login("admin@kawa", "s3cret"));
+
+        // when
+        var putResp = send("PUT", "/auth/clients/alice", "{\"mechanism\":\"PLAIN\",\"password\":\"other\"}", studio);
+        var passwordResetResp = send("PATCH", "/auth/clients/alice", "{\"password\":\"other\"}", studio);
+        var deleteResp = send("DELETE", "/auth/clients/alice", null, studio);
+
+        // then
+        for (var response : List.of(putResp, passwordResetResp, deleteResp)) {
+            assertThat(response).hasStatusCode(409);
+            assertThatJson(response.body()).isEqualTo("""
+                    {"error": "client 'alice' is managed by kawa-operator; change it through Kubernetes"}
+                    """);
+        }
+        assertThat(repository.getActiveConfig().auth().clients())
+                .withFailMessage(() -> "a refused write changed managed client 'alice'")
+                .isEqualTo(config.auth().clients());
+    }
+
+    @Test
+    void refusesClientWritesThatChangeAManagedGroupsMembership() throws Exception {
+        // given: bob is in the managed group 'producers', carol is in no group
+        auth = operatorAuth();
+        var base = GatewayConfig.empty().updateAuth(GatewayConfig.empty().auth()
+                .upsertClient("bob", client("PLAIN", "secret"))
+                .upsertClient("carol", client("PLAIN", "secret")));
+        var config = base.updateRbac(base.rbac().upsertGroup("producers", new GroupConfig(List.of("bob"), List.of(), OPERATOR)));
+        repository = new FakeGatewayConfigRepository(config);
+        startServer();
+        var studio = bearer(login("admin@kawa", "s3cret"));
+
+        // when
+        var joinResp = send("PUT", "/auth/clients/carol", "{\"mechanism\":\"PLAIN\",\"password\":\"secret\",\"groups\":[\"producers\"]}", studio);
+        var leaveResp = send("PATCH", "/auth/clients/bob", "{\"groups\":[]}", studio);
+        var deleteResp = send("DELETE", "/auth/clients/bob", null, studio);
+
+        // then
+        for (var response : List.of(joinResp, leaveResp, deleteResp)) {
+            assertThat(response).hasStatusCode(409);
+            assertThatJson(response.body()).isEqualTo("""
+                    {"error": "group 'producers' is managed by kawa-operator; change it through Kubernetes"}
+                    """);
+        }
+        assertThat(repository.getActiveConfig().rbac().groups().get("producers"))
+                .withFailMessage(() -> "a refused client write changed managed group 'producers'")
+                .isEqualTo(new GroupConfig(List.of("bob"), List.of(), OPERATOR));
+        assertThat(repository.getActiveConfig().auth().clients())
+                .withFailMessage(() -> "a refused client write changed the clients")
+                .isEqualTo(config.auth().clients());
+    }
+
+    @Test
+    void aStudioClientWriteThatLeavesManagedGroupsAloneIsAllowedAndUnmanaged() throws Exception {
+        // given
+        auth = operatorAuth();
+        var base = GatewayConfig.empty().updateAuth(GatewayConfig.empty().auth().upsertClient("bob", client("PLAIN", "secret")));
+        repository = new FakeGatewayConfigRepository(base.updateRbac(base.rbac()
+                .upsertGroup("producers", new GroupConfig(List.of("bob"), List.of(), OPERATOR))));
+        startServer();
+
+        // when
+        var passwordResetResp = send("PATCH", "/auth/clients/bob", "{\"password\":\"other\"}", bearer(login("admin@kawa", "s3cret")));
+
+        // then
+        assertThat(passwordResetResp).hasStatusCode(200);
+        assertThatJson(passwordResetResp.body()).inPath("managedBy").isNull();
+        assertThat(repository.getActiveConfig().auth().clients().get("bob").password().verify("other"))
+                .withFailMessage(() -> "the password reset of unmanaged client 'bob' was not applied")
+                .isTrue();
+        assertThat(repository.getActiveConfig().rbac().groups().get("producers").clients())
+                .withFailMessage(() -> "client 'bob' was dropped from managed group 'producers'")
+                .containsExactly("bob");
+    }
+
+    @Test
+    void onlyTheOwnerReleasesAManagedClient() throws Exception {
+        // given
+        auth = operatorAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateAuth(GatewayConfig.empty().auth()
+                .upsertClient("alice", client("PLAIN", "secret").withManagedBy(OPERATOR))
+                .upsertClient("bob", client("PLAIN", "secret"))));
+        startServer();
+
+        // when
+        var studioReleaseResp = send("DELETE", "/auth/clients/alice/managed-by", null, bearer(login("admin@kawa", "s3cret")));
+        var operatorReleaseResp = send("DELETE", "/auth/clients/alice/managed-by", null, bearer(operatorToken()));
+        var unmanagedReleaseResp = send("DELETE", "/auth/clients/bob/managed-by", null, bearer(operatorToken()));
+        var missingReleaseResp = send("DELETE", "/auth/clients/missing/managed-by", null, bearer(operatorToken()));
+
+        // then
+        assertThat(studioReleaseResp).hasStatusCode(409);
+        assertThat(operatorReleaseResp).hasStatusCode(204);
+        assertThat(unmanagedReleaseResp).hasStatusCode(204);
+        assertThat(missingReleaseResp).hasStatusCode(404);
+        assertThat(repository.getActiveConfig().auth().clients().get("alice").managedBy())
+                .withFailMessage(() -> "the operator's release did not clear the owner of client 'alice'")
+                .isNull();
     }
 }

@@ -23,12 +23,13 @@ public final class PatchTopicHandler implements Router.Handler {
         }
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            var value = topicService.updateVirtualTopic(request.principalName(), name, patch, consistency);
+            var value = topicService.updateVirtualTopic(request.principal(), name, patch, consistency);
             return Router.Response.ok(new VirtualTopicConfigView(
                     value.topic(),
                     value.filter(),
                     value.exposePhysicalTopic(),
-                    value.valueFormat()));
+                    value.valueFormat(),
+                    value.managedBy()));
         } catch (ConflictException e) {
             return Router.Response.conflict(e.getMessage());
         } catch (NotFoundException e) {

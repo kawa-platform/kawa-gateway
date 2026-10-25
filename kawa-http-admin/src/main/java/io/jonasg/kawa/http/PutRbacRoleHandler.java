@@ -23,8 +23,10 @@ public final class PutRbacRoleHandler implements Router.Handler {
         }
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            var value = service.upsertRole(name, body, consistency);
-            return Router.Response.ok(new RolePutView(value.acls()));
+            var value = service.upsertRole(request.principal(), name, body, consistency);
+            return Router.Response.ok(new RolePutView(value.acls(), value.managedBy()));
+        } catch (ConflictException e) {
+            return Router.Response.conflict(e.getMessage());
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }

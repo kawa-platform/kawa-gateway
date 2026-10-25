@@ -19,7 +19,7 @@ public final class GetRbacRolesHandler implements Router.Handler {
     public Router.Response<?> handle(Router.Request request) {
         Map<String, RoleConfig> roles = service.listRoles();
         List<RoleConfigView> views = roles.entrySet().stream()
-                .map(entry -> new RoleConfigView(entry.getKey(), entry.getValue().acls()))
+                .map(entry -> new RoleConfigView(entry.getKey(), entry.getValue().acls(), entry.getValue().managedBy()))
                 .sorted(Comparator.comparing(RoleConfigView::name))
                 .toList();
         return Router.Response.ok(views);

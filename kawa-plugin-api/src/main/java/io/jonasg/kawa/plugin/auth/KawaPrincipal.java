@@ -1,11 +1,15 @@
 package io.jonasg.kawa.plugin.auth;
 
-/// The authenticated caller of the admin HTTP API.
+/// The authenticated caller of the admin HTTP API: `name` is who the request is for, `actor` the
+/// verified service client that made it. kawa identifies clients by `actor`, never by `name`.
 ///
-/// @param name  the principal name, e.g. the admin username or the `sub` claim of a token. Governance
-///              judges the request as this principal
-/// @param actor who made the request on the principal's behalf (a delegating service client such as
-///              the kawa operator, the `act` claim of a token), or `null` when the principal acts itself
+/// - admin user: `("alice@acme.com", null)`
+/// - operator for itself: `("kawa-operator", "kawa-operator")`
+/// - operator for a delegated principal: `("k8s:team-a", "kawa-operator")`
+///
+/// @param name  the principal governance judges, e.g. an admin username or a token's `sub`
+/// @param actor the client that made the request, or `null`; providers must set it only for a
+///              client they verified
 public record KawaPrincipal(String name, String actor) {
 
     public KawaPrincipal {
@@ -17,7 +21,7 @@ public record KawaPrincipal(String name, String actor) {
         }
     }
 
-    /// A principal acting for itself.
+    /// A principal without an actor, e.g. an admin user.
     public KawaPrincipal(String name) {
         this(name, null);
     }

@@ -41,7 +41,7 @@ public record RbacConfig(
             if (group.roles().contains(name)) {
                 var remaining = new ArrayList<>(group.roles());
                 remaining.removeIf(name::equals);
-                newGroups.put(groupName, new GroupConfig(group.clients(), remaining));
+                newGroups.put(groupName, group.withRoles(remaining));
             } else {
                 newGroups.put(groupName, group);
             }

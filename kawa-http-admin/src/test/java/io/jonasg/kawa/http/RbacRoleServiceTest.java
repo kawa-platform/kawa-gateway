@@ -1,5 +1,6 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.RoleConfig;
@@ -10,6 +11,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class RbacRoleServiceTest {
+
+    private static final KawaPrincipal ADMIN = new KawaPrincipal("admin");
 
     private final FakeGatewayConfigRepository repository = new FakeGatewayConfigRepository(GatewayConfig.empty());
     private final RbacRoleService service = new RbacRoleService(repository);
@@ -32,7 +35,7 @@ class RbacRoleServiceTest {
         var request = new RoleConfigRequest(List.of());
 
         // when
-        RoleConfig result = service.upsertRole("reader", request, Consistency.PERSISTED);
+        RoleConfig result = service.upsertRole(ADMIN, "reader", request, Consistency.PERSISTED);
 
         // then
         assertThat(result.acls()).isEmpty();
@@ -48,7 +51,7 @@ class RbacRoleServiceTest {
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("reader")))));
 
         // when
-        service.deleteRole("reader", Consistency.PERSISTED);
+        service.deleteRole(ADMIN, "reader", Consistency.PERSISTED);
 
         // then
         assertThat(repository.getActiveConfig().rbac().roles()).isEmpty();

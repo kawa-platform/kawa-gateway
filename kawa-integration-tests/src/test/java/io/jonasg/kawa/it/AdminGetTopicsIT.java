@@ -55,7 +55,8 @@ class AdminGetTopicsIT extends AdminHTTPTestSupport {
                           "filter" : null,
                           "physicalTopic" : "orders-v2",
                           "exposePhysicalTopic" : false,
-                          "valueFormat" : null
+                          "valueFormat" : null,
+                          "managedBy" : null
                         },
                         {
                           "type" : "physical",
@@ -65,7 +66,8 @@ class AdminGetTopicsIT extends AdminHTTPTestSupport {
                           "filter" : null,
                           "physicalTopic" : null,
                           "exposePhysicalTopic" : null,
-                          "valueFormat" : null
+                          "valueFormat" : null,
+                          "managedBy" : null
                         }
                     ]
                     """);

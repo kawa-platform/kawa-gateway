@@ -23,12 +23,15 @@ public final class PutTopicHandler implements Router.Handler {
         }
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            var value = topicService.upsertVirtualTopic(request.principalName(), name, body, consistency);
+            var value = topicService.upsertVirtualTopic(request.principal(), name, body, consistency);
             return Router.Response.ok(new VirtualTopicConfigView(
                     value.topic(),
                     value.filter(),
                     value.exposePhysicalTopic(),
-                    value.valueFormat()));
+                    value.valueFormat(),
+                    value.managedBy()));
+        } catch (ConflictException e) {
+            return Router.Response.conflict(e.getMessage());
         } catch (ForbiddenException e) {
             return Router.Response.forbidden(e.getMessage());
         } catch (IllegalArgumentException e) {

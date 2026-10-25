@@ -19,7 +19,7 @@ public final class GetRbacGroupsHandler implements Router.Handler {
     public Router.Response<?> handle(Router.Request request) {
         Map<String, GroupConfig> groups = service.listGroups();
         List<GroupConfigView> views = groups.entrySet().stream()
-                .map(entry -> new GroupConfigView(entry.getKey(), entry.getValue().clients(), entry.getValue().roles()))
+                .map(entry -> new GroupConfigView(entry.getKey(), entry.getValue().clients(), entry.getValue().roles(), entry.getValue().managedBy()))
                 .sorted(Comparator.comparing(GroupConfigView::name))
                 .toList();
         return Router.Response.ok(views);

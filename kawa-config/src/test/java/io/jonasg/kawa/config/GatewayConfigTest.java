@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -71,6 +72,85 @@ class GatewayConfigTest {
         assertThat(restored.adminUsers().get(ALICE_ID).password().verify("s3cret"))
                 .withFailMessage(() -> "admin user 'alice@mycom.com' did not verify after the round trip")
                 .isTrue();
+    }
+
+    @Test
+    void managedByMarkersSurviveAJsonRoundTrip() {
+        // given
+        var mapper = JsonMapper.builder().build();
+        var operator = new ManagedBy("kawa-operator");
+        var config = managedEntries(operator);
+
+        // when
+        GatewayConfig restored = mapper.readValue(mapper.writeValueAsString(config), GatewayConfig.class);
+
+        // then
+        assertThat(restored.virtualTopics().get("orders").managedBy())
+                .withFailMessage(() -> "virtual topic 'orders' lost its owner in the round trip: " + restored.virtualTopics())
+                .isEqualTo(operator);
+        assertThat(restored.rbac().roles().get("reader").managedBy())
+                .withFailMessage(() -> "role 'reader' lost its owner in the round trip: " + restored.rbac().roles())
+                .isEqualTo(operator);
+        assertThat(restored.rbac().groups().get("producers").managedBy())
+                .withFailMessage(() -> "group 'producers' lost its owner in the round trip: " + restored.rbac().groups())
+                .isEqualTo(operator);
+        assertThat(restored.auth().clients().get("alice").managedBy())
+                .withFailMessage(() -> "client 'alice' lost its owner in the round trip: " + restored.auth().clients())
+                .isEqualTo(operator);
+    }
+
+    @Test
+    void aSnapshotWrittenBeforeManagedByLoadsAsUnmanaged() {
+        // given: a snapshot of the shape written before entries carried an owner
+        var mapper = JsonMapper.builder().build();
+        String json = mapper.writeValueAsString(managedEntries(null)).replace(",\"managedBy\":null", "");
+
+        // when
+        GatewayConfig restored = mapper.readValue(json, GatewayConfig.class);
+
+        // then
+        assertThat(json)
+                .withFailMessage(() -> "the snapshot still names managedBy: " + json)
+                .doesNotContain("managedBy");
+        assertThat(restored.virtualTopics().get("orders").managedBy())
+                .withFailMessage(() -> "virtual topic 'orders' from an old snapshot was not unmanaged")
+                .isNull();
+        assertThat(restored.rbac().roles().get("reader").managedBy())
+                .withFailMessage(() -> "role 'reader' from an old snapshot was not unmanaged")
+                .isNull();
+        assertThat(restored.rbac().groups().get("producers"))
+                .withFailMessage(() -> "group 'producers' from an old snapshot did not load unmanaged: " + restored.rbac().groups())
+                .isEqualTo(new GroupConfig(List.of("alice"), List.of("reader")));
+        assertThat(restored.auth().clients().get("alice").managedBy())
+                .withFailMessage(() -> "client 'alice' from an old snapshot was not unmanaged")
+                .isNull();
+    }
+
+    @Test
+    void removingARolePreservesTheOwnerOfTheGroupsItIsStrippedFrom() {
+        // given
+        var operator = new ManagedBy("kawa-operator");
+        var rbac = new RbacConfig()
+                .upsertRole("reader", new RoleConfig(List.of()))
+                .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("reader"), operator));
+
+        // when
+        var updated = rbac.removeRole("reader");
+
+        // then
+        assertThat(updated.groups().get("producers"))
+                .withFailMessage(() -> "group 'producers' lost its owner or kept the removed role: " + updated.groups())
+                .isEqualTo(new GroupConfig(List.of("alice"), List.of(), operator));
+    }
+
+    private static GatewayConfig managedEntries(ManagedBy managedBy) {
+        var config = GatewayConfig.empty()
+                .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2", null, false, null, managedBy));
+        return config
+                .updateRbac(config.rbac()
+                        .upsertRole("reader", new RoleConfig(List.of(), managedBy))
+                        .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("reader"), managedBy)))
+                .updateAuth(config.auth().upsertClient("alice", ClientConfig.fromPlaintext("PLAIN", "secret").withManagedBy(managedBy)));
     }
 
     @Test

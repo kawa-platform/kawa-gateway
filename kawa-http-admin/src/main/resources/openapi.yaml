@@ -20,6 +20,15 @@ info:
     `/oauth/login`, then `/oauth/token`) and send the access token as
     `Authorization: Bearer <token>`. Every endpoint except `/oauth/*`, `/.well-known/*` and `/docs`
     then answers `401` without a valid token.
+
+    Virtual topics, RBAC roles and groups, and auth clients can be *managed*: a write by the
+    kawa operator (its own token, or one it obtained for another principal) marks the entry
+    `managedBy: {"principal": "kawa-operator"}`. The gateway sets the marker; a request body never
+    does, and a write by anyone else leaves an unmanaged entry unmanaged. A write that would change
+    a managed entry - directly, or as a side effect such as deleting a role a managed group
+    references or changing a managed group's membership through a client - is refused with `409`
+    unless it comes from the owner. `DELETE .../{name}/managed-by` releases an entry. With
+    `admin.auth.type: none` nothing is ever marked.
   version: 0.1.0-SNAPSHOT
 security:
   - bearerAuth: []
@@ -108,6 +117,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -162,6 +173,28 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /topics/{name}/managed-by:
+    delete:
+      summary: Release a managed virtual topic
+      description: |
+        Clears the virtual topic's `managedBy` marker so anyone may change it again. Only the current
+        owner may release it (`409` otherwise); an unmanaged virtual topic is left as is (`204`).
+        Physical topics are never managed (`404`).
+      parameters:
+        - $ref: '#/components/parameters/TopicName'
+      responses:
+        '204':
+          description: Released, or already unmanaged
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -208,6 +241,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -222,6 +257,27 @@ paths:
           description: Role deleted
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /rbac/roles/{name}/managed-by:
+    delete:
+      summary: Release a managed role
+      description: |
+        Clears the role's `managedBy` marker so anyone may change it again. Only the current
+        owner may release it (`409` otherwise); an unmanaged role is left as is (`204`).
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      responses:
+        '204':
+          description: Released, or already unmanaged
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -268,6 +324,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -310,6 +368,27 @@ paths:
           description: Group deleted
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /rbac/groups/{name}/managed-by:
+    delete:
+      summary: Release a managed group
+      description: |
+        Clears the group's `managedBy` marker so anyone may change it again. Only the current
+        owner may release it (`409` otherwise); an unmanaged group is left as is (`204`).
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      responses:
+        '204':
+          description: Released, or already unmanaged
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -356,6 +435,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -382,6 +463,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -396,6 +479,27 @@ paths:
           description: Client deleted
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /auth/clients/{name}/managed-by:
+    delete:
+      summary: Release a managed client
+      description: |
+        Clears the client's `managedBy` marker so anyone may change it again. Only the current
+        owner may release it (`409` otherwise); an unmanaged client is left as is (`204`).
+      parameters:
+        - $ref: '#/components/parameters/ConfigEntryName'
+      responses:
+        '204':
+          description: Released, or already unmanaged
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
@@ -1059,7 +1163,10 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     Conflict:
-      description: Topic already exists
+      description: |
+        The entry already exists or still has dependants, or the write would change an entry
+        managed by someone else - e.g. `{"error": "role 'reader' is managed by kawa-operator; change it
+        through Kubernetes"}`
       content:
         application/json:
           schema:
@@ -1227,6 +1334,11 @@ components:
             - $ref: '#/components/schemas/PayloadFormat'
           nullable: true
           description: Encoding of record values, or null if none (raw strings).
+        managedBy:
+          allOf:
+            - $ref: '#/components/schemas/ManagedBy'
+          nullable: true
+          description: A virtual topic's owner, or null when it is unmanaged and for physical topics.
     TopicFilterView:
       type: object
       required:
@@ -1303,6 +1415,11 @@ components:
           allOf:
             - $ref: '#/components/schemas/PayloadFormat'
           nullable: true
+        managedBy:
+          allOf:
+            - $ref: '#/components/schemas/ManagedBy'
+          nullable: true
+          description: The entry's owner, or null when it is unmanaged. Set by the gateway, never by a request body.
     VirtualTopicConfigPatch:
       type: object
       properties:
@@ -1752,6 +1869,11 @@ components:
         mechanism:
           type: string
           description: SASL mechanism (e.g. PLAIN, SCRAM-SHA-256, SCRAM-SHA-512).
+        managedBy:
+          allOf:
+            - $ref: '#/components/schemas/ManagedBy'
+          nullable: true
+          description: The entry's owner, or null when it is unmanaged. Set by the gateway, never by a request body.
     RoleConfigRequest:
       type: object
       properties:
@@ -1760,6 +1882,18 @@ components:
           items:
             $ref: '#/components/schemas/AclConfig'
           description: The ACLs making up this role.
+    ManagedBy:
+      type: object
+      required:
+        - principal
+      description: |
+        Marks an entry as owned by an external manager. Only `principal` may change, delete or
+        release the entry; any other caller gets `409`.
+      properties:
+        principal:
+          type: string
+          description: The owner, `kawa-operator` for entries reconciled from Kubernetes.
+          example: kawa-operator
     RolePutView:
       type: object
       properties:
@@ -1768,6 +1902,11 @@ components:
           items:
             $ref: '#/components/schemas/AclConfig'
           description: The ACLs making up this role.
+        managedBy:
+          allOf:
+            - $ref: '#/components/schemas/ManagedBy'
+          nullable: true
+          description: The entry's owner, or null when it is unmanaged. Set by the gateway, never by a request body.
     RoleConfigView:
       type: object
       required:
@@ -1781,6 +1920,11 @@ components:
           items:
             $ref: '#/components/schemas/AclConfig'
           description: The ACLs making up this role.
+        managedBy:
+          allOf:
+            - $ref: '#/components/schemas/ManagedBy'
+          nullable: true
+          description: The entry's owner, or null when it is unmanaged. Set by the gateway, never by a request body.
     GroupConfigRequest:
       type: object
       properties:
@@ -1807,6 +1951,11 @@ components:
           items:
             type: string
           description: The roles whose ACLs every client inherits.
+        managedBy:
+          allOf:
+            - $ref: '#/components/schemas/ManagedBy'
+          nullable: true
+          description: The entry's owner, or null when it is unmanaged. Set by the gateway, never by a request body.
     GroupConfigPatch:
       type: object
       required:
@@ -1833,6 +1982,11 @@ components:
           items:
             type: string
           description: The roles whose ACLs every client inherits.
+        managedBy:
+          allOf:
+            - $ref: '#/components/schemas/ManagedBy'
+          nullable: true
+          description: The entry's owner, or null when it is unmanaged. Set by the gateway, never by a request body.
     AclConfig:
       type: object
       required:

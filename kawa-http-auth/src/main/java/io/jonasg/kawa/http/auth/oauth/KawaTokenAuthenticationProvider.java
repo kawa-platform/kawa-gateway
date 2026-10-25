@@ -20,8 +20,11 @@ import java.util.Optional;
 /// Every token names the OAuth client it was issued to in `client_id`; a token without one, or with
 /// any other, is rejected. A [TokenIssuer#STUDIO_CLIENT_ID] token belongs to an admin user. An
 /// [TokenIssuer#OPERATOR_CLIENT_ID] token is valid while the [OperatorClient] is still configured, and
-/// the principal is the operator itself. A delegated token (with an `act` claim) is valid while the
-/// operator may still act as its subject: the principal is the subject, and its actor the operator.
+/// the principal is the operator itself: named `kawa-operator` and with `kawa-operator` as its actor. A
+/// delegated token (with an `act` claim) is valid while the operator may still act as its subject: the
+/// principal is the subject, and its actor the operator. The actor is therefore `kawa-operator` exactly
+/// when the operator made the request, which a name cannot fake: an admin user may be called
+/// `kawa-operator` too, but its principal never carries an actor.
 public final class KawaTokenAuthenticationProvider implements AuthenticationProvider {
 
     private static final String BEARER = "bearer ";
@@ -59,7 +62,7 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
         if (act == null) {
             // the operator acting as itself
             return TokenIssuer.OPERATOR_CLIENT_ID.equals(claims.getSubject())
-                    ? Optional.of(new KawaPrincipal(TokenIssuer.OPERATOR_CLIENT_ID))
+                    ? Optional.of(new KawaPrincipal(TokenIssuer.OPERATOR_CLIENT_ID, TokenIssuer.OPERATOR_CLIENT_ID))
                     : Optional.empty();
         }
         // the operator acting as another principal

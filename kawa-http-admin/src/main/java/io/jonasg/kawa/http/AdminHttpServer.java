@@ -107,19 +107,23 @@ public final class AdminHttpServer {
                 .put("/topics/{name}", new PutTopicHandler(topicService))
                 .patch("/topics/{name}", new PatchTopicHandler(topicService))
                 .delete("/topics/{name}", new DeleteTopicHandler(topicService))
+                .delete("/topics/{name}/managed-by", new DeleteManagedByHandler(topicService::releaseVirtualTopic))
 
                 .get("/rbac/roles", new GetRbacRolesHandler(roleService))
                 .put("/rbac/roles/{name}", new PutRbacRoleHandler(roleService))
                 .delete("/rbac/roles/{name}", new DeleteRbacRoleHandler(roleService))
+                .delete("/rbac/roles/{name}/managed-by", new DeleteManagedByHandler(roleService::releaseRole))
                 .get("/rbac/groups", new GetRbacGroupsHandler(groupService))
                 .put("/rbac/groups/{name}", new PutRbacGroupHandler(groupService))
                 .delete("/rbac/groups/{name}", new DeleteRbacGroupHandler(groupService))
                 .patch("/rbac/groups/{name}", new PatchRbacGroupHandler(groupService))
+                .delete("/rbac/groups/{name}/managed-by", new DeleteManagedByHandler(groupService::releaseGroup))
 
                 .get("/auth/clients", new GetAuthClientsHandler(clientService))
                 .put("/auth/clients/{name}", new PutAuthClientHandler(clientService))
                 .patch("/auth/clients/{name}", new PatchAuthClientHandler(clientService))
                 .delete("/auth/clients/{name}", new DeleteAuthClientHandler(clientService))
+                .delete("/auth/clients/{name}/managed-by", new DeleteManagedByHandler(clientService::releaseClient))
 
                 .get("/governance/rules", new GetGovernanceRulesHandler(governanceService, governanceMapper))
                 .get("/governance/rules/{name}", new GetGovernanceRuleHandler(governanceService, governanceMapper))

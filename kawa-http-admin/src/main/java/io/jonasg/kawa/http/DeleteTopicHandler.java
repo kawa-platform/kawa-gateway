@@ -16,8 +16,10 @@ public final class DeleteTopicHandler implements Router.Handler {
         String name = request.pathParams().get("name");
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            topicService.deleteTopic(request.principalName(), name, consistency);
+            topicService.deleteTopic(request.principal(), name, consistency);
             return Router.Response.noContent();
+        } catch (ConflictException e) {
+            return Router.Response.conflict(e.getMessage());
         } catch (NotFoundException e) {
             return Router.Response.notFound(e.getMessage());
         } catch (ForbiddenException e) {

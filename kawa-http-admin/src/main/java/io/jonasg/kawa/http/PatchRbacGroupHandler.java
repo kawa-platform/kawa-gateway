@@ -23,9 +23,9 @@ public final class PatchRbacGroupHandler implements Router.Handler {
         }
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            var value = service.updateGroup(name, patch, consistency);
+            var value = service.updateGroup(request.principal(), name, patch, consistency);
             String responseName = patch.name() == null ? name : patch.name();
-            return Router.Response.ok(new GroupConfigView(responseName, value.clients(), value.roles()));
+            return Router.Response.ok(new GroupConfigView(responseName, value.clients(), value.roles(), value.managedBy()));
         } catch (ConflictException e) {
             return Router.Response.conflict(e.getMessage());
         } catch (NotFoundException e) {

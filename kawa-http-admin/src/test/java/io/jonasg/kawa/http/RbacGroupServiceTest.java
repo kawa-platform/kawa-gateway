@@ -1,5 +1,6 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class RbacGroupServiceTest {
+
+    private static final KawaPrincipal ADMIN = new KawaPrincipal("admin");
 
     private final FakeGatewayConfigRepository repository = new FakeGatewayConfigRepository(GatewayConfig.empty());
     private final RbacGroupService service = new RbacGroupService(repository);
@@ -32,7 +35,7 @@ class RbacGroupServiceTest {
         var request = new GroupConfigRequest(List.of("alice"), List.of("reader"));
 
         // when
-        GroupConfig result = service.upsertGroup("producers", request, Consistency.PERSISTED);
+        GroupConfig result = service.upsertGroup(ADMIN, "producers", request, Consistency.PERSISTED);
 
         // then
         assertThat(result.clients()).containsExactly("alice");
@@ -47,7 +50,7 @@ class RbacGroupServiceTest {
         var patch = new GroupConfigPatch("consumers");
 
         // when
-        GroupConfig result = service.updateGroup("producers", patch, Consistency.PERSISTED);
+        GroupConfig result = service.updateGroup(ADMIN, "producers", patch, Consistency.PERSISTED);
 
         // then
         assertThat(result.clients()).containsExactly("alice");
@@ -62,7 +65,7 @@ class RbacGroupServiceTest {
                 base.rbac().upsertGroup("producers", new GroupConfig(List.of("alice"), List.of()))));
 
         // then
-        assertThatThrownBy(() -> service.deleteGroup("producers", Consistency.PERSISTED))
+        assertThatThrownBy(() -> service.deleteGroup(ADMIN, "producers", Consistency.PERSISTED))
                 .isInstanceOf(ConflictException.class)
                 .hasMessageContaining("still has clients");
     }
@@ -74,7 +77,7 @@ class RbacGroupServiceTest {
                 base.rbac().upsertGroup("producers", new GroupConfig(List.of(), List.of()))));
 
         // when
-        service.deleteGroup("producers", Consistency.PERSISTED);
+        service.deleteGroup(ADMIN, "producers", Consistency.PERSISTED);
 
         // then
         assertThat(repository.getActiveConfig().rbac().groups()).isEmpty();

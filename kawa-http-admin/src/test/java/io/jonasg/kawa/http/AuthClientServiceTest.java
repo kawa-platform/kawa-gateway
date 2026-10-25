@@ -1,5 +1,6 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GroupConfig;
@@ -10,6 +11,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AuthClientServiceTest {
+
+    private static final KawaPrincipal ADMIN = new KawaPrincipal("admin");
 
     private final FakeGatewayConfigRepository repository = new FakeGatewayConfigRepository(GatewayConfig.empty());
     private final AuthClientService service = new AuthClientService(repository);
@@ -35,7 +38,7 @@ class AuthClientServiceTest {
         var request = new ClientConfigRequest("PLAIN", "secret", List.of("producers"));
 
         // when
-        var result = service.upsertClient("alice", request, Consistency.PERSISTED);
+        var result = service.upsertClient(ADMIN, "alice", request, Consistency.PERSISTED);
 
         // then
         assertThat(result.mechanism()).isEqualTo("PLAIN");
@@ -51,7 +54,7 @@ class AuthClientServiceTest {
         var patch = new ClientConfigPatch(null, "new-secret", null);
 
         // when
-        var result = service.updateClient("alice", patch, Consistency.PERSISTED);
+        var result = service.updateClient(ADMIN, "alice", patch, Consistency.PERSISTED);
 
         // then
         assertThat(result.mechanism()).isEqualTo("PLAIN");
@@ -67,7 +70,7 @@ class AuthClientServiceTest {
                 .updateRbac(base.rbac().upsertGroup("producers", new GroupConfig(List.of("alice"), List.of()))));
 
         // when
-        service.deleteClient("alice", Consistency.PERSISTED);
+        service.deleteClient(ADMIN, "alice", Consistency.PERSISTED);
 
         // then
         assertThat(repository.getActiveConfig().auth().clients()).isEmpty();

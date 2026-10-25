@@ -34,7 +34,8 @@ public final class GetTopicsHandler implements Router.Handler {
                     toFilterView(entry.filter()),
                     entry.physicalTopic(),
                     entry.exposePhysicalTopic(),
-                    entry.valueFormat()));
+                    entry.valueFormat(),
+                    entry.managedBy()));
         }
         for (TopicMetadata tm : listing.physical()) {
             views.add(new TopicView(
@@ -42,6 +43,7 @@ public final class GetTopicsHandler implements Router.Handler {
                     tm.name(),
                     topicService.partitionCount(tm.name()),
                     topicService.replicationFactor(tm.name()),
+                    null,
                     null,
                     null,
                     null,

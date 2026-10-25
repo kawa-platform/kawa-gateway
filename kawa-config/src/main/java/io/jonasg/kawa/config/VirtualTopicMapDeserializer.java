@@ -62,7 +62,8 @@ public final class VirtualTopicMapDeserializer extends ValueDeserializer<Map<Str
         VirtualTopicFilterConfig filter = parseFilter(virtualTopic, object.get("filter"), context);
         boolean exposePhysicalTopic = parseExposePhysicalTopic(virtualTopic, object.get("exposePhysicalTopic"));
         PayloadFormatConfig valueFormat = parseValueFormat(virtualTopic, object.get("valueFormat"), context);
-        return new VirtualTopicConfig(topicNode.stringValue(), filter, exposePhysicalTopic, valueFormat);
+        ManagedBy managedBy = parseManagedBy(virtualTopic, object.get("managedBy"), context);
+        return new VirtualTopicConfig(topicNode.stringValue(), filter, exposePhysicalTopic, valueFormat, managedBy);
     }
 
     private static boolean parseExposePhysicalTopic(
@@ -124,6 +125,24 @@ public final class VirtualTopicMapDeserializer extends ValueDeserializer<Map<Str
         } catch (RuntimeException e) {
             throw new IllegalArgumentException(
                     "Invalid valueFormat for virtual topic '" + virtualTopic + "': " + e.getMessage(), e);
+        }
+    }
+
+    /// Reads the optional `managedBy` owner; absent (snapshots written before ownership existed)
+    /// or `null` means unmanaged.
+    private static ManagedBy parseManagedBy(
+            String virtualTopic,
+            JsonNode node,
+            DeserializationContext context
+    ) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        try {
+            return context.readTreeAsValue(node, ManagedBy.class);
+        } catch (RuntimeException e) {
+            throw new IllegalArgumentException(
+                    "Invalid managedBy for virtual topic '" + virtualTopic + "': " + e.getMessage(), e);
         }
     }
 }

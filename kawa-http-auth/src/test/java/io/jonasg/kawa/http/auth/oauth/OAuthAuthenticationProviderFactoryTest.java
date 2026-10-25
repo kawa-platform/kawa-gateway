@@ -344,7 +344,7 @@ class OAuthAuthenticationProviderFactoryTest {
                 .doesNotContainKey("refresh_token");
         assertThat(provider.authenticate(bearer(jsonField(response, "access_token"))))
                 .withFailMessage(() -> "the provider rejected the operator's token")
-                .hasValue(new KawaPrincipal("kawa-operator"));
+                .hasValue(new KawaPrincipal("kawa-operator", "kawa-operator"));
     }
 
     @Test

@@ -32,6 +32,7 @@ admin:
       loginUrl: http://localhost:5173/admin/login
       redirectUris:
         - http://localhost:5173/admin/auth/callback
+      operatorSecret: ${KAWA_OPERATOR_SECRET:-operator-secret}
   cors:
     allowedOrigins:
       - http://localhost:5173

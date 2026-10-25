@@ -2,6 +2,7 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Operation;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
@@ -13,7 +14,9 @@ import io.jonasg.kawa.governance.GovernanceRequest;
 import io.jonasg.kawa.governance.TopicDescriber.TopicState;
 import io.jonasg.kawa.governance.TopicSpec;
 import io.jonasg.kawa.governance.Violation;
+import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -27,9 +30,11 @@ import java.util.stream.Collectors;
 /// Owns the admin topic surface: virtual topic config CRUD, physical topic listing,
 /// broker create/delete, and governance admission. Governance judges each change as the
 /// authenticated caller (`principal`): an admin user's email, a service client's id, or the
-/// principal a delegate acts for (e.g. `k8s:team-a`).
+/// principal a delegate acts for (e.g. `k8s:team-a`). Every virtual topic write honours
+/// [Ownership]: a managed virtual topic only changes through its owner.
 final class TopicService {
 
+    private static final String KIND = "topic";
     private static final String SERVICE = "kawa";
     private static final int DESCRIBE_TIMEOUT_SECONDS = 10;
 
@@ -56,6 +61,7 @@ final class TopicService {
     }
 
     TopicListing listTopics() {
+        Map<String, VirtualTopicConfig> configured = repository.getActiveConfigOrEmpty().virtualTopics();
         List<VirtualTopicEntry> virtual = new ArrayList<>();
         for (Map.Entry<String, String> entry : virtualTopics.virtualTopics().entrySet()) {
             String name = entry.getKey();
@@ -64,12 +70,14 @@ final class TopicService {
                     entry.getValue(),
                     virtualTopics.filterFor(name).orElse(null),
                     virtualTopics.exposesPhysicalTopic(name),
-                    virtualTopics.valueFormatFor(name).orElse(null)));
+                    virtualTopics.valueFormatFor(name).orElse(null),
+                    managedBy(configured.get(name))));
         }
         return new TopicListing(virtual, List.copyOf(cache.topics()));
     }
 
-    VirtualTopicConfig upsertVirtualTopic(String principal, String name, TopicRequest request, Consistency consistency) {
+    VirtualTopicConfig upsertVirtualTopic(KawaPrincipal caller, String name, TopicRequest request, Consistency consistency) {
+        String principal = principalName(caller);
         if (!"virtual".equals(request.type())) {
             throw new IllegalArgumentException("only 'virtual' topics can be updated");
         }
@@ -85,12 +93,17 @@ final class TopicService {
                 request.topic(),
                 request.filter(),
                 request.exposePhysicalTopic() != null && request.exposePhysicalTopic(),
-                request.valueFormat());
-        updater.update(consistency, config -> config.upsertVirtualTopic(name, value));
+                request.valueFormat(),
+                Ownership.stamp(caller));
+        updater.update(consistency, config -> {
+            requireTopicOwner(config, name, caller);
+            return config.upsertVirtualTopic(name, value);
+        });
         return value;
     }
 
-    VirtualTopicConfig updateVirtualTopic(String principal, String name, VirtualTopicConfigPatch patch, Consistency consistency) {
+    VirtualTopicConfig updateVirtualTopic(KawaPrincipal caller, String name, VirtualTopicConfigPatch patch, Consistency consistency) {
+        String principal = principalName(caller);
         GatewayConfig base = repository.getActiveConfigOrEmpty();
         VirtualTopicConfig current = base.virtualTopics().get(name);
         if (current == null) {
@@ -117,17 +130,25 @@ final class TopicService {
                 topic,
                 patch.filter(),
                 patch.exposePhysicalTopic() == null ? current.exposePhysicalTopic() : patch.exposePhysicalTopic(),
-                patch.valueFormat());
-        updater.update(consistency, config -> replace(config, name, newName, updated));
+                patch.valueFormat(),
+                Ownership.stamp(caller));
+        updater.update(consistency, config -> {
+            requireTopicOwner(config, name, caller);
+            return replace(config, name, newName, updated);
+        });
         return updated;
     }
 
-    void deleteTopic(String principal, String name, Consistency consistency) {
+    void deleteTopic(KawaPrincipal caller, String name, Consistency consistency) {
+        String principal = principalName(caller);
         GatewayConfig base = repository.getActiveConfigOrEmpty();
         VirtualTopicConfig virtual = base.virtualTopics().get(name);
         if (virtual != null) {
             admit(name, GovernanceRequest.virtualTopic(principal, SERVICE, Operation.DELETE, name, virtual.topic()));
-            updater.update(consistency, config -> config.removeVirtualTopic(name));
+            updater.update(consistency, config -> {
+                requireTopicOwner(config, name, caller);
+                return config.removeVirtualTopic(name);
+            });
             return;
         }
         boolean physicalExists = cache.topics().stream().anyMatch(t -> t.name().equals(name));
@@ -149,7 +170,28 @@ final class TopicService {
         }
     }
 
-    TopicSpec createPhysicalTopic(String principal, TopicRequest request) {
+    /// Clears the virtual topic's owner. Only the owner may release it; an unmanaged virtual topic
+    /// is left as is.
+    void releaseVirtualTopic(KawaPrincipal caller, String name, Consistency consistency) {
+        VirtualTopicConfig current = repository.getActiveConfigOrEmpty().virtualTopics().get(name);
+        if (current == null) {
+            throw new NotFoundException("topic '" + name + "' not found");
+        }
+        if (current.managedBy() == null) {
+            return;
+        }
+        updater.update(consistency, config -> {
+            VirtualTopicConfig topic = config.virtualTopics().get(name);
+            if (topic == null) {
+                throw new NotFoundException("topic '" + name + "' not found");
+            }
+            Ownership.requireOwner(KIND, name, topic.managedBy(), caller);
+            return config.upsertVirtualTopic(name, topic.withManagedBy(null));
+        });
+    }
+
+    TopicSpec createPhysicalTopic(KawaPrincipal caller, TopicRequest request) {
+        String principal = principalName(caller);
         if (!"physical".equals(request.type())) {
             throw new IllegalArgumentException("type must be 'physical' or 'virtual'");
         }
@@ -218,6 +260,18 @@ final class TopicService {
         return config.updateVirtualTopics(Map.copyOf(topics));
     }
 
+    private static void requireTopicOwner(GatewayConfig config, String name, KawaPrincipal caller) {
+        Ownership.requireOwner(KIND, name, managedBy(config.virtualTopics().get(name)), caller);
+    }
+
+    private static @Nullable ManagedBy managedBy(@Nullable VirtualTopicConfig topic) {
+        return topic == null ? null : topic.managedBy();
+    }
+
+    private static @Nullable String principalName(@Nullable KawaPrincipal caller) {
+        return caller == null ? null : caller.name();
+    }
+
     private static boolean isTopicExists(Throwable e) {
         for (Throwable t = e; t != null; t = t.getCause()) {
             if (t instanceof org.apache.kafka.common.errors.TopicExistsException) {
@@ -237,7 +291,8 @@ final class TopicService {
             String physicalTopic,
             VirtualTopicFilterConfig filter,
             boolean exposePhysicalTopic,
-            PayloadFormatConfig valueFormat
+            PayloadFormatConfig valueFormat,
+            @Nullable ManagedBy managedBy
     ) {
     }
 }

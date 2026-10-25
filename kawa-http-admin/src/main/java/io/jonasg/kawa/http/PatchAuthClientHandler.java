@@ -23,8 +23,10 @@ public final class PatchAuthClientHandler implements Router.Handler {
         }
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            var client = service.updateClient(name, patch, consistency);
-            return Router.Response.ok(new ClientConfigView(name, client.mechanism()));
+            var client = service.updateClient(request.principal(), name, patch, consistency);
+            return Router.Response.ok(new ClientConfigView(name, client.mechanism(), client.managedBy()));
+        } catch (ConflictException e) {
+            return Router.Response.conflict(e.getMessage());
         } catch (NotFoundException e) {
             return Router.Response.notFound(e.getMessage());
         } catch (IllegalArgumentException e) {

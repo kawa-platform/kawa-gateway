@@ -14,21 +14,25 @@ import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.HeaderMatchesFilterConfig;
 import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
+import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.governance.GovernancePolicy;
-import io.jonasg.kawa.test.TestSigningKeys;
 import io.jonasg.kawa.governance.TopicSpec;
+import io.jonasg.kawa.http.auth.builtin.BuiltInAuthenticationPlugin;
+import io.jonasg.kawa.plugin.KawaPlugin;
+import io.jonasg.kawa.plugin.KawaPluginContext;
+import io.jonasg.kawa.plugin.auth.AuthenticationProvider;
+import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
+import io.jonasg.kawa.plugin.auth.AuthenticationProviderFactory;
+import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.resource.ResourceType;
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.json.JsonMapper;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
@@ -69,7 +73,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "exposePhysicalTopic": false,
                             "filter": null,
                             "physicalTopic": "orders-v2",
-                            "valueFormat": null
+                            "valueFormat": null,
+                            "managedBy": null
                           },
                           {
                             "type": "physical",
@@ -79,7 +84,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "filter": null,
                             "physicalTopic": null,
                             "exposePhysicalTopic": null,
-                            "valueFormat": null
+                            "valueFormat": null,
+                            "managedBy": null
                           },
                           {
                             "type": "virtual",
@@ -92,7 +98,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                               "expression": "tenant=acme"
                             },
                             "physicalTopic": "crm.customers",
-                            "valueFormat": null
+                            "valueFormat": null,
+                            "managedBy": null
                           },
                           {
                             "type": "physical",
@@ -102,7 +109,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "filter": null,
                             "physicalTopic": null,
                             "exposePhysicalTopic": null,
-                            "valueFormat": null
+                            "valueFormat": null,
+                            "managedBy": null
                           },
                           {
                             "type": "physical",
@@ -112,7 +120,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "filter": null,
                             "physicalTopic": null,
                             "exposePhysicalTopic": null,
-                            "valueFormat": null
+                            "valueFormat": null,
+                            "managedBy": null
                           }
                         ]
                         """);
@@ -157,7 +166,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                     "expression": "headers.tenant == \\\"acme\\\""
                   },
                   "physicalTopic": "audit-v1",
-                  "valueFormat": null
+                  "valueFormat": null,
+                  "managedBy": null
                 },
                 {
                   "type": "physical",
@@ -167,7 +177,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   "filter": null,
                   "physicalTopic": null,
                   "exposePhysicalTopic": null,
-                  "valueFormat": null
+                  "valueFormat": null,
+                  "managedBy": null
                 }]
                 """);
     }
@@ -205,7 +216,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                               "expression": "tenant contains acm"
                             },
                             "physicalTopic": "contains-v1",
-                            "valueFormat": null
+                            "valueFormat": null,
+                            "managedBy": null
                           },
                           {
                             "type": "virtual",
@@ -218,7 +230,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                               "expression": "tenant starts with ac"
                             },
                             "physicalTopic": "starts-v1",
-                            "valueFormat": null
+                            "valueFormat": null,
+                            "managedBy": null
                           },
                           {
                             "type": "virtual",
@@ -231,7 +244,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                               "expression": "tenant matches eu.*"
                             },
                             "physicalTopic": "matches-v1",
-                            "valueFormat": null
+                            "valueFormat": null,
+                            "managedBy": null
                           },
                           {
                           "type": "physical",
@@ -241,7 +255,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                           "filter": null,
                           "physicalTopic": null,
                           "exposePhysicalTopic": null,
-                          "valueFormat": null
+                          "valueFormat": null,
+                          "managedBy": null
                           },
                           {
                           "type": "physical",
@@ -251,7 +266,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                           "filter": null,
                           "physicalTopic": null,
                           "exposePhysicalTopic": null,
-                          "valueFormat": null
+                          "valueFormat": null,
+                          "managedBy": null
                           },
                           {
                           "type": "physical",
@@ -261,7 +277,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                           "filter": null,
                           "physicalTopic": null,
                           "exposePhysicalTopic": null,
-                          "valueFormat": null
+                          "valueFormat": null,
+                          "managedBy": null
                           }
                         ]
                         """);
@@ -288,7 +305,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   "exposePhysicalTopic": false,
                   "filter": null,
                   "physicalTopic": "orders-v2",
-                  "valueFormat": null
+                  "valueFormat": null,
+                  "managedBy": null
                 }]
                 """);
     }
@@ -679,7 +697,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                     "value": "eu"
                   },
                   "exposePhysicalTopic": false,
-                  "valueFormat": null
+                  "valueFormat": null,
+                  "managedBy": null
                 }
                 """);
     }
@@ -908,7 +927,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
-    void listsTopicsWithExactlyTheEightTopicPropertyNames() throws Exception {
+    void listsTopicsWithExactlyTheNineTopicPropertyNames() throws Exception {
         // given
         virtualTopics = new VirtualTopicManager(Map.of(
                 "orders", new VirtualTopicConfig("orders-v2"),
@@ -927,7 +946,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThat(topicsResp.statusCode()).isEqualTo(200);
         assertThat(topicsResp).containsExactlyTopLevelPropertyNames(
                 "type", "name", "partitions", "replicationFactor", "filter", "physicalTopic",
-                "exposePhysicalTopic", "valueFormat");
+                "exposePhysicalTopic", "valueFormat", "managedBy");
     }
 
     @Test
@@ -940,7 +959,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(postResp.statusCode()).isEqualTo(201);
-        assertThat(postResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat");
+        assertThat(postResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat", "managedBy");
     }
 
     @Test
@@ -977,7 +996,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(putResp.statusCode()).isEqualTo(200);
-        assertThat(putResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat");
+        assertThat(putResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat", "managedBy");
     }
 
     @Test
@@ -992,7 +1011,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(patchResp.statusCode()).isEqualTo(200);
-        assertThat(patchResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat");
+        assertThat(patchResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat", "managedBy");
     }
 
     private static GovernanceRuleConfig minReplicationRule(GovernanceRuleConfig.Exemption... exemptions) {
@@ -1074,39 +1093,201 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                 .hasStatusCode(200);
     }
 
-    /// An oauth admin auth config with the operator client enabled (secret `operator-secret`).
-    private static AdminAuthConfig operatorAuth() {
-        return new AdminAuthConfig("oauth", new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), Map.of(
-                "issuer", "kawa-test", "signingKey", TestSigningKeys.SEC1_P256,
-                "loginUrl", LOGIN_URL, "redirectUris", REDIRECT_URI,
-                "operatorSecret", "operator-secret"));
+    @Test
+    void anOperatorWriteMarksTheVirtualTopicAsManagedByTheOperator() throws Exception {
+        // given
+        auth = operatorAuth();
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/topics/orders", "{\"type\":\"virtual\",\"topic\":\"orders-v2\"}", bearer(operatorToken()));
+
+        // then
+        assertThat(putResp).hasStatusCode(200);
+        assertThatJson(putResp.body()).inPath("managedBy").isEqualTo("{\"principal\":\"kawa-operator\"}");
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders").managedBy())
+                .withFailMessage(() -> "virtual topic 'orders' was not stamped as managed by the operator")
+                .isEqualTo(new ManagedBy("kawa-operator"));
     }
 
-    /// An access token of `kawa-operator` acting as itself, through the client credentials grant.
-    private String operatorToken() throws Exception {
-        var response = send("POST", "/oauth/token", "grant_type=client_credentials", operatorBasic());
-        assertThat(response).hasStatusCode(200);
-        return new JsonMapper().readTree(response.body()).get("access_token").asString();
+    @Test
+    void anOperatorWriteForADelegatedPrincipalIsManagedByTheOperator() throws Exception {
+        // given
+        auth = operatorAuth();
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/topics/orders", "{\"type\":\"virtual\",\"topic\":\"orders-v2\"}",
+                bearer(delegatedToken("k8s:team-a")));
+
+        // then
+        assertThat(putResp).hasStatusCode(200);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders").managedBy())
+                .withFailMessage(() -> "a write the operator made for k8s:team-a was not managed by the operator")
+                .isEqualTo(new ManagedBy("kawa-operator"));
     }
 
-    private static Map<String, String> operatorBasic() {
-        return Map.of("Authorization", "Basic " + Base64.getEncoder().encodeToString(
-                "kawa-operator:operator-secret".getBytes(StandardCharsets.UTF_8)),
-                "Content-Type", "application/x-www-form-urlencoded");
+    @Test
+    void listsTheOwnerOfAManagedVirtualTopic() throws Exception {
+        // given
+        virtualTopics = new VirtualTopicManager(Map.of("orders", new VirtualTopicConfig("orders-v2")));
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", managedOrders()));
+        startServer();
+
+        // when
+        var topicsResp = send("GET", "/topics", null);
+
+        // then
+        assertThat(topicsResp).hasStatusCode(200);
+        assertThatJson(topicsResp.body()).inPath("[0].managedBy").isEqualTo("{\"principal\":\"kawa-operator\"}");
     }
 
-    /// An access token of `kawa-operator` acting as `principal`, through the token exchange grant.
-    private String delegatedToken(String principal) throws Exception {
-        var basic = operatorBasic();
-        String operatorToken = operatorToken();
-        var exchangeResp = send("POST", "/oauth/token",
-                "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Atoken-exchange"
-                        + "&subject_token=" + operatorToken
-                        + "&subject_token_type=urn%3Aietf%3Aparams%3Aoauth%3Atoken-type%3Aaccess_token"
-                        + "&requested_subject=" + URLEncoder.encode(principal, StandardCharsets.UTF_8),
-                basic);
-        assertThat(exchangeResp).hasStatusCode(200);
-        return new JsonMapper().readTree(exchangeResp.body()).get("access_token").asString();
+    @Test
+    void refusesChangesToAManagedVirtualTopicByAnyoneButItsOwner() throws Exception {
+        // given
+        auth = operatorAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", managedOrders()));
+        startServer();
+        var studio = bearer(login("admin@kawa", "s3cret"));
+
+        // when
+        var putResp = send("PUT", "/topics/orders", "{\"type\":\"virtual\",\"topic\":\"orders-v3\"}", studio);
+        var postResp = send("POST", "/topics", "{\"type\":\"virtual\",\"name\":\"orders\",\"topic\":\"orders-v3\"}", studio);
+        var patchResp = send("PATCH", "/topics/orders", "{\"name\":\"orders-renamed\"}", studio);
+        var deleteResp = send("DELETE", "/topics/orders", null, studio);
+
+        // then
+        for (var response : List.of(putResp, postResp, patchResp, deleteResp)) {
+            assertThat(response).hasStatusCode(409);
+            assertThatJson(response.body()).isEqualTo("""
+                    {"error": "topic 'orders' is managed by kawa-operator; change it through Kubernetes"}
+                    """);
+        }
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "a refused write changed managed virtual topic 'orders': " + repository.getActiveConfig().virtualTopics())
+                .containsExactly(Map.entry("orders", managedOrders()));
     }
 
+    @Test
+    void theOwnerRewritesItsManagedVirtualTopic() throws Exception {
+        // given
+        auth = operatorAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", managedOrders()));
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/topics/orders", "{\"type\":\"virtual\",\"topic\":\"orders-v3\"}", bearer(operatorToken()));
+
+        // then
+        assertThat(putResp).hasStatusCode(200);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders"))
+                .withFailMessage(() -> "the operator could not rewrite its virtual topic 'orders'")
+                .isEqualTo(new VirtualTopicConfig("orders-v3", null, false, null, new ManagedBy("kawa-operator")));
+    }
+
+    @Test
+    void aStudioWriteLeavesAnUnmanagedVirtualTopicUnmanaged() throws Exception {
+        // given
+        auth = operatorAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/topics/orders", "{\"type\":\"virtual\",\"topic\":\"orders-v3\"}", bearer(login("admin@kawa", "s3cret")));
+
+        // then
+        assertThat(putResp).hasStatusCode(200);
+        assertThatJson(putResp.body()).inPath("managedBy").isNull();
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders"))
+                .withFailMessage(() -> "a studio write did not leave virtual topic 'orders' unmanaged")
+                .isEqualTo(new VirtualTopicConfig("orders-v3"));
+    }
+
+    @Test
+    void onlyTheOwnerReleasesAManagedVirtualTopic() throws Exception {
+        // given
+        auth = operatorAuth();
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", managedOrders()));
+        startServer();
+
+        // when
+        var studioReleaseResp = send("DELETE", "/topics/orders/managed-by", null, bearer(login("admin@kawa", "s3cret")));
+        var operatorReleaseResp = send("DELETE", "/topics/orders/managed-by", null, bearer(operatorToken()));
+
+        // then
+        assertThat(studioReleaseResp).hasStatusCode(409);
+        assertThatJson(studioReleaseResp.body()).isEqualTo("""
+                {"error": "topic 'orders' is managed by kawa-operator; change it through Kubernetes"}
+                """);
+        assertThat(operatorReleaseResp).hasStatusCode(204);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders"))
+                .withFailMessage(() -> "the operator's release did not clear the owner of virtual topic 'orders'")
+                .isEqualTo(new VirtualTopicConfig("orders-v2"));
+    }
+
+    @Test
+    void releasingAnUnmanagedVirtualTopicIsANoOpAndAMissingOneIsNotFound() throws Exception {
+        // given
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
+        startServer();
+
+        // when
+        var unmanagedResp = send("DELETE", "/topics/orders/managed-by", null);
+        var missingResp = send("DELETE", "/topics/missing/managed-by", null);
+
+        // then
+        assertThat(unmanagedResp).hasStatusCode(204);
+        assertThat(missingResp).hasStatusCode(404);
+    }
+
+    @Test
+    void aCallerMerelyNamedKawaOperatorDoesNotOwnManagedVirtualTopics() throws Exception {
+        // given: a plugin provider authenticates a caller named 'kawa-operator' that is not the
+        // operator client; admin usernames are email addresses, but a provider may name anyone
+        authenticationProviders = registryOf(new BuiltInAuthenticationPlugin(), new NamedPrincipalPlugin("kawa-operator"));
+        auth = new AdminAuthConfig(NamedPrincipalPlugin.TYPE, null, Map.of());
+        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", managedOrders()));
+        startServer();
+
+        // when
+        var putResp = send("PUT", "/topics/orders", "{\"type\":\"virtual\",\"topic\":\"orders-v3\"}");
+        var releaseResp = send("DELETE", "/topics/orders/managed-by", null);
+
+        // then
+        for (var response : List.of(putResp, releaseResp)) {
+            assertThat(response).hasStatusCode(409);
+            assertThatJson(response.body()).isEqualTo("""
+                    {"error": "topic 'orders' is managed by kawa-operator; change it through Kubernetes"}
+                    """);
+        }
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "a caller named 'kawa-operator' changed managed virtual topic 'orders'")
+                .containsExactly(Map.entry("orders", managedOrders()));
+    }
+
+    private static VirtualTopicConfig managedOrders() {
+        return new VirtualTopicConfig("orders-v2", null, false, null, new ManagedBy("kawa-operator"));
+    }
+
+    /// A plugin provider that authenticates every request as a principal called `name`, acting for
+    /// itself (no actor).
+    private record NamedPrincipalPlugin(String name) implements KawaPlugin {
+
+        static final String TYPE = "test-named-principal";
+
+        @Override
+        public void register(KawaPluginContext context) {
+            context.registerAuthenticationProvider(new AuthenticationProviderFactory() {
+                @Override
+                public String name() {
+                    return TYPE;
+                }
+
+                @Override
+                public AuthenticationProvider create(AuthenticationProviderContext providerContext) {
+                    return request -> Optional.of(new KawaPrincipal(NamedPrincipalPlugin.this.name()));
+                }
+            });
+        }
+    }
 }

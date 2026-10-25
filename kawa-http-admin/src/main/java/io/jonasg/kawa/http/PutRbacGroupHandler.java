@@ -23,8 +23,10 @@ public final class PutRbacGroupHandler implements Router.Handler {
         }
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            var value = service.upsertGroup(name, body, consistency);
-            return Router.Response.ok(new GroupPutView(value.clients(), value.roles()));
+            var value = service.upsertGroup(request.principal(), name, body, consistency);
+            return Router.Response.ok(new GroupPutView(value.clients(), value.roles(), value.managedBy()));
+        } catch (ConflictException e) {
+            return Router.Response.conflict(e.getMessage());
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }

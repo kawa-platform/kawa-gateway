@@ -1,7 +1,9 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
+import org.jspecify.annotations.Nullable;
 
 /// A virtual topic in the admin `/topics` response. `filter` and `valueFormat` remain
 /// `kawa-config` types because the frozen write path keeps the raw sealed filter,
@@ -13,10 +15,12 @@ import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 ///                            virtual name in Metadata responses instead of being hidden
 /// @param valueFormat         optional encoding of record values; when set, content-based filters
 ///                            see the decoded value instead of the raw string
+/// @param managedBy           the owner of this entry, or `null` when it is unmanaged
 public record VirtualTopicConfigView(
         String topic,
         VirtualTopicFilterConfig filter,
         boolean exposePhysicalTopic,
-        PayloadFormatConfig valueFormat
+        PayloadFormatConfig valueFormat,
+        @Nullable ManagedBy managedBy
 ) {
 }

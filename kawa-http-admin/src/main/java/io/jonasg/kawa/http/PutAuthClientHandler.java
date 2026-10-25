@@ -23,8 +23,10 @@ public final class PutAuthClientHandler implements Router.Handler {
         }
         try {
             var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
-            var client = service.upsertClient(name, body, consistency);
-            return Router.Response.ok(new ClientConfigView(name, client.mechanism()));
+            var client = service.upsertClient(request.principal(), name, body, consistency);
+            return Router.Response.ok(new ClientConfigView(name, client.mechanism(), client.managedBy()));
+        } catch (ConflictException e) {
+            return Router.Response.conflict(e.getMessage());
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }

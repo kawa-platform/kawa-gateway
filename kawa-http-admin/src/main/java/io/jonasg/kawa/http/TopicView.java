@@ -1,5 +1,6 @@
 package io.jonasg.kawa.http;
 
+import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import org.jspecify.annotations.Nullable;
 
@@ -13,6 +14,7 @@ import org.jspecify.annotations.Nullable;
 /// @param physicalTopic       the broker-side topic name, only present when `type` is `"virtual"`
 /// @param exposePhysicalTopic whether a virtual topic's physical topic is also served directly; `null` for physical topics, where it does not apply
 /// @param valueFormat         encoding of record values, or `null` if none (raw strings)
+/// @param managedBy           the owner of a virtual topic, or `null` when it is unmanaged and for physical topics
 public record TopicView(
         String type,
         String name,
@@ -21,6 +23,7 @@ public record TopicView(
         @Nullable TopicFilterView filter,
         @Nullable String physicalTopic,
         @Nullable Boolean exposePhysicalTopic,
-        @Nullable PayloadFormatConfig valueFormat
+        @Nullable PayloadFormatConfig valueFormat,
+        @Nullable ManagedBy managedBy
 ) {
 }
