@@ -47,7 +47,7 @@
         <testcontainers.version>1.21.4</testcontainers.version>
         <awaitility.version>4.3.0</awaitility.version>
         <jsonunit.version>6.2.0</jsonunit.version>
-        <cel.version>0.13.1</cel.version>
+        <cel.version>0.14.0</cel.version>
         <avro.version>1.12.2</avro.version>
         <openapi-generator.version>7.26.0</openapi-generator.version>
         <jspecify.version>1.0.1</jspecify.version>
