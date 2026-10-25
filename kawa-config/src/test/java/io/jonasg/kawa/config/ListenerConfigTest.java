@@ -3,12 +3,10 @@ package io.jonasg.kawa.config;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,7 +45,7 @@ class ListenerConfigTest {
         String truststore = store("truststore.p12").location();
 
         // when
-        GatewayConfig config = loader.loadFromYaml("""
+        BootstrapConfig config = loader.loadFromYaml("""
                 listeners:
                   - port: 9093
                     securityProtocol: SASL_SSL
@@ -120,25 +118,5 @@ class ListenerConfigTest {
         assertThatThrownBy(() -> new ListenerTlsConfig(keystore, null, null, "NOT A RULE"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("tls.principalMappingRules is invalid");
-    }
-
-    @Test
-    void neverWritesListenerTlsToTheConfigTopic() throws IOException {
-        // given
-        var keystore = new StoreConfig(store("gateway.p12").location(), StoreType.PKCS12, "s3cret-store", null);
-        var listener = new ListenerConfig("0.0.0.0", 9093, SecurityProtocol.SSL, new ListenerTlsConfig(keystore, null, null, null));
-        var config = GatewayConfig.of(List.of(listener), null, null, null, null);
-
-        // when
-        String json = JsonMapper.builder().build().writeValueAsString(config);
-
-        // then
-        assertThat(json)
-                .withFailMessage(() -> "The listener's TLS settings, with their passwords, were serialized: " + json)
-                .doesNotContain("keystore")
-                .doesNotContain("s3cret-store");
-        assertThat(JsonMapper.builder().build().readValue(json, GatewayConfig.class).listeners())
-                .withFailMessage(() -> "A snapshot of a TLS listener could not be read back: " + json)
-                .hasSize(1);
     }
 }

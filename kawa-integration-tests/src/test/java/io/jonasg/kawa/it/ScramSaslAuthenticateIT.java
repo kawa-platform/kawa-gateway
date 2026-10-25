@@ -47,8 +47,7 @@ class ScramSaslAuthenticateIT extends GatewayTestSupport {
     protected AuthConfig authConfig() {
         return new AuthConfig(
                 Set.of("SCRAM-SHA-256"),
-                Map.of("alice", client("SCRAM-SHA-256", "secret")),
-                null);
+                Map.of("alice", client("SCRAM-SHA-256", "secret")));
     }
 
     @Override

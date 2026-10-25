@@ -3,8 +3,8 @@ package io.jonasg.kawa.http;
 import io.jonasg.kawa.config.AdminAuthConfig.BootstrapUser;
 import io.jonasg.kawa.config.AdminUserConfig;
 import io.jonasg.kawa.config.EmailAddresses;
-import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfig;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
 import org.jspecify.annotations.Nullable;
@@ -34,10 +34,10 @@ final class BootstrapUserSeeder {
 
     private static final Logger log = LoggerFactory.getLogger(BootstrapUserSeeder.class);
 
-    private final GatewayConfigRepository repository;
+    private final DynamicConfigRepository repository;
     private final Clock clock;
 
-    BootstrapUserSeeder(GatewayConfigRepository repository, Clock clock) {
+    BootstrapUserSeeder(DynamicConfigRepository repository, Clock clock) {
         this.repository = repository;
         this.clock = clock;
     }
@@ -69,7 +69,7 @@ final class BootstrapUserSeeder {
     }
 
     /// `config` with the admin user `email` enabled and given `password`; created if absent.
-    private GatewayConfig reset(GatewayConfig config, String email, String password) {
+    private DynamicConfig reset(DynamicConfig config, String email, String password) {
         Map.Entry<String, AdminUserConfig> existing = config.adminUsers().entrySet().stream()
                 .filter(entry -> entry.getValue().email().equals(email))
                 .findFirst()

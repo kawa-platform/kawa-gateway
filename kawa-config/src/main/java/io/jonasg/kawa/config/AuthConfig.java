@@ -8,8 +8,7 @@ import java.util.stream.Collectors;
 
 public record AuthConfig(
         Set<String> mechanisms,
-        Map<String, ClientConfig> clients,
-        BrokerAuthConfig brokerAuth
+        Map<String, ClientConfig> clients
 ) {
 
     public AuthConfig {
@@ -21,7 +20,7 @@ public record AuthConfig(
     /// Returns a new [AuthConfig] with the given client added or replaced. The client's
     /// mechanism is required. It is ensured present in the advertised [mechanisms] list
     /// (added when missing), so the first client can be added to an empty config via the
-    /// admin API. The startup-only [brokerAuth] is preserved.
+    /// admin API.
     public AuthConfig upsertClient(String username, ClientConfig client) {
         if (client == null) {
             throw new IllegalArgumentException("client config for '" + username + "' must not be null");
@@ -38,15 +37,14 @@ public record AuthConfig(
             expanded.add(mechanism);
             newMechanisms = Set.copyOf(expanded);
         }
-        return new AuthConfig(newMechanisms, newClients, brokerAuth);
+        return new AuthConfig(newMechanisms, newClients);
     }
 
-    /// Returns a new [AuthConfig] with the given client removed. The startup-only
-    /// [brokerAuth] is preserved.
+    /// Returns a new [AuthConfig] with the given client removed.
     public AuthConfig removeClient(String username) {
         var newClients = new HashMap<>(clients);
         newClients.remove(username);
-        return new AuthConfig(mechanisms, newClients, brokerAuth);
+        return new AuthConfig(mechanisms, newClients);
     }
 
     private static Map<String, ClientConfig> resolveClientMechanisms(

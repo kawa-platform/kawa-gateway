@@ -2,7 +2,7 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.http.auth.AdminUserAuthenticator;
@@ -35,7 +35,7 @@ import java.util.function.Function;
 /// [VirtualTopicManager] and [MetadataCache], `POST /topics` and `DELETE /topics/{name}`
 /// create/delete physical topics on the broker through the [TopicAdmin], and the
 /// `/rbac/...`, `/auth/...`, `/governance` and `/modules` endpoints read and write the dynamic config
-/// through the [GatewayConfigRepository]. Config writes go to the config topic and are
+/// through the [DynamicConfigRepository]. Config writes go to the config topic and are
 /// applied by the consumer.
 ///
 /// Requests are authenticated by the provider that `admin.auth.type` selects from the
@@ -64,7 +64,7 @@ public final class AdminHttpServer {
             AdminConfig config,
             VirtualTopicManager virtualTopics,
             MetadataCache cache,
-            GatewayConfigRepository configRepository,
+            DynamicConfigRepository configRepository,
             GovernancePolicy governance,
             TopicAdmin topicAdmin,
             AuthenticationProviderRegistry authenticationProviders
@@ -77,7 +77,7 @@ public final class AdminHttpServer {
             AdminConfig config,
             VirtualTopicManager virtualTopics,
             MetadataCache cache,
-            GatewayConfigRepository configRepository,
+            DynamicConfigRepository configRepository,
             GovernancePolicy governance,
             TopicAdmin topicAdmin,
             AuthenticationProviderRegistry authenticationProviders,

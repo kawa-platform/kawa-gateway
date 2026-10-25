@@ -1,7 +1,7 @@
 package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.AdminUserConfig;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
@@ -44,9 +44,9 @@ class BootstrapUserSeedSliceTest extends AdminHttpSliceTestBase {
     void ignoresTheBootstrapUserWhenAdminUsersExist() throws Exception {
         // given
         enableOAuth();
-        GatewayConfig existing = GatewayConfig.empty()
+        DynamicConfig existing = DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build());
-        repository = new FakeGatewayConfigRepository(existing);
+        repository = new FakeDynamicConfigRepository(existing);
 
         // when
         startServer();
@@ -84,8 +84,8 @@ class BootstrapUserSeedSliceTest extends AdminHttpSliceTestBase {
     void instancesStartingOnAnEmptyTopicSeedTheSameAdminUser() throws Exception {
         // given: two gateway instances, each still seeing the empty config topic
         enableOAuth();
-        var first = new FakeGatewayConfigRepository(GatewayConfig.empty());
-        var second = new FakeGatewayConfigRepository(GatewayConfig.empty());
+        var first = new FakeDynamicConfigRepository(DynamicConfig.empty());
+        var second = new FakeDynamicConfigRepository(DynamicConfig.empty());
 
         // when
         repository = first;
@@ -106,7 +106,7 @@ class BootstrapUserSeedSliceTest extends AdminHttpSliceTestBase {
     void resetReEnablesTheBootstrapUserAndResetsItsPassword() throws Exception {
         // given: the bootstrap user was disabled and their password changed
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(BOOTSTRAP_ID, adminUser().withEmail("admin@kawa").withPassword("forgotten")
                         .withDisplayName("Ops").disabled().build()));
         env = Map.of("KAWA_ADMIN_RESET", "true");
@@ -128,7 +128,7 @@ class BootstrapUserSeedSliceTest extends AdminHttpSliceTestBase {
     void resetRecreatesADeletedBootstrapUser() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().disabled().build()));
         env = Map.of("KAWA_ADMIN_RESET", "true");
 
@@ -147,7 +147,7 @@ class BootstrapUserSeedSliceTest extends AdminHttpSliceTestBase {
     void oauthStartsWithoutABootstrapUserWhenAdminUsersExist() throws Exception {
         // given
         enableOAuth(null);
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
 
         // when

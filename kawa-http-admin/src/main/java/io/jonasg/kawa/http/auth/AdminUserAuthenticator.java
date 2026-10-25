@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http.auth;
 
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
 import io.jonasg.kawa.plugin.auth.AdminUserDirectory;
@@ -22,10 +22,10 @@ import java.util.UUID;
 /// hash), so the response time does not reveal which usernames exist.
 public final class AdminUserAuthenticator implements AdminUserDirectory {
 
-    private final GatewayConfigRepository repository;
+    private final DynamicConfigRepository repository;
     private final HashedPassword dummy = HashedPassword.fromPlaintext(Mechanism.PLAIN, UUID.randomUUID().toString());
 
-    public AdminUserAuthenticator(GatewayConfigRepository repository) {
+    public AdminUserAuthenticator(DynamicConfigRepository repository) {
         this.repository = repository;
     }
 

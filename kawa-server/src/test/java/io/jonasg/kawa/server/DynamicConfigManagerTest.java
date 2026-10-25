@@ -2,7 +2,7 @@ package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.AclConfig;
 import io.jonasg.kawa.config.AuthConfig;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.ConfigTopicWriter;
 import io.jonasg.kawa.config.ConfigWriteFencedException;
 import io.jonasg.kawa.config.GovernanceConfig;
@@ -52,13 +52,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DynamicConfigManagerTest {
 
-    private static GatewayConfig config(
+    private static DynamicConfig config(
             Map<String, VirtualTopicConfig> virtualTopics,
             RbacConfig rbac,
             AuthConfig auth,
             GovernanceConfig governance
     ) {
-        return new GatewayConfig(null, null, virtualTopics, null, auth, rbac, null, null, governance);
+        return new DynamicConfig(virtualTopics, auth, rbac, governance);
     }
 
     private static RbacConfig rbacAllowingReadOnOrders() {
@@ -71,7 +71,7 @@ class DynamicConfigManagerTest {
 
     private static AuthConfig plainAuth() {
         return new AuthConfig(Set.of("PLAIN"), Map.of("alice", new ClientConfig("PLAIN",
-                HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"))), null);
+                HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"))));
     }
 
     private static GovernanceRuleConfig rule(String name, String message, String expression) {
@@ -226,7 +226,7 @@ class DynamicConfigManagerTest {
         // given - another replica committed a snapshot this replica's consumer has not read yet
         var writer = new FakeConfigTopicWriter();
         var manager = manager(writer, Duration.ofSeconds(1));
-        var otherReplicas = GatewayConfig.empty().upsertVirtualTopic("payments", new VirtualTopicConfig("payments-v1"));
+        var otherReplicas = DynamicConfig.empty().upsertVirtualTopic("payments", new VirtualTopicConfig("payments-v1"));
         long otherOffset = writer.commitByAnotherReplica(otherReplicas);
         Thread consumer = new Thread(() -> {
             sleep(50);
@@ -273,9 +273,9 @@ class DynamicConfigManagerTest {
         // given - another replica commits between this replica's read and its commit
         var writer = new FakeConfigTopicWriter();
         var manager = manager(writer, Duration.ofSeconds(1));
-        var otherReplicas = GatewayConfig.empty().upsertVirtualTopic("payments", new VirtualTopicConfig("payments-v1"));
+        var otherReplicas = DynamicConfig.empty().upsertVirtualTopic("payments", new VirtualTopicConfig("payments-v1"));
         writer.fenceNextCommit(() -> manager.apply(otherReplicas, writer.commitByAnotherReplica(otherReplicas)));
-        var bases = new ArrayList<GatewayConfig>();
+        var bases = new ArrayList<DynamicConfig>();
 
         // when
         manager.update(c -> {
@@ -296,7 +296,7 @@ class DynamicConfigManagerTest {
         // replica removes 'payments' while this write is in flight
         var writer = new FakeConfigTopicWriter();
         var manager = manager(writer, Duration.ofSeconds(1));
-        var both = GatewayConfig.empty()
+        var both = DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1"))
                 .upsertVirtualTopic("payments", new VirtualTopicConfig("payments-v1"));
         manager.apply(both, writer.commitByAnotherReplica(both));
@@ -452,7 +452,7 @@ class DynamicConfigManagerTest {
         var manager = manager(new FakeConfigTopicWriter(), Duration.ofMillis(20));
 
         // when / then
-        assertThatThrownBy(() -> manager.updateAndWaitUntilApplied(_ -> GatewayConfig.empty()))
+        assertThatThrownBy(() -> manager.updateAndWaitUntilApplied(_ -> DynamicConfig.empty()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("timed out waiting for config apply")
                 .hasMessageContaining("targetOffset=");
@@ -462,7 +462,7 @@ class DynamicConfigManagerTest {
     void updateTimesOutWhenTheConsumerNeverCatchesUp() {
         // given - a committed snapshot this replica's consumer never reads
         var writer = new FakeConfigTopicWriter();
-        writer.commitByAnotherReplica(GatewayConfig.empty());
+        writer.commitByAnotherReplica(DynamicConfig.empty());
         var manager = manager(writer, Duration.ofMillis(20));
 
         // when / then
@@ -493,7 +493,7 @@ class DynamicConfigManagerTest {
     /// offsets, and a commit can be fenced after running what another replica did meanwhile.
     private static final class FakeConfigTopicWriter implements ConfigTopicWriter {
 
-        private final List<GatewayConfig> committed = new ArrayList<>();
+        private final List<DynamicConfig> committed = new ArrayList<>();
         private long endOffset;
         private final Deque<Runnable> fences = new ArrayDeque<>();
         private boolean fenceAlways;
@@ -503,7 +503,7 @@ class DynamicConfigManagerTest {
         private long visibleEnd;
 
         /// A snapshot another replica committed; returns its offset.
-        long commitByAnotherReplica(GatewayConfig config) {
+        long commitByAnotherReplica(DynamicConfig config) {
             committed.add(config);
             visibleEnd = endOffset + 1;
             return endOffset++;
@@ -523,7 +523,7 @@ class DynamicConfigManagerTest {
         }
 
         @Override
-        public long commit(GatewayConfig config) {
+        public long commit(DynamicConfig config) {
             if (fenceAlways || !fences.isEmpty()) {
                 if (!fences.isEmpty()) {
                     fences.poll().run();

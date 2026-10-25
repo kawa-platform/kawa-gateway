@@ -1,6 +1,6 @@
 package io.jonasg.kawa.config;
 
-/// Writes [GatewayConfig] snapshots to the config topic as a compare-and-set.
+/// Writes [DynamicConfig] snapshots to the config topic as a compare-and-set.
 ///
 /// Every gateway replica's writer shares one Kafka `transactional.id`, so at most one of them can
 /// write at a time: a writer that starts writing fences the others, and a fenced writer's commit
@@ -13,7 +13,7 @@ public interface ConfigTopicWriter extends AutoCloseable {
     ///
     /// @throws ConfigWriteFencedException when another writer committed or started writing since this
     ///                                    writer last took over; nothing was written
-    long commit(GatewayConfig config);
+    long commit(DynamicConfig config);
 
     /// The offset just past the last committed record on the config topic: a consumer that has read
     /// up to here has seen every committed snapshot. Taking over first, so a commit by another

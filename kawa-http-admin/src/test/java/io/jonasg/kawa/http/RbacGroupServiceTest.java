@@ -1,7 +1,7 @@
 package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +14,7 @@ class RbacGroupServiceTest {
 
     private static final KawaPrincipal ADMIN = new KawaPrincipal("admin");
 
-    private final FakeGatewayConfigRepository repository = new FakeGatewayConfigRepository(GatewayConfig.empty());
+    private final FakeDynamicConfigRepository repository = new FakeDynamicConfigRepository(DynamicConfig.empty());
     private final RbacGroupService service = new RbacGroupService(repository);
 
     @Test

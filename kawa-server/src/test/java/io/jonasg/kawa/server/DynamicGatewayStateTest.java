@@ -2,7 +2,7 @@ package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.AclConfig;
 import io.jonasg.kawa.config.AuthConfig;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
@@ -38,7 +38,7 @@ class DynamicGatewayStateTest {
     void applyReachesAllConsumers() {
         // given
         var state = new DynamicGatewayState("localhost:9092", "__kawa", new java.util.Properties());
-        var config = GatewayConfig.empty()
+        var config = DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-physical"))
                 .updateRbac(new RbacConfig(
                         Map.of("reader", new RoleConfig(List.of(new AclConfig(
@@ -47,7 +47,7 @@ class DynamicGatewayStateTest {
                         Map.of("readers", new GroupConfig(List.of("alice"), List.of("reader")))))
                 .updateAuth(new AuthConfig(Set.of("PLAIN"),
                         Map.of("alice", new ClientConfig("PLAIN",
-                                HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"))), null))
+                                HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret")))))
                 .upsertGovernanceRule(new GovernanceRuleConfig(
                         "no-delete",
                         "must not delete",

@@ -1,7 +1,7 @@
 package io.jonasg.kawa.server;
 
+import io.jonasg.kawa.config.BootstrapConfig;
 import io.jonasg.kawa.config.ConfigLoader;
-import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.server.plugin.PluginDirectory;
 import io.jonasg.kawa.server.plugin.PluginLoader;
 import org.slf4j.Logger;
@@ -11,9 +11,9 @@ import java.nio.file.Path;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 
-/// Entry point. The `--config` file is the static bootstrap: cluster bootstrap servers,
+/// Entry point. The `--config` file is the static [BootstrapConfig]: cluster bootstrap servers,
 /// broker credentials, config topic name, listeners, advertised endpoint and admin.
-/// Virtual topics, RBAC and client auth are read from the config topic by [KafkaGateway]
+/// Virtual topics, RBAC and client auth are `DynamicConfig`, read from the config topic by [KafkaGateway]
 /// and update live; an empty config topic on first boot is valid. External plugins are loaded from
 /// `--plugins <dir>`, `KAWA_PLUGIN_DIR` or `/opt/kawa/plugins` (see [PluginDirectory]).
 public final class GatewayLauncher {
@@ -25,7 +25,7 @@ public final class GatewayLauncher {
 
     static void main(String[] args) throws Exception {
         Path configPath = parseConfigPath(args);
-        GatewayConfig bootstrap = new ConfigLoader().load(configPath);
+        BootstrapConfig bootstrap = new ConfigLoader().load(configPath);
         var pluginDirectory = PluginDirectory.resolve(args, System.getenv()).orElse(null);
         var plugins = new PluginLoader(GatewayLauncher.class.getClassLoader(), pluginDirectory).loadAll();
         var gateway = new KafkaGateway(bootstrap, plugins.authenticationProviders());

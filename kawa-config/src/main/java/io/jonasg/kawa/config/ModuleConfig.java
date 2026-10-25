@@ -15,7 +15,7 @@ public record ModuleConfig(ModuleId id, boolean enabled) {
         }
     }
 
-    /// The state of module `id` in a modules section ([GatewayConfig#modules]): its stored entry,
+    /// The state of module `id` in a modules section ([DynamicConfig#modules]): its stored entry,
     /// or enabled when it has none. The one place that decides a module's default.
     public static ModuleConfig stateOf(ModuleId id, Map<String, ModuleConfig> modules) {
         return modules.getOrDefault(id.id(), new ModuleConfig(id, true));

@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.http.auth.oauth.SigningKeys;
 import io.jonasg.kawa.test.TestSigningKeys;
 import io.jonasg.kawa.http.auth.oauth.TokenIssuer;
@@ -111,7 +111,7 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
     void rejectsTokenOfDeletedUser() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build())
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").withPassword("bob-secret").build()));
         startServer();
@@ -130,7 +130,7 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
     void rejectsTokenOfDisabledUser() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build())
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").withPassword("bob-secret").build()));
         startServer();
@@ -152,7 +152,7 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
     void acceptsTokenAgainOnceTheUserIsReEnabled() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build())
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").withPassword("bob-secret").build()));
         startServer();
@@ -176,7 +176,7 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
     void keepsTokenValidWhenTheEmailChanges() throws Exception {
         // given: tokens identify the admin user by id, not by email
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
         startServer();
         String aliceToken = login("alice@mycom.com", "alice-secret");

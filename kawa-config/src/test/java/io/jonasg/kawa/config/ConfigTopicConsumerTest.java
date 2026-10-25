@@ -17,7 +17,7 @@ class ConfigTopicConsumerTest {
     @Test
     void deliversValidSnapshotToCallback() {
         // given
-        List<GatewayConfig> received = new ArrayList<>();
+        List<DynamicConfig> received = new ArrayList<>();
         ConfigTopicConsumer consumer = new ConfigTopicConsumer(
                 "localhost:9092", TOPIC, received::add);
 
@@ -68,7 +68,7 @@ class ConfigTopicConsumerTest {
     @Test
     void appliesDefaultsToPartialSnapshot() {
         // given
-        List<GatewayConfig> received = new ArrayList<>();
+        List<DynamicConfig> received = new ArrayList<>();
         ConfigTopicConsumer consumer = new ConfigTopicConsumer(
                 "localhost:9092", TOPIC, received::add);
 
@@ -83,7 +83,7 @@ class ConfigTopicConsumerTest {
     @Test
     void deliversSnapshotIgnoringUnknownKeysFromLegacySnapshots() {
         // given
-        List<GatewayConfig> received = new ArrayList<>();
+        List<DynamicConfig> received = new ArrayList<>();
         ConfigTopicConsumer consumer = new ConfigTopicConsumer(
                 "localhost:9092", TOPIC, received::add);
 

@@ -21,7 +21,7 @@ class AuthConfigTest {
         Map<String, ClientConfig> clients = Map.of("alice", client(null, "secret"));
 
         // when
-        AuthConfig config = new AuthConfig(Set.of("PLAIN"), clients, null);
+        AuthConfig config = new AuthConfig(Set.of("PLAIN"), clients);
 
         // then
         assertThat(config.clients().get("alice").mechanism()).isEqualTo("PLAIN");
@@ -33,7 +33,7 @@ class AuthConfigTest {
         Map<String, ClientConfig> clients = Map.of("alice", client(null, "secret"));
 
         // when / then
-        assertThatThrownBy(() -> new AuthConfig(Set.of(), clients, null))
+        assertThatThrownBy(() -> new AuthConfig(Set.of(), clients))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("alice")
                 .hasMessageContaining("mechanism");
@@ -45,7 +45,7 @@ class AuthConfigTest {
         Map<String, ClientConfig> clients = Map.of("bob", client("SCRAM-SHA-256", "secret"));
 
         // when
-        AuthConfig config = new AuthConfig(Set.of("PLAIN", "SCRAM-SHA-256"), clients, null);
+        AuthConfig config = new AuthConfig(Set.of("PLAIN", "SCRAM-SHA-256"), clients);
 
         // then
         assertThat(config.clients().get("bob").mechanism()).isEqualTo("SCRAM-SHA-256");
@@ -58,7 +58,7 @@ class AuthConfigTest {
                 "bob", client("SCRAM-SHA-256", "secret"));
 
         // when / then
-        assertThatThrownBy(() -> new AuthConfig(Set.of("PLAIN"), clients, null))
+        assertThatThrownBy(() -> new AuthConfig(Set.of("PLAIN"), clients))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("bob")
                 .hasMessageContaining("SCRAM-SHA-256")
@@ -68,7 +68,7 @@ class AuthConfigTest {
     @Test
     void upsertClientAddsNewClient() {
         // given
-        var config = new AuthConfig(Set.of("PLAIN"), Map.of(), null);
+        var config = new AuthConfig(Set.of("PLAIN"), Map.of());
 
         // when
         var updated = config.upsertClient("alice", client("PLAIN", "secret"));
@@ -82,7 +82,7 @@ class AuthConfigTest {
     void upsertClientOverwritesExisting() {
         // given
         var config = new AuthConfig(Set.of("PLAIN"),
-                Map.of("alice", client("PLAIN", "old-secret")), null);
+                Map.of("alice", client("PLAIN", "old-secret")));
 
         // when
         var updated = config.upsertClient("alice", client("PLAIN", "new-secret"));
@@ -98,7 +98,7 @@ class AuthConfigTest {
     void removeClientRemovesExisting() {
         // given
         var config = new AuthConfig(Set.of("PLAIN"),
-                Map.of("alice", client("PLAIN", "secret")), null);
+                Map.of("alice", client("PLAIN", "secret")));
 
         // when
         var updated = config.removeClient("alice");
@@ -112,7 +112,7 @@ class AuthConfigTest {
         // given
         var config = new AuthConfig(Set.of("PLAIN"), Map.of(
                 "alice", client("PLAIN", "secret-alice"),
-                "bob", client("PLAIN", "secret-bob")), null);
+                "bob", client("PLAIN", "secret-bob")));
 
         // when
         var updated = config.removeClient("alice");
@@ -125,7 +125,7 @@ class AuthConfigTest {
     @Test
     void upsertClientPreservesMechanisms() {
         // given
-        var config = new AuthConfig(Set.of("PLAIN", "SCRAM-SHA-256"), Map.of(), null);
+        var config = new AuthConfig(Set.of("PLAIN", "SCRAM-SHA-256"), Map.of());
 
         // when
         var updated = config.upsertClient("alice", client("PLAIN", "secret"));
@@ -137,7 +137,7 @@ class AuthConfigTest {
     @Test
     void upsertClientAddsMechanismWhenClientUsesNewOne() {
         // given
-        var config = new AuthConfig(Set.of("PLAIN"), Map.of(), null);
+        var config = new AuthConfig(Set.of("PLAIN"), Map.of());
 
         // when
         var updated = config.upsertClient("bob", client("SCRAM-SHA-256", "secret"));
@@ -150,7 +150,7 @@ class AuthConfigTest {
     @Test
     void upsertClientWithoutMechanismIsRejected() {
         // given
-        var config = new AuthConfig(Set.of(), Map.of(), null);
+        var config = new AuthConfig(Set.of(), Map.of());
 
         // when / then
         assertThatThrownBy(() -> config.upsertClient("alice", client(null, "secret")))
@@ -162,7 +162,7 @@ class AuthConfigTest {
     @Test
     void upsertClientWithoutMechanismIsRejectedEvenWhenMechanismsConfigured() {
         // given
-        var config = new AuthConfig(Set.of("SCRAM-SHA-256", "PLAIN"), Map.of(), null);
+        var config = new AuthConfig(Set.of("SCRAM-SHA-256", "PLAIN"), Map.of());
 
         // when / then
         assertThatThrownBy(() -> config.upsertClient("alice", client(null, "secret")))
@@ -174,26 +174,11 @@ class AuthConfigTest {
     @Test
     void upsertClientRejectsNullClient() {
         // given
-        var config = new AuthConfig(Set.of("PLAIN"), Map.of(), null);
+        var config = new AuthConfig(Set.of("PLAIN"), Map.of());
 
         // when / then
         assertThatThrownBy(() -> config.upsertClient("alice", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("alice");
-    }
-
-    @Test
-    void brokerAuthPreservedThroughWithClient() {
-        // given
-        var brokerAuth = BrokerAuthConfig.of("PLAIN", "admin", "kafka-secret", k -> null);
-        var config = new AuthConfig(Set.of("PLAIN"),
-                Map.of("alice", client("PLAIN", "secret")), brokerAuth);
-
-        // when
-        var updated = config.upsertClient("bob", client("PLAIN", "bob-secret"));
-
-        // then
-        assertThat(updated.brokerAuth()).isEqualTo(brokerAuth);
-        assertThat(updated.clients()).hasSize(2);
     }
 }

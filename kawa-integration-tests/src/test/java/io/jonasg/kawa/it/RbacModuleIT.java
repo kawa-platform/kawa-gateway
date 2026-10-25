@@ -30,8 +30,7 @@ class RbacModuleIT extends AdminHTTPTestSupport {
         // the visitor can log in, but no role grants it anything
         return new AuthConfig(
                 Set.of("PLAIN"),
-                Map.of(DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD), VISITOR, client("PLAIN", VISITOR_PASSWORD)),
-                null);
+                Map.of(DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD), VISITOR, client("PLAIN", VISITOR_PASSWORD)));
     }
 
     @Test

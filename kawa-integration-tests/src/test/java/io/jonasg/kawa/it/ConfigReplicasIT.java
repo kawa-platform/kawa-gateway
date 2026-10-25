@@ -2,9 +2,8 @@ package io.jonasg.kawa.it;
 
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.AdvertisedListener;
-import io.jonasg.kawa.config.AuthConfig;
+import io.jonasg.kawa.config.BootstrapConfig;
 import io.jonasg.kawa.config.ClusterConfig;
-import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.ListenerConfig;
 import io.jonasg.kawa.server.KafkaGateway;
 import org.apache.kafka.clients.admin.AdminClient;
@@ -150,15 +149,13 @@ class ConfigReplicasIT {
     }
 
     private KafkaGateway startReplica() throws Exception {
-        var bootstrap = new GatewayConfig(
+        var bootstrap = new BootstrapConfig(
                 List.of(new ListenerConfig("127.0.0.1", 0)),
                 Map.of("default", new ClusterConfig(List.of(kafka.getBootstrapServers()))),
-                null,
                 new AdvertisedListener(1, "localhost", 0),
-                new AuthConfig(null, null, null),
                 null,
                 new AdminConfig(true, "127.0.0.1", 0, null),
-                CONFIG_TOPIC, null);
+                CONFIG_TOPIC);
         var gateway = new KafkaGateway(bootstrap);
         gateway.start();
         return gateway;

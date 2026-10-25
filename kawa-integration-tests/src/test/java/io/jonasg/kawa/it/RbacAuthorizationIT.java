@@ -101,8 +101,7 @@ class RbacAuthorizationIT extends GatewayTestSupport {
                         // as DEFAULT_PRINCIPAL for every subclass. This class never uses them, but if
                         // that principal cannot authenticate they reconnect in a tight loop for the
                         // lifetime of the class, flooding the log and starving the tests that matter.
-                        DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD)),
-                null);
+                        DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD)));
     }
 
     @Override

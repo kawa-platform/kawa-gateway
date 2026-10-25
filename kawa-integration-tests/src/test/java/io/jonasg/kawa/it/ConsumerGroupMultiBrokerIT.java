@@ -2,10 +2,11 @@ package io.jonasg.kawa.it;
 
 import io.jonasg.kawa.config.AclConfig;
 import io.jonasg.kawa.config.AdvertisedListener;
+import io.jonasg.kawa.config.BootstrapConfig;
 import io.jonasg.kawa.config.AuthConfig;
 import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.ClusterConfig;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.ListenerConfig;
@@ -84,15 +85,13 @@ class ConsumerGroupMultiBrokerIT {
         createCoordinatorTopics();
         writeConfigSnapshot();
 
-        gateway = new KafkaGateway(new GatewayConfig(
+        gateway = new KafkaGateway(new BootstrapConfig(
                 List.of(new ListenerConfig("127.0.0.1", 0)),
                 Map.of("default", new ClusterConfig(List.of(cluster.bootstrapServers().split(",")))),
-                null,
                 new AdvertisedListener(1, "localhost", 0),
-                new AuthConfig(null, null, null),
                 null,
                 null,
-                CONFIG_TOPIC, null));
+                CONFIG_TOPIC));
         gateway.start();
         gatewayBootstrap = "localhost:" + gateway.boundPort();
     }
@@ -275,8 +274,7 @@ class ConsumerGroupMultiBrokerIT {
     /// The gateway's dynamic config: one PLAIN client with access to everything.
     private void writeConfigSnapshot() throws Exception {
         var auth = new AuthConfig(Set.of("PLAIN"),
-                Map.of(CLIENT, new ClientConfig("PLAIN", HashedPassword.fromPlaintext(Mechanism.PLAIN, CLIENT_PASSWORD))),
-                null);
+                Map.of(CLIENT, new ClientConfig("PLAIN", HashedPassword.fromPlaintext(Mechanism.PLAIN, CLIENT_PASSWORD))));
         var allowAll = new RoleConfig(List.of(
                 new AclConfig(new ResourceConfig(ResourceType.TOPIC, "", PatternType.PREFIXED), AclOperation.ALL),
                 new AclConfig(new ResourceConfig(ResourceType.GROUP, "", PatternType.PREFIXED), AclOperation.ALL),
@@ -284,7 +282,7 @@ class ConsumerGroupMultiBrokerIT {
                 new AclConfig(new ResourceConfig(ResourceType.CLUSTER, null), AclOperation.ALL)));
         var rbac = new RbacConfig(Map.of("allow-all", allowAll),
                 Map.of("clients", new GroupConfig(List.of(CLIENT), List.of("allow-all"))));
-        var config = new GatewayConfig(null, null, Map.of(), null, auth, rbac, null, CONFIG_TOPIC, null);
+        var config = new DynamicConfig(Map.of(), auth, rbac, null);
         var props = new Properties();
         props.put("bootstrap.servers", cluster.bootstrapServers());
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);

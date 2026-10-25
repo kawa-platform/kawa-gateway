@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -42,7 +42,7 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
     void signsInAStoredAdminUser() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
         startServer();
 
@@ -58,7 +58,7 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
     void rejectsADisabledAdminUserLikeAWrongPassword() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").disabled().build()));
         startServer();
 
@@ -76,7 +76,7 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
     void refusesToRefreshTheSessionOfADisabledAdminUser() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build())
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").withPassword("bob-secret").build()));
         startServer();
@@ -100,7 +100,7 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
     void signsInWithTheEmailInAnyCase() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withEmail("alice@mycom.com").withPassword("alice-secret").build()));
         startServer();
 
@@ -115,7 +115,7 @@ class PostOAuthTokenSliceTest extends AdminHttpSliceTestBase {
     void accessTokenIdentifiesTheUserByIdAndNamesThemByEmail() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withEmail("alice@mycom.com").withPassword("alice-secret").build()));
         startServer();
 

@@ -9,25 +9,22 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class GatewayConfigTest {
+class DynamicConfigTest {
 
     private static final String ALICE_ID = "0b6f7e0a-2a4c-4e8e-9d6b-1f2a3b4c5d6e";
 
     @Test
     void emptyReturnsFullyDefaultedConfig() {
         // when
-        GatewayConfig config = GatewayConfig.empty();
+        DynamicConfig config = DynamicConfig.empty();
 
         // then
-        assertThat(config.listeners()).hasSize(1);
-        assertThat(config.clusters()).isEmpty();
         assertThat(config.virtualTopics()).isEmpty();
         assertThat(config.auth().mechanisms()).isEmpty();
         assertThat(config.auth().clients()).isEmpty();
         assertThat(config.rbac().roles()).isEmpty();
         assertThat(config.rbac().groups()).isEmpty();
         assertThat(config.governance().rules()).isEmpty();
-        assertThat(config.configTopic()).isEqualTo("__kawa");
         assertThat(config.adminUsers()).isEmpty();
     }
 
@@ -38,7 +35,7 @@ class GatewayConfigTest {
                 null, true, Instant.parse("2026-10-06T12:00:00Z"));
 
         // when
-        var added = GatewayConfig.empty().upsertAdminUser(ALICE_ID, user);
+        var added = DynamicConfig.empty().upsertAdminUser(ALICE_ID, user);
         var removed = added.removeAdminUser(ALICE_ID);
 
         // then
@@ -56,11 +53,11 @@ class GatewayConfigTest {
         var mapper = JsonMapper.builder().build();
         var user = new AdminUserConfig("alice@mycom.com", HashedPassword.fromPlaintext(Mechanism.PLAIN, "s3cret"),
                 "Alice Liddell", true, Instant.parse("2026-10-06T12:00:00Z"));
-        var config = GatewayConfig.empty().upsertAdminUser(ALICE_ID, user);
+        var config = DynamicConfig.empty().upsertAdminUser(ALICE_ID, user);
 
         // when
         String json = mapper.writeValueAsString(config);
-        GatewayConfig restored = mapper.readValue(json, GatewayConfig.class);
+        DynamicConfig restored = mapper.readValue(json, DynamicConfig.class);
 
         // then
         assertThat(json)
@@ -82,7 +79,7 @@ class GatewayConfigTest {
         var config = managedEntries(operator);
 
         // when
-        GatewayConfig restored = mapper.readValue(mapper.writeValueAsString(config), GatewayConfig.class);
+        DynamicConfig restored = mapper.readValue(mapper.writeValueAsString(config), DynamicConfig.class);
 
         // then
         assertThat(restored.virtualTopics().get("orders").managedBy())
@@ -106,7 +103,7 @@ class GatewayConfigTest {
         String json = mapper.writeValueAsString(managedEntries(null)).replace(",\"managedBy\":null", "");
 
         // when
-        GatewayConfig restored = mapper.readValue(json, GatewayConfig.class);
+        DynamicConfig restored = mapper.readValue(json, DynamicConfig.class);
 
         // then
         assertThat(json)
@@ -143,8 +140,8 @@ class GatewayConfigTest {
                 .isEqualTo(new GroupConfig(List.of("alice"), List.of(), operator));
     }
 
-    private static GatewayConfig managedEntries(ManagedBy managedBy) {
-        var config = GatewayConfig.empty()
+    private static DynamicConfig managedEntries(ManagedBy managedBy) {
+        var config = DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2", null, false, null, managedBy));
         return config
                 .updateRbac(config.rbac()
@@ -159,10 +156,10 @@ class GatewayConfigTest {
         var mapper = JsonMapper.builder().build();
         var user = new AdminUserConfig("alice@mycom.com", HashedPassword.fromPlaintext(Mechanism.PLAIN, "s3cret"),
                 null, false, Instant.parse("2026-10-06T12:00:00Z"));
-        var config = GatewayConfig.empty().upsertAdminUser(ALICE_ID, user);
+        var config = DynamicConfig.empty().upsertAdminUser(ALICE_ID, user);
 
         // when
-        GatewayConfig restored = mapper.readValue(mapper.writeValueAsString(config), GatewayConfig.class);
+        DynamicConfig restored = mapper.readValue(mapper.writeValueAsString(config), DynamicConfig.class);
 
         // then
         assertThat(restored.adminUsers().get(ALICE_ID).enabled())
@@ -174,13 +171,13 @@ class GatewayConfigTest {
     void modulesSurviveAJsonRoundTripUnderTheirId() {
         // given
         var mapper = JsonMapper.builder().build();
-        var config = GatewayConfig.empty()
+        var config = DynamicConfig.empty()
                 .upsertModule(new ModuleConfig(ModuleId.VIRTUAL_TOPICS, false))
                 .upsertModule(new ModuleConfig(ModuleId.RBAC, true));
 
         // when
         String json = mapper.writeValueAsString(config);
-        GatewayConfig restored = mapper.readValue(json, GatewayConfig.class);
+        DynamicConfig restored = mapper.readValue(json, DynamicConfig.class);
 
         // then
         assertThat(json)
@@ -194,7 +191,7 @@ class GatewayConfigTest {
     @Test
     void upsertVirtualTopicAddsNewEntry() {
         // given
-        var config = new GatewayConfig(null, null, null, null, null, null, null, null, null);
+        var config = new DynamicConfig(null, null, null, null);
 
         // when
         var updated = config.upsertVirtualTopic("orders", new VirtualTopicConfig("raw-orders"));
@@ -206,9 +203,8 @@ class GatewayConfigTest {
     @Test
     void upsertVirtualTopicOverwritesExisting() {
         // given
-        var config = new GatewayConfig(null, null,
-                Map.of("orders", new VirtualTopicConfig("raw-old")),
-                null, null, null, null, null, null);
+        var config = new DynamicConfig(
+                Map.of("orders", new VirtualTopicConfig("raw-old")), null, null, null);
 
         // when
         var updated = config.upsertVirtualTopic("orders", new VirtualTopicConfig("raw-new"));
@@ -221,9 +217,8 @@ class GatewayConfigTest {
     @Test
     void removeVirtualTopicRemovesEntry() {
         // given
-        var config = new GatewayConfig(null, null,
-                Map.of("orders", new VirtualTopicConfig("raw-orders")),
-                null, null, null, null, null, null);
+        var config = new DynamicConfig(
+                Map.of("orders", new VirtualTopicConfig("raw-orders")), null, null, null);
 
         // when
         var updated = config.removeVirtualTopic("orders");
@@ -235,13 +230,12 @@ class GatewayConfigTest {
     @Test
     void updateAuthReplacesAuthConfig() {
         // given
-        var config = new GatewayConfig(null, null, null, null,
-                new AuthConfig(null, null, null), null, null, null, null);
+        var config = new DynamicConfig(null,
+                new AuthConfig(null, null), null, null);
         var newAuth = new AuthConfig(
                 java.util.Set.of("PLAIN"),
                 Map.of("alice", new ClientConfig("PLAIN",
-                        HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"))),
-                null);
+                        HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"))));
 
         // when
         var updated = config.updateAuth(newAuth);
@@ -253,8 +247,8 @@ class GatewayConfigTest {
     @Test
     void updateRbacReplacesRbacConfig() {
         // given
-        var config = new GatewayConfig(null, null, null, null, null,
-                new RbacConfig(null, null), null, null, null);
+        var config = new DynamicConfig(null, null,
+                new RbacConfig(null, null), null);
         var newRbac = new RbacConfig(
                 Map.of("admin", new RoleConfig(java.util.List.of())),
                 null);
@@ -269,9 +263,8 @@ class GatewayConfigTest {
     @Test
     void updateVirtualTopicsReplacesMap() {
         // given
-        var config = new GatewayConfig(null, null,
-                Map.of("old-topic", new VirtualTopicConfig("raw-old")),
-                null, null, null, null, null, null);
+        var config = new DynamicConfig(
+                Map.of("old-topic", new VirtualTopicConfig("raw-old")), null, null, null);
         var newTopics = Map.of("new-topic", new VirtualTopicConfig("raw-new"));
 
         // when
@@ -284,9 +277,8 @@ class GatewayConfigTest {
     @Test
     void upsertVirtualTopicPreservesOtherTopics() {
         // given
-        var config = new GatewayConfig(null, null,
-                Map.of("existing", new VirtualTopicConfig("raw-existing")),
-                null, null, null, null, null, null);
+        var config = new DynamicConfig(
+                Map.of("existing", new VirtualTopicConfig("raw-existing")), null, null, null);
 
         // when
         var updated = config.upsertVirtualTopic("new-topic", new VirtualTopicConfig("raw-new"));

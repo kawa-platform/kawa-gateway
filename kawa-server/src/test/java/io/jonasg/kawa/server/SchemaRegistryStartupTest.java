@@ -1,8 +1,8 @@
 package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.AdvertisedListener;
+import io.jonasg.kawa.config.BootstrapConfig;
 import io.jonasg.kawa.config.ClusterConfig;
-import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.ListenerConfig;
 import io.jonasg.kawa.config.SchemaRegistryConfig;
 import io.jonasg.kawa.config.StoreConfig;
@@ -36,16 +36,13 @@ class SchemaRegistryStartupTest {
                 .hasMessageContaining("schemaRegistry.tls is not supported yet");
     }
 
-    private static GatewayConfig config(ClusterConfig cluster) {
-        return new GatewayConfig(
+    private static BootstrapConfig config(ClusterConfig cluster) {
+        return new BootstrapConfig(
                 List.of(new ListenerConfig("127.0.0.1", 0)),
                 Map.of("default", cluster),
-                null,
                 new AdvertisedListener(1, "localhost", 0),
                 null,
                 null,
-                null,
-                "__kawa",
-                null);
+                "__kawa");
     }
 }

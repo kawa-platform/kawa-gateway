@@ -1,7 +1,7 @@
 package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
@@ -33,7 +33,7 @@ class TopicServiceTest {
 
     private final VirtualTopicManager virtualTopics = new VirtualTopicManager(Map.of());
     private final MetadataCache cache = new MetadataCache();
-    private final FakeGatewayConfigRepository repository = new FakeGatewayConfigRepository(GatewayConfig.empty());
+    private final FakeDynamicConfigRepository repository = new FakeDynamicConfigRepository(DynamicConfig.empty());
     private final FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
     private GovernancePolicy governance = new GovernancePolicy(new GovernanceConfig(null));
     private final TopicService service = new TopicService(virtualTopics, cache, repository, topicAdmin, governance);

@@ -3,8 +3,8 @@ package io.jonasg.kawa.server;
 import io.jonasg.kawa.config.ConfigTopicConsumer;
 import io.jonasg.kawa.config.ConfigTopicWriter;
 import io.jonasg.kawa.config.ConfigWriteFencedException;
-import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfig;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.TransactionalConfigTopicWriter;
 import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
@@ -23,10 +23,10 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
-/// Owns the config-topic consumer and applies each [GatewayConfig] snapshot to the mutable
+/// Owns the config-topic consumer and applies each [DynamicConfig] snapshot to the mutable
 /// consumers: [VirtualTopicManager], [RbacAuthorizer], [SaslAuthenticator], [GovernancePolicy]
 /// and [ModuleRegistry]. Also owns the config-topic writer, so it is the
-/// [GatewayConfigRepository] the admin HTTP surface uses to read the current snapshot and
+/// [DynamicConfigRepository] the admin HTTP surface uses to read the current snapshot and
 /// persist changes.
 ///
 /// A snapshot is applied in an order that keeps the application atomic in the failure case:
@@ -51,7 +51,7 @@ import java.util.function.UnaryOperator;
 ///
 /// [getActiveConfig] reports this replica's own newest committed snapshot until the consumer has
 /// applied it, then the last applied one, so the admin API reads its own writes.
-public final class DynamicConfigManager implements GatewayConfigRepository, AutoCloseable {
+public final class DynamicConfigManager implements DynamicConfigRepository, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(DynamicConfigManager.class);
 
@@ -69,7 +69,7 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
     private final Object applyProgressLock = new Object();
     private final Object writeLock = new Object();
 
-    private volatile @Nullable GatewayConfig current;
+    private volatile @Nullable DynamicConfig current;
     private volatile long lastAppliedOffset = -1L;
     private volatile long consumedPosition = 0L;
     private volatile @Nullable Committed lastCommitted;
@@ -158,14 +158,14 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
 
     /// Applies a snapshot to the four mutable consumers. Package-private so the wiring is
     /// testable without a broker.
-    void apply(GatewayConfig config) {
+    void apply(DynamicConfig config) {
         applyConsumers(config);
         current = config;
     }
 
     /// Applies the snapshot at `offset` and advances the progress [updateAndWaitUntilApplied] and
     /// the compare-and-set wait on. Package-private so the write flow is testable.
-    void apply(GatewayConfig config, long offset) {
+    void apply(DynamicConfig config, long offset) {
         applyConsumers(config);
         current = config;
         synchronized (applyProgressLock) {
@@ -184,7 +184,7 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
         }
     }
 
-    private void applyConsumers(GatewayConfig config) {
+    private void applyConsumers(DynamicConfig config) {
         authorizer.reload(config.rbac()); // risky first: can throw on unknown role
         governance.reload(config.governance()); // risky: can throw on invalid CEL expression
         virtualTopics.reload(config.virtualTopics());
@@ -203,7 +203,7 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
     }
 
     @Override
-    public @Nullable GatewayConfig getActiveConfig() {
+    public @Nullable DynamicConfig getActiveConfig() {
         Committed committed = lastCommitted;
         if (committed != null && committed.offset() > lastAppliedOffset) {
             return committed.config();
@@ -212,18 +212,18 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
     }
 
     @Override
-    public void update(UnaryOperator<GatewayConfig> mutation) {
+    public void update(UnaryOperator<DynamicConfig> mutation) {
         commit(mutation);
     }
 
     @Override
-    public void updateAndWaitUntilApplied(UnaryOperator<GatewayConfig> mutation) {
+    public void updateAndWaitUntilApplied(UnaryOperator<DynamicConfig> mutation) {
         awaitAppliedOffset(commit(mutation));
     }
 
     /// Applies `mutation` to the newest committed snapshot and commits the result, starting again on
     /// a newer snapshot when another replica wrote in between. Returns the offset of the commit.
-    private long commit(UnaryOperator<GatewayConfig> mutation) {
+    private long commit(UnaryOperator<DynamicConfig> mutation) {
         synchronized (writeLock) {
             for (int attempt = 1; ; attempt++) {
                 // The committed end offset can trail this replica's own last commit: committing
@@ -232,8 +232,8 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
                 // write from building on a snapshot that is missing the previous one.
                 Committed own = lastCommitted;
                 awaitConsumedPosition(Math.max(writer.committedEndOffset(), own == null ? 0 : own.offset() + 1));
-                GatewayConfig base = current;
-                GatewayConfig next = mutation.apply(base != null ? base : GatewayConfig.empty());
+                DynamicConfig base = current;
+                DynamicConfig next = mutation.apply(base != null ? base : DynamicConfig.empty());
                 try {
                     long offset = writer.commit(next);
                     lastCommitted = new Committed(next, offset);
@@ -302,6 +302,6 @@ public final class DynamicConfigManager implements GatewayConfigRepository, Auto
     }
 
     /// A snapshot this replica committed, and the offset of its record.
-    private record Committed(GatewayConfig config, long offset) {
+    private record Committed(DynamicConfig config, long offset) {
     }
 }
