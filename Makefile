@@ -8,7 +8,7 @@ COMPOSE      := docker compose
 COMPOSE_SASL := docker compose -f docker-compose.sasl.yml
 COMPOSE_SASL_SSL := docker compose -f docker-compose.sasl-ssl.yml
 
-.PHONY: help up up-sasl up-sasl-ssl down down-sasl down-sasl-ssl logs logs-sasl logs-sasl-ssl ps build test clean
+.PHONY: help up up-sasl up-sasl-ssl down down-sasl down-sasl-ssl logs logs-sasl logs-sasl-ssl ps build test clean release
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -51,3 +51,6 @@ test: ## Run all unit tests
 
 clean: ## Clean all build outputs
 	./mvnw clean
+
+release: ## Tag v$(VERSION) on origin/main and push it (starts the Release workflow). VERSION=x.y.z[-rc.N]
+	@./scripts/release.sh '$(VERSION)'
