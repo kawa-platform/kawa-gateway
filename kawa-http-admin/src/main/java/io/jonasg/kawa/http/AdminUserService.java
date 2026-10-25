@@ -2,8 +2,8 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.AdminUserConfig;
 import io.jonasg.kawa.config.EmailAddresses;
-import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfig;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
 import org.jspecify.annotations.Nullable;
@@ -23,11 +23,11 @@ import java.util.UUID;
 /// between), so two concurrent requests cannot each remove "not the last" enabled admin user.
 final class AdminUserService {
 
-    private final GatewayConfigRepository repository;
+    private final DynamicConfigRepository repository;
     private final ConsistencyAwareUpdater updater;
     private final Object writeLock = new Object();
 
-    AdminUserService(GatewayConfigRepository repository) {
+    AdminUserService(DynamicConfigRepository repository) {
         this.repository = repository;
         this.updater = new ConsistencyAwareUpdater(repository);
     }
@@ -89,7 +89,7 @@ final class AdminUserService {
 
     /// The admin user `id` in `config` with `patch` applied: fields it leaves out keep their value, an
     /// empty display name clears it, and `createdAt` never changes.
-    private AdminUserConfig patched(GatewayConfig config, String id, UpdateAdminUserRequest patch, @Nullable String caller) {
+    private AdminUserConfig patched(DynamicConfig config, String id, UpdateAdminUserRequest patch, @Nullable String caller) {
         AdminUserConfig existing = config.adminUsers().get(id);
         if (existing == null) {
             throw notFound(id);
@@ -116,7 +116,7 @@ final class AdminUserService {
 
     /// Rejects deleting or disabling `existing` when it is the last enabled admin user: nobody could
     /// log in afterwards. A user that is already disabled can always go.
-    private static void requireAnotherEnabledUser(GatewayConfig config, String id, AdminUserConfig existing, String action) {
+    private static void requireAnotherEnabledUser(DynamicConfig config, String id, AdminUserConfig existing, String action) {
         if (!existing.enabled()) {
             return;
         }
@@ -140,7 +140,7 @@ final class AdminUserService {
     }
 
     /// Rejects `email` when another admin user than `id` already has it.
-    private static void requireUnusedEmail(GatewayConfig config, String email, String id) {
+    private static void requireUnusedEmail(DynamicConfig config, String email, String id) {
         boolean taken = config.adminUsers().entrySet().stream()
                 .anyMatch(entry -> !entry.getKey().equals(id) && entry.getValue().email().equals(email));
         if (taken) {

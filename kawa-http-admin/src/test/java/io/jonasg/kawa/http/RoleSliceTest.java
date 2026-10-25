@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.RoleConfig;
@@ -21,8 +21,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsConfiguredRoles() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac().upsertRole("reader", new RoleConfig(null))));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac().upsertRole("reader", new RoleConfig(null))));
         startServer();
 
         // when
@@ -38,8 +38,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsRolesSortedByName() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac()
                         .upsertRole("writer", new RoleConfig(null))
                         .upsertRole("reader", new RoleConfig(null))));
         startServer();
@@ -60,7 +60,7 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsRolesEmptyWhenNoSnapshotApplied() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(null);
+        repository = new FakeDynamicConfigRepository(null);
         startServer();
 
         // when
@@ -112,8 +112,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void removesRoleAndPersistsSnapshot() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac().upsertRole("reader", new RoleConfig(null))));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac().upsertRole("reader", new RoleConfig(null))));
         startServer();
 
         // when
@@ -127,8 +127,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void removesRoleFromGroupsThatReferenceIt() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac()
                         .upsertRole("reader", new RoleConfig(null))
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("reader")))));
         startServer();
@@ -159,8 +159,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsRolesWithExactlyNameAndAcls() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac().upsertRole("reader", new RoleConfig(null))));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac().upsertRole("reader", new RoleConfig(null))));
         startServer();
 
         // when
@@ -207,8 +207,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsTheOwnerOfAManagedRole() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac().upsertRole("reader", new RoleConfig(List.of(), OPERATOR))));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac().upsertRole("reader", new RoleConfig(List.of(), OPERATOR))));
         startServer();
 
         // when
@@ -225,8 +225,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     void refusesChangesToAManagedRoleByAnyoneButItsOwner() throws Exception {
         // given
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac().upsertRole("reader", new RoleConfig(List.of(), OPERATOR))));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac().upsertRole("reader", new RoleConfig(List.of(), OPERATOR))));
         startServer();
         var studio = bearer(login("admin@kawa", "s3cret"));
 
@@ -250,10 +250,10 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     void refusesDeletingARoleAManagedGroupReferences() throws Exception {
         // given
         auth = operatorAuth();
-        var rbac = GatewayConfig.empty().rbac()
+        var rbac = DynamicConfig.empty().rbac()
                 .upsertRole("reader", new RoleConfig(List.of()))
                 .upsertGroup("producers", new GroupConfig(List.of(), List.of("reader"), OPERATOR));
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateRbac(rbac));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().updateRbac(rbac));
         startServer();
 
         // when
@@ -273,7 +273,7 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     void theOwnerRewritesItsManagedRoleAndOthersKeepEditingUnmanagedOnes() throws Exception {
         // given
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().updateRbac(DynamicConfig.empty().rbac()
                 .upsertRole("reader", new RoleConfig(List.of(), OPERATOR))
                 .upsertRole("writer", new RoleConfig(List.of()))));
         startServer();
@@ -305,8 +305,8 @@ class RoleSliceTest extends AdminHttpSliceTestBase {
     void onlyTheOwnerReleasesAManagedRole() throws Exception {
         // given
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac().upsertRole("reader", new RoleConfig(List.of(), OPERATOR))));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac().upsertRole("reader", new RoleConfig(List.of(), OPERATOR))));
         startServer();
 
         // when

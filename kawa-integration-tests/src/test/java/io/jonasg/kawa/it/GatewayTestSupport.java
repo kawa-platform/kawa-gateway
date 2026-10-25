@@ -4,8 +4,9 @@ import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.AclConfig;
 import io.jonasg.kawa.config.AuthConfig;
+import io.jonasg.kawa.config.BootstrapConfig;
 import io.jonasg.kawa.config.ClusterConfig;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.HashedPassword;
@@ -230,8 +231,7 @@ abstract class GatewayTestSupport {
     protected AuthConfig authConfig() {
         return new AuthConfig(
                 Set.of("PLAIN"),
-                Map.of(DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD)),
-                null);
+                Map.of(DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD)));
     }
 
     protected static ClientConfig client(String mechanism, String password) {
@@ -268,42 +268,35 @@ abstract class GatewayTestSupport {
     /// The static bootstrap passed to the gateway: cluster bootstrap servers, config topic
     /// name, listeners, advertised endpoint and admin. Virtual topics, RBAC and client auth
     /// come from the config topic snapshot.
-    private GatewayConfig buildBootstrap() {
+    private BootstrapConfig buildBootstrap() {
         return bootstrapConfig(new ListenerConfig("127.0.0.1", 0));
     }
 
     /// The static bootstrap of [buildBootstrap], with clients connecting on `listener` instead.
     /// For tests that start a further gateway, on the same broker and config topic, with their
     /// own listener security.
-    protected GatewayConfig bootstrapConfig(ListenerConfig listener) {
-        return new GatewayConfig(
+    protected BootstrapConfig bootstrapConfig(ListenerConfig listener) {
+        return new BootstrapConfig(
                 List.of(listener),
                 Map.of("default", clusterConfig()),
-                null,
                 new AdvertisedListener(1, "localhost", 0),
-                new AuthConfig(null, null, null),
                 null,
                 adminConfig(),
-                CONFIG_TOPIC, null);
+                CONFIG_TOPIC);
     }
 
     /// The full dynamic config written to the config topic before the gateway starts. Only
     /// virtual topics, RBAC, client auth and governance are dynamic; listeners, advertised and admin are
     /// startup-only and come from the static bootstrap.
-    private GatewayConfig buildDynamicConfig() {
+    private DynamicConfig buildDynamicConfig() {
         Map<String, VirtualTopicConfig> typedVirtualTopics = new java.util.HashMap<>();
         virtualTopics().forEach((virtual, physical) ->
                 typedVirtualTopics.put(virtual, new VirtualTopicConfig(physical)));
         typedVirtualTopics.putAll(filteredVirtualTopics());
-        return new GatewayConfig(
-                null,
-                Map.of("default", new ClusterConfig(List.of(brokerBootstrap))),
+        return new DynamicConfig(
                 typedVirtualTopics,
-                null,
                 authConfig(),
-                rbacConfig(),
-                null,
-                CONFIG_TOPIC, governanceConfig());
+                rbacConfig(), governanceConfig());
     }
 
     /// Serializes the full dynamic config as JSON and writes it to the config topic, so the

@@ -3,7 +3,7 @@ package io.jonasg.kawa.http;
 import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.CorsConfig;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
@@ -47,7 +47,7 @@ abstract class AdminHttpSliceTestBase {
 
     protected VirtualTopicManager virtualTopics = new VirtualTopicManager(Map.of());
     protected MetadataCache cache = new MetadataCache();
-    protected FakeGatewayConfigRepository repository = new FakeGatewayConfigRepository(GatewayConfig.empty());
+    protected FakeDynamicConfigRepository repository = new FakeDynamicConfigRepository(DynamicConfig.empty());
     protected GovernancePolicy governance = new GovernancePolicy(new GovernanceConfig(null));
     protected FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
     protected CorsConfig cors;

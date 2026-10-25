@@ -1,8 +1,8 @@
 package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.ClientConfig;
-import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfig;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
 import io.jonasg.kawa.config.RbacConfig;
@@ -23,10 +23,10 @@ final class AuthClientService {
 
     private static final String KIND = "client";
 
-    private final GatewayConfigRepository repository;
+    private final DynamicConfigRepository repository;
     private final ConsistencyAwareUpdater updater;
 
-    AuthClientService(GatewayConfigRepository repository) {
+    AuthClientService(DynamicConfigRepository repository) {
         this.repository = repository;
         this.updater = new ConsistencyAwareUpdater(repository);
     }
@@ -43,7 +43,7 @@ final class AuthClientService {
     }
 
     ClientConfig updateClient(KawaPrincipal caller, String name, ClientConfigPatch patch, Consistency consistency) {
-        GatewayConfig base = repository.getActiveConfigOrEmpty();
+        DynamicConfig base = repository.getActiveConfigOrEmpty();
         ClientConfig current = base.auth().clients().get(name);
         if (current == null) {
             throw new NotFoundException("client '" + name + "' not found");
@@ -104,8 +104,8 @@ final class AuthClientService {
     /// `null`). Refused when the client, or a group whose membership changes, is managed by someone
     /// other than `caller`.
     @NullUnmarked
-    private GatewayConfig updateClient(
-            GatewayConfig config,
+    private DynamicConfig updateClient(
+            DynamicConfig config,
             KawaPrincipal caller,
             String name,
             ClientConfig client,
@@ -142,14 +142,14 @@ final class AuthClientService {
                 .updateRbac(new RbacConfig(config.rbac().roles(), groups));
     }
 
-    private static void requireClientOwner(GatewayConfig config, String name, KawaPrincipal caller) {
+    private static void requireClientOwner(DynamicConfig config, String name, KawaPrincipal caller) {
         ClientConfig existing = config.auth().clients().get(name);
         if (existing != null) {
             Ownership.requireOwner(KIND, name, existing.managedBy(), caller);
         }
     }
 
-    private List<String> groupsForClient(GatewayConfig config, String name) {
+    private List<String> groupsForClient(DynamicConfig config, String name) {
         return config.rbac().groups().entrySet().stream()
                 .filter(entry -> entry.getValue().clients().contains(name))
                 .map(Map.Entry::getKey)

@@ -1,7 +1,7 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfig;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.RoleConfig;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 
@@ -14,10 +14,10 @@ final class RbacRoleService {
 
     private static final String KIND = "role";
 
-    private final GatewayConfigRepository repository;
+    private final DynamicConfigRepository repository;
     private final ConsistencyAwareUpdater updater;
 
-    RbacRoleService(GatewayConfigRepository repository) {
+    RbacRoleService(DynamicConfigRepository repository) {
         this.repository = repository;
         this.updater = new ConsistencyAwareUpdater(repository);
     }
@@ -69,7 +69,7 @@ final class RbacRoleService {
         });
     }
 
-    private static void requireRoleOwner(GatewayConfig config, String name, KawaPrincipal caller) {
+    private static void requireRoleOwner(DynamicConfig config, String name, KawaPrincipal caller) {
         RoleConfig existing = config.rbac().roles().get(name);
         if (existing != null) {
             Ownership.requireOwner(KIND, name, existing.managedBy(), caller);

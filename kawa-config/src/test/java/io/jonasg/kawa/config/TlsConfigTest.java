@@ -3,7 +3,6 @@ package io.jonasg.kawa.config;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -30,7 +29,7 @@ class TlsConfigTest {
         String truststore = file("truststore.p12");
 
         // when
-        GatewayConfig config = loader.loadFromYaml("""
+        BootstrapConfig config = loader.loadFromYaml("""
                 clusters:
                   default:
                     bootstrapServers: [kafka:9093]
@@ -61,7 +60,7 @@ class TlsConfigTest {
         String gateway = file("gateway.pem");
 
         // when
-        GatewayConfig config = loader.loadFromYaml("""
+        BootstrapConfig config = loader.loadFromYaml("""
                 clusters:
                   default:
                     bootstrapServers: [kafka:9093]
@@ -109,23 +108,6 @@ class TlsConfigTest {
         assertThatThrownBy(() -> new StoreConfig(pem, StoreType.PEM, "changeit", null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("use keyPassword");
-    }
-
-    @Test
-    void neverWritesTlsToTheConfigTopic() throws IOException {
-        // given
-        var tls = new TlsConfig(new StoreConfig(file("truststore.p12"), StoreType.PKCS12, "s3cret-store", null), null, null);
-        var config = GatewayConfig.of(null, java.util.Map.of("default", new ClusterConfig(List.of("kafka:9093"), tls)),
-                null, null, null);
-
-        // when
-        String json = JsonMapper.builder().build().writeValueAsString(config);
-
-        // then
-        assertThat(json)
-                .withFailMessage(() -> "The cluster's TLS settings, with their passwords, were serialized: " + json)
-                .doesNotContain("truststore")
-                .doesNotContain("s3cret-store");
     }
 
     @Test

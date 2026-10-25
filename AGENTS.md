@@ -66,8 +66,10 @@ core/config/governance/virtual-topic; `kawa-server` assembles the runtime module
 `kawa-integration-tests` depends on `kawa-server`. `kawa-test-support` is consumed with `test` scope only; it may
 depend on production modules such as `kawa-config`, but never on a module that uses it.
 
-- `kawa-config`: `GatewayConfig`/`ResourceConfig`/`RbacConfig` + YAML
-  `ConfigLoader` (plain Jackson; no custom `ResourceType` deserializer).
+- `kawa-config`: `BootstrapConfig` (the startup YAML, loaded by `ConfigLoader`, which rejects unknown keys and
+  dynamic sections) and `DynamicConfig` (the config-topic snapshot: client auth, RBAC, virtual topics, governance,
+  admin users, modules; changed through the admin API), plus `ResourceConfig`/`RbacConfig` (plain Jackson; no
+  custom `ResourceType` deserializer).
 - `kawa-core`: `GatewayContext`, interceptors.
 - `kawa-virtual-topic`: `VirtualTopicInterceptor` + per-API transforms; owns `VirtualTopicManager`
   (the virtual-to-physical mapping state).

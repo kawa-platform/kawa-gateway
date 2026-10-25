@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.ModuleId;
 
@@ -12,10 +12,10 @@ import java.util.List;
 /// rule the gateway applies.
 final class ModuleService {
 
-    private final GatewayConfigRepository repository;
+    private final DynamicConfigRepository repository;
     private final ConsistencyAwareUpdater updater;
 
-    ModuleService(GatewayConfigRepository repository) {
+    ModuleService(DynamicConfigRepository repository) {
         this.repository = repository;
         this.updater = new ConsistencyAwareUpdater(repository);
     }

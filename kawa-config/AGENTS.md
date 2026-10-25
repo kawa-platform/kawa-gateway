@@ -11,9 +11,9 @@ operation they perform:
 
 - `upsertX(name, value)` — add-or-replace one entry in a map-backed record
   (`RbacConfig.upsertRole`, `AuthConfig.upsertClient`, `GovernanceConfig.upsertRule`,
-  `GatewayConfig.upsertVirtualTopic`).
+  `DynamicConfig.upsertVirtualTopic`).
 - `removeX(name)` — remove one entry by key (`RbacConfig.removeRole`,
-  `GatewayConfig.removeVirtualTopic`).
+  `DynamicConfig.removeVirtualTopic`).
 - `renameX(from, to)` — re-key an entry (`RbacConfig.renameGroup`).
-- `updateX(section)` — replace a whole section (`GatewayConfig.updateAuth`,
-  `GatewayConfig.updateRbac`).
+- `updateX(section)` — replace a whole section (`DynamicConfig.updateAuth`,
+  `DynamicConfig.updateRbac`).

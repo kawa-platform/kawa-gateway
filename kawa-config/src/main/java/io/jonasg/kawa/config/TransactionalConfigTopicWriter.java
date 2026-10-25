@@ -22,7 +22,7 @@ import java.util.Locale;
 import java.util.Properties;
 import java.util.Set;
 
-/// The Kafka [ConfigTopicWriter]: writes full [GatewayConfig] snapshots to the compacted
+/// The Kafka [ConfigTopicWriter]: writes full [DynamicConfig] snapshots to the compacted
 /// gateway-config topic, each in its own transaction. The consumer side ([ConfigTopicConsumer])
 /// reads `read_committed` and applies each snapshot through the normal
 /// `io.jonasg.kawa.server.DynamicConfigManager` flow, so a commit here is a live config change.
@@ -66,7 +66,7 @@ public final class TransactionalConfigTopicWriter implements ConfigTopicWriter {
     }
 
     @Override
-    public synchronized long commit(GatewayConfig config) {
+    public synchronized long commit(DynamicConfig config) {
         KafkaProducer<String, String> current = takeOver();
         try {
             current.beginTransaction();
@@ -138,7 +138,7 @@ public final class TransactionalConfigTopicWriter implements ConfigTopicWriter {
 
     /// Serializes a snapshot to the JSON form the consumer deserializes. Package-private so the
     /// message-encoding path is testable without a broker.
-    String serialize(GatewayConfig config) {
+    String serialize(DynamicConfig config) {
         try {
             return mapper.writeValueAsString(config);
         } catch (Exception e) {

@@ -1,9 +1,9 @@
 package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.AdvertisedListener;
+import io.jonasg.kawa.config.BootstrapConfig;
 import io.jonasg.kawa.config.BrokerSecurity;
 import io.jonasg.kawa.config.ClusterConfig;
-import io.jonasg.kawa.config.GatewayConfig;
 import io.jonasg.kawa.config.ModuleId;
 import io.jonasg.kawa.core.Gateway;
 import io.jonasg.kawa.http.auth.AuthenticationProviderRegistry;
@@ -43,10 +43,10 @@ import java.util.Set;
 /// Netty-based Kafka gateway: accepts client connections, rewrites virtual topics and
 /// forwards traffic to the physical cluster.
 ///
-/// The constructor takes the static bootstrap config: cluster bootstrap servers, broker
+/// The constructor takes the static [BootstrapConfig]: cluster bootstrap servers, broker
 /// credentials, config topic name, listeners, advertised endpoint and admin. Virtual topics,
-/// RBAC and client auth are read from the config topic and keep updating live via
-/// [DynamicConfigManager]; clusters, listeners, admin and advertised stay startup-only.
+/// RBAC and client auth are `DynamicConfig`: they are read from the config topic and keep updating
+/// live via [DynamicConfigManager]; clusters, listeners, admin and advertised stay startup-only.
 /// An empty config topic on first boot is valid - the gateway boots with no virtual topics,
 /// default-deny RBAC and no client auth.
 ///
@@ -56,7 +56,7 @@ public final class KafkaGateway implements Gateway {
 
     private static final Logger log = LoggerFactory.getLogger(KafkaGateway.class);
 
-    private final GatewayConfig config;
+    private final BootstrapConfig config;
     private final MetadataCache cache = new MetadataCache();
 
     private GatewayMetrics metrics;
@@ -74,11 +74,11 @@ public final class KafkaGateway implements Gateway {
     private volatile boolean running;
 
     /// A gateway with the authentication providers of the plugins on the classpath.
-    public KafkaGateway(GatewayConfig config) {
+    public KafkaGateway(BootstrapConfig config) {
         this(config, new PluginLoader(KafkaGateway.class.getClassLoader()).loadAll().authenticationProviders());
     }
 
-    public KafkaGateway(GatewayConfig config, AuthenticationProviderRegistry authenticationProviders) {
+    public KafkaGateway(BootstrapConfig config, AuthenticationProviderRegistry authenticationProviders) {
         this.config = config;
         this.authenticationProviders = authenticationProviders;
     }

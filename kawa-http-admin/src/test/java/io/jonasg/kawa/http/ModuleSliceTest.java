@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.ModuleId;
 import org.junit.jupiter.api.Test;
@@ -35,7 +35,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsEveryModuleWithItsStoredStateSortedById() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertModule(new ModuleConfig(ModuleId.GOVERNANCE, false)));
         startServer();
 
@@ -58,7 +58,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void getsAStoredModule() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertModule(new ModuleConfig(ModuleId.RBAC, false)));
         startServer();
 
@@ -125,7 +125,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void replacesAStoredModule() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertModule(new ModuleConfig(ModuleId.RBAC, false)));
         startServer();
 

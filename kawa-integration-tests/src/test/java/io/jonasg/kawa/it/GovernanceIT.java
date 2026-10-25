@@ -82,8 +82,7 @@ class GovernanceIT extends AdminHTTPTestSupport {
     protected AuthConfig authConfig() {
         return new AuthConfig(
                 Set.of("PLAIN"),
-                Map.of(DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD), VISITOR, client("PLAIN", VISITOR_PASSWORD)),
-                null);
+                Map.of(DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD), VISITOR, client("PLAIN", VISITOR_PASSWORD)));
     }
 
     @Override

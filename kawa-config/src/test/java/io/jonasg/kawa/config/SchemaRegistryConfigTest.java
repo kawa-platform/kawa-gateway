@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -27,7 +26,7 @@ class SchemaRegistryConfigTest {
         String ca = Files.writeString(dir.resolve("ca.pem"), "not read by these tests").toString();
 
         // when
-        GatewayConfig config = loader.loadFromYaml("""
+        BootstrapConfig config = loader.loadFromYaml("""
                 clusters:
                   default:
                     bootstrapServers: [kafka:9092]
@@ -107,35 +106,17 @@ class SchemaRegistryConfigTest {
     }
 
     @Test
-    void neverWritesTheSchemaRegistryToTheConfigTopic() throws Exception {
-        // given
-        var registry = new SchemaRegistryConfig("https://registry:8081", new SchemaRegistryBasicAuthConfig("kawa", "s3cret-registry"), null);
-        var config = GatewayConfig.of(null, Map.of("default", new ClusterConfig(List.of("kafka:9092"), null, registry)),
-                null, null, null);
-
-        // when
-        String json = mapper.writeValueAsString(config);
-
-        // then
-        assertThat(json)
-                .withFailMessage(() -> "The schema registry settings, with their password, were serialized: " + json)
-                .doesNotContain("schemaRegistry")
-                .doesNotContain("s3cret-registry");
-        assertThat(mapper.readValue(json, GatewayConfig.class).defaultCluster().schemaRegistry()).isNull();
-    }
-
-    @Test
     void roundTripsAnAvroValueFormatThroughTheConfigTopic() throws Exception {
         // given
         var virtualTopic = new VirtualTopicConfig("orders", new CelFilterConfig("value.region == \"eu\""), false,
                 new AvroFormatConfig(DecodeErrorPolicy.INCLUDE));
-        var config = GatewayConfig.empty().upsertVirtualTopic("orders.eu", virtualTopic);
+        var config = DynamicConfig.empty().upsertVirtualTopic("orders.eu", virtualTopic);
 
         // when
         String json = mapper.writeValueAsString(config);
 
         // then
-        assertThat(mapper.readValue(json, GatewayConfig.class).virtualTopics().get("orders.eu"))
+        assertThat(mapper.readValue(json, DynamicConfig.class).virtualTopics().get("orders.eu"))
                 .withFailMessage(() -> "The Avro valueFormat did not survive the config-topic round trip: " + json)
                 .isEqualTo(virtualTopic);
     }

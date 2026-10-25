@@ -1,7 +1,6 @@
 package io.jonasg.kawa.config;
 
 import org.junit.jupiter.api.Test;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Map;
 
@@ -15,7 +14,7 @@ class AdminAuthConfigTest {
     @Test
     void defaultsToNoAuthentication() {
         // when
-        GatewayConfig config = loader.loadFromYaml("""
+        BootstrapConfig config = loader.loadFromYaml("""
                 admin:
                   enabled: true
                 """);
@@ -29,7 +28,7 @@ class AdminAuthConfigTest {
     @Test
     void loadsProviderTypeBootstrapUserAndSettings() {
         // when
-        GatewayConfig config = loader.loadFromYaml("""
+        BootstrapConfig config = loader.loadFromYaml("""
                 admin:
                   enabled: true
                   auth:
@@ -85,22 +84,5 @@ class AdminAuthConfigTest {
         assertThat(user.password())
                 .withFailMessage(() -> "bootstrap password was not resolved from the environment")
                 .isEqualTo("from-env");
-    }
-
-    @Test
-    void neverSerializesAuthSoSecretsStayOutOfTheConfigTopic() {
-        // given
-        var admin = new AdminConfig(true, null, null, null, new AdminAuthConfig("oauth",
-                new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), Map.of("signingKey", "private-pem")));
-
-        // when
-        String json = JsonMapper.builder().build().writeValueAsString(admin);
-
-        // then
-        assertThat(json)
-                .withFailMessage(() -> "admin.auth was serialized: " + json)
-                .doesNotContain("auth")
-                .doesNotContain("s3cret")
-                .doesNotContain("private-pem");
     }
 }

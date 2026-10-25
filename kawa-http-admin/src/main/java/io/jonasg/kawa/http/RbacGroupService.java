@@ -1,7 +1,7 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfig;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 
@@ -14,10 +14,10 @@ final class RbacGroupService {
 
     private static final String KIND = "group";
 
-    private final GatewayConfigRepository repository;
+    private final DynamicConfigRepository repository;
     private final ConsistencyAwareUpdater updater;
 
-    RbacGroupService(GatewayConfigRepository repository) {
+    RbacGroupService(DynamicConfigRepository repository) {
         this.repository = repository;
         this.updater = new ConsistencyAwareUpdater(repository);
     }
@@ -46,7 +46,7 @@ final class RbacGroupService {
         if (newName.equals(name)) {
             throw new IllegalArgumentException("group is already named '" + name + "'");
         }
-        GatewayConfig base = repository.getActiveConfigOrEmpty();
+        DynamicConfig base = repository.getActiveConfigOrEmpty();
         if (base.rbac().groups().containsKey(newName)) {
             throw new ConflictException("group '" + newName + "' already exists");
         }
@@ -67,7 +67,7 @@ final class RbacGroupService {
     }
 
     void deleteGroup(KawaPrincipal caller, String name, Consistency consistency) {
-        GatewayConfig base = repository.getActiveConfigOrEmpty();
+        DynamicConfig base = repository.getActiveConfigOrEmpty();
         GroupConfig group = base.rbac().groups().get(name);
         if (group == null) {
             throw new NotFoundException("group '" + name + "' not found");

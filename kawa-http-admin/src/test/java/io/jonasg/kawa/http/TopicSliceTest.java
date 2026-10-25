@@ -4,7 +4,7 @@ import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AvroFormatConfig;
 import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
@@ -609,7 +609,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void overwritesExistingVirtualTopic() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("raw-old")));
         startServer();
 
@@ -665,7 +665,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void patchesVirtualTopicConfiguration() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1")));
         startServer();
 
@@ -707,7 +707,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     void preservesOmittedVirtualTopicFieldsWhenPatching() throws Exception {
         // given
         var current = new VirtualTopicConfig("orders-v1", null, true);
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", current));
         startServer();
 
@@ -723,7 +723,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void clearsFilterWhenFilterIsNull() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1",
                         new HeaderEqualsFilterConfig("region", "eu"), true)));
         startServer();
@@ -740,7 +740,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void clearsFilterWhenFilterIsOmitted() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1",
                         new HeaderEqualsFilterConfig("region", "eu"), true)));
         startServer();
@@ -758,7 +758,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     void renamesVirtualTopicWithoutCreatingAnotherEntry() throws Exception {
         // given
         var current = new VirtualTopicConfig("orders-v1", null, true);
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", current));
         startServer();
 
@@ -804,7 +804,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // given
         var original = new VirtualTopicConfig("orders-v1");
         var existing = new VirtualTopicConfig("customers-v1");
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", original)
                 .upsertVirtualTopic("customers", existing));
         startServer();
@@ -823,7 +823,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     void rejectsInvalidPatchWithoutChangingExistingConfiguration() throws Exception {
         // given
         var current = new VirtualTopicConfig("orders-v1");
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", current));
         startServer();
 
@@ -854,7 +854,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void removesVirtualTopicConfigWithoutBrokerCall() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
         startServer();
 
@@ -870,7 +870,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void deletesVirtualTopicWithAppliedConsistencyWaitsForApplyMode() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
         startServer();
 
@@ -884,7 +884,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void rejectsInvalidConsistencyForVirtualTopicDelete() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
         startServer();
 
@@ -912,7 +912,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void virtualTopicWinsOverPhysicalName() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
         cache = cacheWith(topic("orders", 1, 1));
         startServer();
@@ -1002,7 +1002,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void patchResponseOmitsNameAndType() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1")));
         startServer();
 
@@ -1054,7 +1054,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     void anOperatorTokenReadsWritesAndDeletesVirtualTopics() throws Exception {
         // given: the operator authenticates with the client credentials grant
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertVirtualTopic("old-orders", new VirtualTopicConfig("orders-v1")));
         startServer();
         var operator = bearer(operatorToken());
@@ -1131,7 +1131,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     void listsTheOwnerOfAManagedVirtualTopic() throws Exception {
         // given
         virtualTopics = new VirtualTopicManager(Map.of("orders", new VirtualTopicConfig("orders-v2")));
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", managedOrders()));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders", managedOrders()));
         startServer();
 
         // when
@@ -1146,7 +1146,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     void refusesChangesToAManagedVirtualTopicByAnyoneButItsOwner() throws Exception {
         // given
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", managedOrders()));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders", managedOrders()));
         startServer();
         var studio = bearer(login("admin@kawa", "s3cret"));
 
@@ -1172,7 +1172,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     void theOwnerRewritesItsManagedVirtualTopic() throws Exception {
         // given
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", managedOrders()));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders", managedOrders()));
         startServer();
 
         // when
@@ -1189,7 +1189,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     void aStudioWriteLeavesAnUnmanagedVirtualTopicUnmanaged() throws Exception {
         // given
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
         startServer();
 
         // when
@@ -1207,7 +1207,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     void onlyTheOwnerReleasesAManagedVirtualTopic() throws Exception {
         // given
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", managedOrders()));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders", managedOrders()));
         startServer();
 
         // when
@@ -1228,7 +1228,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     @Test
     void releasingAnUnmanagedVirtualTopicIsANoOpAndAMissingOneIsNotFound() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v2")));
         startServer();
 
         // when
@@ -1246,7 +1246,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // operator client; admin usernames are email addresses, but a provider may name anyone
         authenticationProviders = registryOf(new BuiltInAuthenticationPlugin(), new NamedPrincipalPlugin("kawa-operator"));
         auth = new AdminAuthConfig(NamedPrincipalPlugin.TYPE, null, Map.of());
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertVirtualTopic("orders", managedOrders()));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders", managedOrders()));
         startServer();
 
         // when

@@ -41,8 +41,7 @@ class SaslHandshakeIT extends GatewayTestSupport {
     protected AuthConfig authConfig() {
         return new AuthConfig(
                 java.util.Set.of("PLAIN"),
-                java.util.Map.of("alice", client("PLAIN", "secret")),
-                null);
+                java.util.Map.of("alice", client("PLAIN", "secret")));
     }
 
     @Test

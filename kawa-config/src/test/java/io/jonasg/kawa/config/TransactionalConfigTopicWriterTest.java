@@ -18,19 +18,16 @@ class TransactionalConfigTopicWriterTest {
     void serializeRoundTripsThroughConsumerDeserialization() throws Exception {
         // given
         try (var writer = new TransactionalConfigTopicWriter("localhost:9092", "__kawa", new Properties())) {
-            var config = new GatewayConfig(
-                    null, null,
+            var config = new DynamicConfig(
                     Map.of("orders", new VirtualTopicConfig("raw-orders")),
-                    null,
                     new AuthConfig(Set.of("PLAIN"),
                             Map.of("alice", new ClientConfig("PLAIN",
-                                    HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"))), null),
-                    new RbacConfig(Map.of("reader", new RoleConfig(List.of())), null),
-                    null, null, null);
+                                    HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret")))),
+                    new RbacConfig(Map.of("reader", new RoleConfig(List.of())), null), null);
 
             // when
             String json = writer.serialize(config);
-            GatewayConfig readBack = mapper.readValue(json, GatewayConfig.class);
+            DynamicConfig readBack = mapper.readValue(json, DynamicConfig.class);
 
             // then
             assertThat(readBack).isEqualTo(config);
@@ -46,11 +43,11 @@ class TransactionalConfigTopicWriterTest {
                     new CelFilterConfig("value.status == \"PAID\""),
                     false,
                     new JsonFormatConfig(DecodeErrorPolicy.INCLUDE));
-            var config = GatewayConfig.empty().upsertVirtualTopic("paid-orders", virtualTopic);
+            var config = DynamicConfig.empty().upsertVirtualTopic("paid-orders", virtualTopic);
 
             // when
             String json = writer.serialize(config);
-            GatewayConfig readBack = mapper.readValue(json, GatewayConfig.class);
+            DynamicConfig readBack = mapper.readValue(json, DynamicConfig.class);
 
             // then
             assertThat(readBack.virtualTopics().get("paid-orders"))
@@ -71,7 +68,7 @@ class TransactionalConfigTopicWriterTest {
                 """;
 
         // when
-        GatewayConfig config = mapper.readValue(json, GatewayConfig.class);
+        DynamicConfig config = mapper.readValue(json, DynamicConfig.class);
 
         // then
         assertThat(config.virtualTopics().get("paid-orders").valueFormat())
@@ -83,15 +80,12 @@ class TransactionalConfigTopicWriterTest {
     void serializeProducesFullSnapshotWithAllDynamicSections() throws Exception {
         // given
         try (var writer = new TransactionalConfigTopicWriter("localhost:9092", "__kawa", new Properties())) {
-            var config = new GatewayConfig(
-                    null, null,
+            var config = new DynamicConfig(
                     Map.of("orders", new VirtualTopicConfig("raw-orders")),
-                    null,
                     new AuthConfig(Set.of("PLAIN"),
                             Map.of("alice", new ClientConfig("PLAIN",
-                                    HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret"))), null),
-                    new RbacConfig(Map.of("reader", new RoleConfig(List.of())), null),
-                    null, null, null);
+                                    HashedPassword.fromPlaintext(Mechanism.PLAIN, "secret")))),
+                    new RbacConfig(Map.of("reader", new RoleConfig(List.of())), null), null);
 
             // when
             String json = writer.serialize(config);

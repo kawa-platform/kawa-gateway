@@ -1,6 +1,5 @@
 package io.jonasg.kawa.config;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.jspecify.annotations.Nullable;
 
@@ -12,14 +11,11 @@ import org.jspecify.annotations.Nullable;
 ///                         `SASL_PLAINTEXT` or `SASL_SSL` (defaults to `SASL_PLAINTEXT`). On a `SASL_*`
 ///                         listener a client must authenticate before anything but `ApiVersions`
 /// @param tls              TLS for the `SSL` and `SASL_SSL` protocols, and only for those
-///
-/// The protocol and TLS are startup-only and write-only: TLS holds store passwords, and the two are
-/// validated together, so neither is written to the config topic.
 public record ListenerConfig(
         String host,
         Integer port,
-        @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) SecurityProtocol securityProtocol,
-        @JsonProperty(access = JsonProperty.Access.WRITE_ONLY) @Nullable ListenerTlsConfig tls
+        SecurityProtocol securityProtocol,
+        @Nullable ListenerTlsConfig tls
 ) {
 
     public ListenerConfig {

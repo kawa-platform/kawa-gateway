@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
@@ -235,7 +235,7 @@ class PutGovernanceRuleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void replacesExistingRuleWithSameName() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertGovernanceRule(new GovernanceRuleConfig(
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertGovernanceRule(new GovernanceRuleConfig(
                 "min-replication",
                 "replication factor must be at least 2",
                 null,

@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.ManagedBy;
 import org.junit.jupiter.api.Test;
@@ -20,8 +20,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsConfiguredGroups() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac().upsertGroup("producers", new GroupConfig(null, null))));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac().upsertGroup("producers", new GroupConfig(null, null))));
         startServer();
 
         // when
@@ -37,8 +37,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsGroupsSortedByName() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac()
                         .upsertGroup("writers", new GroupConfig(null, null))
                         .upsertGroup("producers", new GroupConfig(null, null))));
         startServer();
@@ -59,7 +59,7 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsGroupsEmptyWhenNoSnapshotApplied() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(null);
+        repository = new FakeDynamicConfigRepository(null);
         startServer();
 
         // when
@@ -101,8 +101,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void removesGroupAndPersistsSnapshot() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac().upsertGroup("producers", new GroupConfig(null, null))));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac().upsertGroup("producers", new GroupConfig(null, null))));
         startServer();
 
         // when
@@ -116,8 +116,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void rejectsRemovalWhileGroupHasClients() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac()
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("reader")))));
         startServer();
 
@@ -145,8 +145,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void renamesGroupAndPersistsSnapshot() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac()
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("reader")))));
         startServer();
 
@@ -178,8 +178,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void renameToExistingGroupIsRejected() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac()
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("reader")))
                         .upsertGroup("publishers", new GroupConfig(List.of("bob"), List.of()))));
         startServer();
@@ -195,8 +195,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void renameToBlankNameIsRejected() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac()
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of()))));
         startServer();
 
@@ -211,8 +211,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void renameToSameNameIsRejected() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac()
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of()))));
         startServer();
 
@@ -226,8 +226,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void renameRejectsInvalidBody() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac()
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of()))));
         startServer();
 
@@ -242,8 +242,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsGroupsWithExactlyNameClientsAndRoles() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac().upsertGroup("producers", new GroupConfig(null, null))));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac().upsertGroup("producers", new GroupConfig(null, null))));
         startServer();
 
         // when
@@ -270,8 +270,8 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void patchResponseIncludesName() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
-                .updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .updateRbac(DynamicConfig.empty().rbac()
                         .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of("reader")))));
         startServer();
 
@@ -305,7 +305,7 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsTheOwnerOfAManagedGroup() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().updateRbac(DynamicConfig.empty().rbac()
                 .upsertGroup("producers", new GroupConfig(List.of(), List.of(), OPERATOR))));
         startServer();
 
@@ -324,7 +324,7 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
         // given
         auth = operatorAuth();
         var managed = new GroupConfig(List.of(), List.of(), OPERATOR);
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().updateRbac(DynamicConfig.empty().rbac()
                 .upsertGroup("producers", managed)));
         startServer();
         var studio = bearer(login("admin@kawa", "s3cret"));
@@ -350,7 +350,7 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     void theOwnerRenamesItsManagedGroupAndKeepsOwningIt() throws Exception {
         // given
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().updateRbac(DynamicConfig.empty().rbac()
                 .upsertGroup("producers", new GroupConfig(List.of("alice"), List.of(), OPERATOR))));
         startServer();
 
@@ -371,7 +371,7 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     void aStudioWriteLeavesAnUnmanagedGroupUnmanaged() throws Exception {
         // given
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().updateRbac(DynamicConfig.empty().rbac()
                 .upsertGroup("producers", new GroupConfig(List.of(), List.of()))));
         startServer();
 
@@ -389,7 +389,7 @@ class GroupSliceTest extends AdminHttpSliceTestBase {
     void onlyTheOwnerReleasesAManagedGroup() throws Exception {
         // given
         auth = operatorAuth();
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().updateRbac(GatewayConfig.empty().rbac()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().updateRbac(DynamicConfig.empty().rbac()
                 .upsertGroup("producers", new GroupConfig(List.of(), List.of(), OPERATOR))
                 .upsertGroup("consumers", new GroupConfig(List.of(), List.of()))));
         startServer();

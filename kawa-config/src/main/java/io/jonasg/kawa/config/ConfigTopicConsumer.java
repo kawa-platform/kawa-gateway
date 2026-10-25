@@ -22,7 +22,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 
-/// Consumes the compacted gateway-config topic and delivers each full [GatewayConfig]
+/// Consumes the compacted gateway-config topic and delivers each full [DynamicConfig]
 /// snapshot to a callback.
 ///
 /// On [start] the consumer reads the topic from the beginning until it has caught up to the
@@ -48,7 +48,7 @@ public final class ConfigTopicConsumer implements AutoCloseable {
 
     private final KafkaConsumer<String, String> consumer;
     private final String topic;
-    private final BiConsumer<GatewayConfig, Long> onConfigWithOffset;
+    private final BiConsumer<DynamicConfig, Long> onConfigWithOffset;
     private final LongConsumer onPosition;
     private final JsonMapper mapper = JsonMapper.builder()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
@@ -65,7 +65,7 @@ public final class ConfigTopicConsumer implements AutoCloseable {
     public ConfigTopicConsumer(
             String bootstrapServers,
             String topic,
-            Consumer<GatewayConfig> onConfig
+            Consumer<DynamicConfig> onConfig
     ) {
         this(bootstrapServers, topic, new Properties(), onConfig);
     }
@@ -76,7 +76,7 @@ public final class ConfigTopicConsumer implements AutoCloseable {
             String bootstrapServers,
             String topic,
             Properties extraProps,
-            Consumer<GatewayConfig> onConfig
+            Consumer<DynamicConfig> onConfig
     ) {
         this(bootstrapServers, topic, extraProps, (config, ignoredOffset) -> onConfig.accept(config));
     }
@@ -87,7 +87,7 @@ public final class ConfigTopicConsumer implements AutoCloseable {
             String bootstrapServers,
             String topic,
             Properties extraProps,
-            BiConsumer<GatewayConfig, Long> onConfigWithOffset
+            BiConsumer<DynamicConfig, Long> onConfigWithOffset
     ) {
         this(bootstrapServers, topic, extraProps, onConfigWithOffset, ignoredPosition -> { });
     }
@@ -99,7 +99,7 @@ public final class ConfigTopicConsumer implements AutoCloseable {
             String bootstrapServers,
             String topic,
             Properties extraProps,
-            BiConsumer<GatewayConfig, Long> onConfigWithOffset,
+            BiConsumer<DynamicConfig, Long> onConfigWithOffset,
             LongConsumer onPosition
     ) {
         this.topic = topic;
@@ -194,7 +194,7 @@ public final class ConfigTopicConsumer implements AutoCloseable {
     /// message-handling path is testable without a broker.
     void handle(ConsumerRecord<String, String> record) {
         try {
-            GatewayConfig config = mapper.readValue(record.value(), GatewayConfig.class);
+            DynamicConfig config = mapper.readValue(record.value(), DynamicConfig.class);
             onConfigWithOffset.accept(config, record.offset());
         } catch (Exception e) {
             log.error("skipping invalid config message at offset {} on topic {}", record.offset(), topic, e);

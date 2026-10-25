@@ -1,49 +1,44 @@
 package io.jonasg.kawa.config;
 
+import tools.jackson.core.JacksonException;
 import tools.jackson.databind.DeserializationFeature;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.dataformat.yaml.YAMLMapper;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/// Loads [GatewayConfig] from YAML using Jackson.
+/// Loads the [BootstrapConfig] from the startup YAML file.
 ///
-/// Governance is managed exclusively through the admin API and the config topic, never through
-/// the file: a `governance` section in the YAML is dropped before binding, so it is neither
-/// applied nor validated.
+/// The file holds only bootstrap settings. Unknown keys fail the load, and so do dynamic sections
+/// such as `rbac`, `virtualTopics`, `governance` or `auth.clients`: those are [DynamicConfig],
+/// managed through the admin API and the config topic, and would otherwise be silently ignored.
 public final class ConfigLoader {
 
-    private static final String GOVERNANCE = "governance";
+    private final YAMLMapper mapper = YAMLMapper.builder()
+            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .build();
 
-    private final YAMLMapper mapper;
-
-    public ConfigLoader() {
-        this.mapper = YAMLMapper.builder()
-                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                .build();
-    }
-
-    public GatewayConfig load(Path path) {
-        try (InputStream in = Files.newInputStream(path)) {
-            return bind(mapper.readTree(in));
+    public BootstrapConfig load(Path path) {
+        String yaml;
+        try {
+            yaml = Files.readString(path);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to load gateway configuration from " + path, e);
         }
+        return parse(yaml, path.toString());
     }
 
-    public GatewayConfig loadFromYaml(String yaml) {
-        return bind(mapper.readTree(yaml));
+    public BootstrapConfig loadFromYaml(String yaml) {
+        return parse(yaml, "YAML");
     }
 
-    private GatewayConfig bind(JsonNode tree) {
-        if (tree instanceof ObjectNode root) {
-            root.remove(GOVERNANCE);
+    private BootstrapConfig parse(String yaml, String source) {
+        try {
+            return mapper.readValue(yaml, BootstrapConfig.class);
+        } catch (JacksonException e) {
+            throw new IllegalArgumentException("Invalid gateway configuration in " + source + ": " + e.getMessage(), e);
         }
-        return mapper.treeToValue(tree, GatewayConfig.class);
     }
 }

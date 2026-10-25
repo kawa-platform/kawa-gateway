@@ -6,9 +6,10 @@ import com.github.dockerjava.api.model.Ports;
 import io.jonasg.kawa.config.AclConfig;
 import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.AuthConfig;
+import io.jonasg.kawa.config.BootstrapConfig;
 import io.jonasg.kawa.config.BrokerAuthConfig;
 import io.jonasg.kawa.config.ClusterConfig;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.ListenerConfig;
 import io.jonasg.kawa.config.RbacConfig;
@@ -125,8 +126,7 @@ class BrokerAuthIT {
                 Set.of("PLAIN"),
                 Map.of("client", new ClientConfig("PLAIN",
                         io.jonasg.kawa.config.HashedPassword.fromPlaintext(
-                                io.jonasg.kawa.config.Mechanism.PLAIN, "client-secret"))),
-                new BrokerAuthConfig("PLAIN", BROKER_USER, BROKER_PASSWORD));
+                                io.jonasg.kawa.config.Mechanism.PLAIN, "client-secret"))));
 
         var allowAllRole = new RoleConfig(List.of(
                 new AclConfig(new ResourceConfig(ResourceType.TOPIC, "", PatternType.PREFIXED), AclOperation.ALL),
@@ -145,15 +145,13 @@ class BrokerAuthIT {
         }
         writeConfigSnapshot(brokerBootstrap, auth, rbac);
 
-        var bootstrap = new GatewayConfig(
+        var bootstrap = new BootstrapConfig(
                 List.of(new ListenerConfig("127.0.0.1", 0)),
                 Map.of("default", new ClusterConfig(List.of(brokerBootstrap))),
-                null,
                 new AdvertisedListener(1, "localhost", 0),
-                new AuthConfig(null, null, new BrokerAuthConfig("PLAIN", BROKER_USER, BROKER_PASSWORD)),
+                new BootstrapConfig.Auth(new BrokerAuthConfig("PLAIN", BROKER_USER, BROKER_PASSWORD)),
                 null,
-                null,
-                CONFIG_TOPIC, null);
+                CONFIG_TOPIC);
 
         gateway = new KafkaGateway(bootstrap);
         try {
@@ -234,15 +232,10 @@ class BrokerAuthIT {
     /// topic, so the gateway's initial catch-up finds it at boot. Listeners, advertised and
     /// admin are startup-only and come from the static bootstrap.
     private static void writeConfigSnapshot(String brokerBootstrap, AuthConfig auth, RbacConfig rbac) throws Exception {
-        var fullConfig = new GatewayConfig(
-                null,
-                Map.of("default", new ClusterConfig(List.of(brokerBootstrap))),
+        var fullConfig = new DynamicConfig(
                 Map.of(),
-                null,
                 auth,
-                rbac,
-                null,
-                CONFIG_TOPIC, null);
+                rbac, null);
         var mapper = JsonMapper.builder().build();
         String json = mapper.writeValueAsString(fullConfig);
         Properties props = saslBrokerProps(brokerBootstrap);

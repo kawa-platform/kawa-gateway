@@ -7,10 +7,11 @@ import io.jonasg.kawa.config.AclConfig;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.AuthConfig;
+import io.jonasg.kawa.config.BootstrapConfig;
 import io.jonasg.kawa.config.BrokerAuthConfig;
 import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.ClusterConfig;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.ListenerConfig;
@@ -252,30 +253,27 @@ class BrokerTlsIT {
         return gateway;
     }
 
-    private static GatewayConfig bootstrapConfig(String brokerBootstrap, TlsConfig tls, BrokerAuthConfig brokerAuth) {
-        return new GatewayConfig(
+    private static BootstrapConfig bootstrapConfig(String brokerBootstrap, TlsConfig tls, BrokerAuthConfig brokerAuth) {
+        return new BootstrapConfig(
                 List.of(new ListenerConfig("127.0.0.1", 0)),
                 Map.of("default", new ClusterConfig(List.of(brokerBootstrap), tls)),
-                null,
                 new AdvertisedListener(1, "localhost", 0),
-                new AuthConfig(null, null, brokerAuth),
-                null,
+                new BootstrapConfig.Auth(brokerAuth),
                 new AdminConfig(true, "127.0.0.1", 0, null),
-                CONFIG_TOPIC, null);
+                CONFIG_TOPIC);
     }
 
     /// The gateway's dynamic config: one PLAIN client with access to everything.
     private void writeConfigSnapshot() throws Exception {
         var auth = new AuthConfig(Set.of("PLAIN"),
-                Map.of(CLIENT, new ClientConfig("PLAIN", HashedPassword.fromPlaintext(Mechanism.PLAIN, CLIENT_PASSWORD))),
-                null);
+                Map.of(CLIENT, new ClientConfig("PLAIN", HashedPassword.fromPlaintext(Mechanism.PLAIN, CLIENT_PASSWORD))));
         var allowAll = new RoleConfig(List.of(
                 new AclConfig(new ResourceConfig(ResourceType.TOPIC, "", PatternType.PREFIXED), AclOperation.ALL),
                 new AclConfig(new ResourceConfig(ResourceType.GROUP, "", PatternType.PREFIXED), AclOperation.ALL),
                 new AclConfig(new ResourceConfig(ResourceType.CLUSTER, null), AclOperation.ALL)));
         var rbac = new RbacConfig(Map.of("allow-all", allowAll),
                 Map.of("clients", new GroupConfig(List.of(CLIENT), List.of("allow-all"))));
-        var config = new GatewayConfig(null, null, Map.of(), null, auth, rbac, null, CONFIG_TOPIC, null);
+        var config = new DynamicConfig(Map.of(), auth, rbac, null);
         var props = mutualTlsProps("localhost:" + HOST_SSL_PORT);
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);

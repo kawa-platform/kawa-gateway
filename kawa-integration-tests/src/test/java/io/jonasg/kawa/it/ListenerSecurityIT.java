@@ -87,8 +87,7 @@ class ListenerSecurityIT extends GatewayTestSupport {
         return new AuthConfig(
                 Set.of("PLAIN", "SCRAM-SHA-256"),
                 Map.of(DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD),
-                        SCRAM_USER, client("SCRAM-SHA-256", SCRAM_PASSWORD)),
-                null);
+                        SCRAM_USER, client("SCRAM-SHA-256", SCRAM_PASSWORD)));
     }
 
     @Override

@@ -1,7 +1,7 @@
 package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.AdminUserConfig;
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -30,7 +30,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsAdminUsersSortedByEmailWithoutHashes() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").disabled().build())
                 .upsertAdminUser(ALICE_ID, adminUser().withEmail("alice@mycom.com").withDisplayName("Alice Liddell").build()));
         startServer();
@@ -152,7 +152,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void rejectsAnEmailThatIsAlreadyInUseIgnoringCase() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withEmail("alice@mycom.com").build()));
         startServer();
 
@@ -268,7 +268,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void getsAdminUserById() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withDisplayName("Alice Liddell").build()));
         startServer();
 
@@ -301,7 +301,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void disablesAdminUserWithoutTheirPassword() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").withDisplayName("Alice Liddell").build())
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").build()));
         startServer();
@@ -324,7 +324,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void reEnablesDisabledAdminUser() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().disabled().build()));
         startServer();
 
@@ -343,7 +343,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void changesDisplayNameWithoutThePassword() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").withDisplayName("Alice").build()));
         startServer();
 
@@ -369,7 +369,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void clearsDisplayNameWithAnEmptyValue() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withDisplayName("Alice").build()));
         startServer();
 
@@ -388,7 +388,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void changesThePassword() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
         startServer();
 
@@ -407,7 +407,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void changesTheEmailInLowerCase() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withEmail("alice@mycom.com").build()));
         startServer();
 
@@ -426,7 +426,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void keepsItsOwnEmailInADifferentCase() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withEmail("alice@mycom.com").build()));
         startServer();
 
@@ -442,7 +442,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void rejectsChangingToAnEmailInUseIgnoringCase() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withEmail("alice@mycom.com").build())
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").build()));
         startServer();
@@ -463,7 +463,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void rejectsABlankPassword() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build()));
         startServer();
 
@@ -485,7 +485,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void rejectsUnknownFieldsOnUpdate() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().build()));
         startServer();
 
@@ -512,7 +512,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void keepsCreatedAtOnUpdate() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().build()));
         startServer();
 
@@ -547,7 +547,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void deletesAdminUser() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().build())
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").build()));
         startServer();
@@ -580,7 +580,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     void refusesToDeleteYourOwnAdminUser() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(aliceAndBob());
+        repository = new FakeDynamicConfigRepository(aliceAndBob());
         startServer();
         String aliceToken = login("alice@mycom.com", "alice-secret");
 
@@ -601,7 +601,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     void refusesToDisableYourOwnAdminUser() throws Exception {
         // given
         enableOAuth();
-        repository = new FakeGatewayConfigRepository(aliceAndBob());
+        repository = new FakeDynamicConfigRepository(aliceAndBob());
         startServer();
         String aliceToken = login("alice@mycom.com", "alice-secret");
 
@@ -623,7 +623,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void refusesToDeleteTheLastEnabledAdminUser() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().build())
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").disabled().build()));
         startServer();
@@ -644,7 +644,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void refusesToDisableTheLastEnabledAdminUser() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().build()));
         startServer();
 
@@ -666,7 +666,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void deletesADisabledAdminUserBesideTheLastEnabledOne() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().build())
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").disabled().build()));
         startServer();
@@ -684,7 +684,7 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     @Test
     void concurrentDeletesCannotRemoveEveryEnabledAdminUser() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(aliceAndBob());
+        repository = new FakeDynamicConfigRepository(aliceAndBob());
         startServer();
 
         // when
@@ -732,8 +732,8 @@ class AdminUserSliceTest extends AdminHttpSliceTestBase {
     }
 
     /// Alice (`alice-secret`) and Bob (`bob-secret`), both enabled.
-    private static GatewayConfig aliceAndBob() {
-        return GatewayConfig.empty()
+    private static DynamicConfig aliceAndBob() {
+        return DynamicConfig.empty()
                 .upsertAdminUser(ALICE_ID, adminUser().withPassword("alice-secret").build())
                 .upsertAdminUser(BOB_ID, adminUser().withEmail("bob@mycom.com").withPassword("bob-secret").build());
     }

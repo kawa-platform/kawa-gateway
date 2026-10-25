@@ -47,8 +47,7 @@ class ScramAuthenticationIT extends GatewayTestSupport {
                 Map.of(
                         DEFAULT_PRINCIPAL, client("PLAIN", DEFAULT_PASSWORD),
                         "scram256", client("SCRAM-SHA-256", "secret256"),
-                        "scram512", client("SCRAM-SHA-512", "secret512")),
-                null);
+                        "scram512", client("SCRAM-SHA-512", "secret512")));
     }
 
     @Override

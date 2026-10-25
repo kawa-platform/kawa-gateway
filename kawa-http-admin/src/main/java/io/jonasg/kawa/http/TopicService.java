@@ -1,7 +1,7 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfig;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Operation;
 import io.jonasg.kawa.config.PayloadFormatConfig;
@@ -40,7 +40,7 @@ final class TopicService {
 
     private final VirtualTopicManager virtualTopics;
     private final MetadataCache cache;
-    private final GatewayConfigRepository repository;
+    private final DynamicConfigRepository repository;
     private final TopicAdmin topicAdmin;
     private final GovernancePolicy governance;
     private final ConsistencyAwareUpdater updater;
@@ -48,7 +48,7 @@ final class TopicService {
     TopicService(
             VirtualTopicManager virtualTopics,
             MetadataCache cache,
-            GatewayConfigRepository repository,
+            DynamicConfigRepository repository,
             TopicAdmin topicAdmin,
             GovernancePolicy governance
     ) {
@@ -104,7 +104,7 @@ final class TopicService {
 
     VirtualTopicConfig updateVirtualTopic(KawaPrincipal caller, String name, VirtualTopicConfigPatch patch, Consistency consistency) {
         String principal = principalName(caller);
-        GatewayConfig base = repository.getActiveConfigOrEmpty();
+        DynamicConfig base = repository.getActiveConfigOrEmpty();
         VirtualTopicConfig current = base.virtualTopics().get(name);
         if (current == null) {
             if (cache.topics().stream().anyMatch(topic -> topic.name().equals(name))) {
@@ -141,7 +141,7 @@ final class TopicService {
 
     void deleteTopic(KawaPrincipal caller, String name, Consistency consistency) {
         String principal = principalName(caller);
-        GatewayConfig base = repository.getActiveConfigOrEmpty();
+        DynamicConfig base = repository.getActiveConfigOrEmpty();
         VirtualTopicConfig virtual = base.virtualTopics().get(name);
         if (virtual != null) {
             admit(name, GovernanceRequest.virtualTopic(principal, SERVICE, Operation.DELETE, name, virtual.topic()));
@@ -248,8 +248,8 @@ final class TopicService {
         return cache.replicationFactor(physicalTopic);
     }
 
-    private static GatewayConfig replace(
-            GatewayConfig config,
+    private static DynamicConfig replace(
+            DynamicConfig config,
             String currentName,
             String newName,
             VirtualTopicConfig updated
@@ -260,7 +260,7 @@ final class TopicService {
         return config.updateVirtualTopics(Map.copyOf(topics));
     }
 
-    private static void requireTopicOwner(GatewayConfig config, String name, KawaPrincipal caller) {
+    private static void requireTopicOwner(DynamicConfig config, String name, KawaPrincipal caller) {
         Ownership.requireOwner(KIND, name, managedBy(config.virtualTopics().get(name)), caller);
     }
 
