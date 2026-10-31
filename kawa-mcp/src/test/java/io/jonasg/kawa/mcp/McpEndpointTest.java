@@ -1,6 +1,9 @@
 package io.jonasg.kawa.mcp;
 
 import io.jonasg.kawa.config.CorsConfig;
+import io.jonasg.kawa.config.ModuleConfig;
+import io.jonasg.kawa.config.ModuleId;
+import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.http.web.Router;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.modelcontextprotocol.json.McpJsonDefaults;
@@ -21,6 +24,7 @@ class McpEndpointTest {
     private static final KawaPrincipal ALICE = new KawaPrincipal("alice");
 
     private final Router router = new Router();
+    private final ModuleRegistry modules = new ModuleRegistry();
 
     @Test
     void initializeAdvertisesServerInfoAndToolsCapability() {
@@ -37,6 +41,24 @@ class McpEndpointTest {
                 .isEqualTo(200);
         assertThatJson(body(response)).inPath("result.serverInfo.name").isEqualTo("kawa");
         assertThatJson(body(response)).inPath("result.capabilities.tools").isPresent();
+    }
+
+    @Test
+    void answersNotFoundWhileTheMcpModuleIsDisabled() {
+        // given
+        modules.reload(Map.of("mcp", new ModuleConfig(ModuleId.MCP, false)));
+        serve(null);
+
+        // when
+        var response = post(rpc(9, "tools/list", "{}"));
+
+        // then
+        assertThat(response.status())
+                .withFailMessage(() -> "/mcp was not refused with 404 while disabled but " + response.status())
+                .isEqualTo(404);
+        assertThat(response.body())
+                .withFailMessage(() -> "/mcp did not answer the router's standard 404 body: " + response.body())
+                .isEqualTo(Map.of("error", "not found"));
     }
 
     @Test
@@ -128,7 +150,7 @@ class McpEndpointTest {
 
     /// Serves `/mcp` on the test router without tools: these tests cover the transport only.
     private void serve(@Nullable CorsConfig cors) {
-        new KawaMcpServer(router, cors, McpJsonDefaults.getMapper(), List.of());
+        new KawaMcpServer(router, modules, cors, McpJsonDefaults.getMapper(), List.of());
     }
 
     private static String rpc(int id, String method, String params) {

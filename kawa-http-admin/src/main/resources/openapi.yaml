@@ -31,8 +31,8 @@ info:
     `admin.auth.type: none` nothing is ever marked.
 
     The same port also serves an MCP server at `POST /mcp` (stateless Streamable HTTP, JSON-RPC
-    2.0; not described here). It requires the same authentication; its tools answer with the JSON
-    of the corresponding admin endpoint (e.g. `list_topics` ↔ `GET /topics`).
+    2.0; not described here). It requires the same authentication and is switched on and off as
+    the `mcp` module (see `/modules`): while it is disabled, `/mcp` answers `404`.
   version: 0.1.0-SNAPSHOT
 security:
   - bearerAuth: []
@@ -1128,7 +1128,7 @@ components:
       description: The module's stable id.
       schema:
         type: string
-        enum: [virtual-topics, rbac, governance]
+        enum: [virtual-topics, rbac, governance, mcp]
   responses:
     Unauthorized:
       description: |
@@ -1190,7 +1190,7 @@ components:
       properties:
         id:
           type: string
-          enum: [virtual-topics, rbac, governance]
+          enum: [virtual-topics, rbac, governance, mcp]
         enabled:
           type: boolean
     ModuleRequest:

@@ -10,7 +10,9 @@ import java.util.Optional;
 public enum ModuleId {
     @JsonProperty("virtual-topics") VIRTUAL_TOPICS("virtual-topics"),
     @JsonProperty("rbac") RBAC("rbac"),
-    @JsonProperty("governance") GOVERNANCE("governance");
+    @JsonProperty("governance") GOVERNANCE("governance"),
+    /// The MCP server at `POST /mcp` on the admin port.
+    @JsonProperty("mcp") MCP("mcp");
 
     private final String id;
 
