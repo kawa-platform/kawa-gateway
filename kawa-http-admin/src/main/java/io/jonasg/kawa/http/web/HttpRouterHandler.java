@@ -32,7 +32,8 @@ import java.util.Map;
 /// All HTTP plumbing lives here so route handlers stay Netty-free.
 ///
 /// Requests to non-public routes are authenticated with the [AuthenticationProvider] first; when it
-/// yields no principal the request is answered with `401` and never reaches the handler.
+/// yields no principal the request is answered with `401`, carrying the provider's
+/// [challenge][AuthenticationProvider#challenge()], and never reaches the handler.
 public final class HttpRouterHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
     private static final Logger log = LoggerFactory.getLogger(HttpRouterHandler.class);
@@ -67,7 +68,7 @@ public final class HttpRouterHandler extends SimpleChannelInboundHandler<FullHtt
         if (!match.isPublic()) {
             principal = authenticate(request.method().name(), path, headers);
             if (principal == null) {
-                writeResponse(ctx, request, Router.Response.unauthorized());
+                writeResponse(ctx, request, Router.Response.unauthorized(authenticationProvider.challenge()));
                 return;
             }
         }

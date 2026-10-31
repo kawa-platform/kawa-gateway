@@ -24,8 +24,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /// slf4j and its own JARs, never kawa's classpath.
 class ExternalPluginLoaderTest {
 
-    /// Registers a provider named `<what Greeting says>-<isolated|leaky>` whose principal is the name of
-    /// the thread context classloader it was called with.
+    /// Registers a provider named `<what Greeting says>-<isolated|leaky>` whose principal, and the realm
+    /// of whose challenge, is the name of the thread context classloader it was called with.
     private static final String GREETING_PLUGIN = """
             package fixture;
 
@@ -34,6 +34,7 @@ class ExternalPluginLoaderTest {
             import io.jonasg.kawa.plugin.auth.AuthenticationProvider;
             import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
             import io.jonasg.kawa.plugin.auth.AuthenticationProviderFactory;
+            import io.jonasg.kawa.plugin.auth.AuthenticationRequest;
             import io.jonasg.kawa.plugin.auth.KawaPrincipal;
             import java.util.Optional;
 
@@ -56,8 +57,21 @@ class ExternalPluginLoaderTest {
 
                         @Override
                         public AuthenticationProvider create(AuthenticationProviderContext providerContext) {
-                            return request -> Optional.of(
-                                    new KawaPrincipal(Thread.currentThread().getContextClassLoader().getName()));
+                            return new AuthenticationProvider() {
+                                @Override
+                                public Optional<KawaPrincipal> authenticate(AuthenticationRequest request) {
+                                    return Optional.of(new KawaPrincipal(contextClassLoader()));
+                                }
+
+                                @Override
+                                public String challenge() {
+                                    return "Bearer realm=\\"" + contextClassLoader() + "\\"";
+                                }
+                            };
+                        }
+
+                        private static String contextClassLoader() {
+                            return Thread.currentThread().getContextClassLoader().getName();
                         }
                     });
                 }
@@ -141,6 +155,25 @@ class ExternalPluginLoaderTest {
         assertThat(principal.map(KawaPrincipal::name))
                 .withFailMessage(() -> "the plugin did not run with its own context classloader: " + principal)
                 .hasValue("kawa-plugin:greeting");
+    }
+
+    @Test
+    void forwardsThePluginsChallengeCalledWithItsClassLoader() throws IOException {
+        // given
+        PluginJars.build(plugins.resolve("greeting").resolve("greeting.jar"),
+                Map.of("fixture.GreetingPlugin", GREETING_PLUGIN, "com.example.lib.Greeting", PLUGIN_GREETING),
+                Set.of(), "fixture.GreetingPlugin");
+        var provider = new PluginLoader(getClass().getClassLoader(), plugins).loadAll()
+                .authenticationProviders().require("plugin-isolated").create(noContext());
+
+        // when
+        String challenge = provider.challenge();
+
+        // then
+        assertThat(challenge)
+                .withFailMessage(() -> "the plugin's challenge was not forwarded or not run with its context classloader: "
+                        + challenge)
+                .isEqualTo("Bearer realm=\"kawa-plugin:greeting\"");
     }
 
     @Test

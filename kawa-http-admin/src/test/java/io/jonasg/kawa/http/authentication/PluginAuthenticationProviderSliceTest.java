@@ -8,11 +8,13 @@ import io.jonasg.kawa.plugin.KawaPluginContext;
 import io.jonasg.kawa.plugin.auth.AuthenticationProvider;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderFactory;
+import io.jonasg.kawa.plugin.auth.AuthenticationRequest;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.plugin.http.HttpResponse;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
+import java.util.Optional;
 
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static io.jonasg.kawa.test.KawaAssertions.assertThatThrownBy;
@@ -35,6 +37,39 @@ class PluginAuthenticationProviderSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(withoutKey).hasStatusCode(401);
         assertThat(withKey).hasStatusCode(200);
+    }
+
+    @Test
+    void answersA401WithTheDefaultBearerChallenge() throws Exception {
+        // given
+        useApiKeyProvider();
+        startServer();
+
+        // when
+        var response = send("GET", "/topics");
+
+        // then
+        assertThat(response).hasStatusCode(401);
+        assertThat(response.headers().firstValue("WWW-Authenticate"))
+                .withFailMessage(() -> "the 401 does not carry the default bearer challenge: " + response.headers())
+                .hasValue("Bearer realm=\"kawa\"");
+    }
+
+    @Test
+    void answersA401WithTheProvidersOwnChallenge() throws Exception {
+        // given
+        authenticationProviders = registryOf(new BuiltInAuthenticationPlugin(), new ChallengingPlugin());
+        auth = new AdminAuthConfig("test-challenging", null, Map.of());
+        startServer();
+
+        // when
+        var response = send("GET", "/topics");
+
+        // then
+        assertThat(response).hasStatusCode(401);
+        assertThat(response.headers().firstValue("WWW-Authenticate"))
+                .withFailMessage(() -> "the 401 does not carry the provider's challenge: " + response.headers())
+                .hasValue("Bearer realm=\"test\", error=\"invalid_token\"");
     }
 
     @Test
@@ -121,6 +156,35 @@ class PluginAuthenticationProviderSliceTest extends AdminHttpSliceTestBase {
                     return request -> request.header("x-api-key")
                             .filter(apiKey::equals)
                             .map(_ -> new KawaPrincipal("api-key-client"));
+                }
+            });
+        }
+    }
+
+    /// A plugin whose provider rejects every request and answers with its own challenge.
+    static final class ChallengingPlugin implements KawaPlugin {
+
+        @Override
+        public void register(KawaPluginContext context) {
+            context.registerAuthenticationProvider(new AuthenticationProviderFactory() {
+                @Override
+                public String name() {
+                    return "test-challenging";
+                }
+
+                @Override
+                public AuthenticationProvider create(AuthenticationProviderContext providerContext) {
+                    return new AuthenticationProvider() {
+                        @Override
+                        public Optional<KawaPrincipal> authenticate(AuthenticationRequest request) {
+                            return Optional.empty();
+                        }
+
+                        @Override
+                        public String challenge() {
+                            return "Bearer realm=\"test\", error=\"invalid_token\"";
+                        }
+                    };
                 }
             });
         }

@@ -78,10 +78,10 @@ public final class Router {
             return new Response<>(204, null, JSON, false);
         }
 
-        /// `401 Unauthorized` with an RFC 6750 bearer challenge.
-        public static Response<Map<String, String>> unauthorized() {
+        /// `401 Unauthorized` with `challenge` as its `WWW-Authenticate` header.
+        public static Response<Map<String, String>> unauthorized(String challenge) {
             return new Response<>(401, Map.of("error", "unauthorized"), JSON, false,
-                    Map.of("WWW-Authenticate", "Bearer realm=\"kawa\""));
+                    Map.of("WWW-Authenticate", challenge));
         }
 
         /// A copy of this response with the header `name` set to `value`.
