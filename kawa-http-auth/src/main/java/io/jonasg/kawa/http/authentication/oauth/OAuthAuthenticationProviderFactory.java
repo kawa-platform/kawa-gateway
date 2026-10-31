@@ -15,7 +15,8 @@ import java.util.stream.Collectors;
 ///
 /// Settings (`admin.auth.settings`):
 ///
-/// - `issuer`: the `iss` and `aud` claim of issued tokens (defaults to `kawa`)
+/// - `issuer`: the `iss` and `aud` claim of issued tokens, also published as the authorization
+///   server's issuer (defaults to the admin API's public URL, `admin.publicUrl`)
 /// - `tokenTtl`: access token lifetime as an ISO-8601 duration (defaults to `PT15M`)
 /// - `sessionTtl`: how long a login lasts before the refresh token stops working; refreshing does not
 ///   extend it (defaults to `PT8H`)
@@ -37,7 +38,6 @@ import java.util.stream.Collectors;
 /// The gateway seeds `admin.auth.bootstrapUser` as the first admin user before the provider is created.
 public final class OAuthAuthenticationProviderFactory implements AuthenticationProviderFactory {
 
-    static final String DEFAULT_ISSUER = "http://localhost:8080";
     static final Duration DEFAULT_TOKEN_TTL = Duration.ofMinutes(15);
     static final Duration DEFAULT_SESSION_TTL = Duration.ofHours(8);
 
@@ -63,7 +63,7 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
                     + "set admin.auth.bootstrapUser to create the first one");
         }
         var settings = context.settings();
-        String issuer = settings.string("issuer").orElse(DEFAULT_ISSUER);
+        String issuer = settings.string("issuer").orElseGet(context::publicUrl);
         Duration tokenTtl = positive("tokenTtl", settings.duration("tokenTtl").orElse(DEFAULT_TOKEN_TTL));
         Duration sessionTtl = positive("sessionTtl", settings.duration("sessionTtl").orElse(DEFAULT_SESSION_TTL));
         String loginUrl = absoluteUri("loginUrl", settings.requireString("loginUrl")).toString();

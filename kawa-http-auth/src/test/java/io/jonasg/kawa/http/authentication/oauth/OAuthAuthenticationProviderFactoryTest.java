@@ -48,6 +48,47 @@ class OAuthAuthenticationProviderFactoryTest {
     }
 
     @Test
+    void issuesTokensForThePublicUrlByDefault() {
+        // given
+        var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"), "https://kawa.example.com");
+        factory.create(context);
+
+        // when
+        HttpResponse metadata = metadata(context);
+        HttpResponse tokens = new AuthorizationCodeFlow(context).signIn("admin", "s3cret");
+
+        // then
+        assertThatJson(body(metadata))
+                .withFailMessage(() -> "the authorization server metadata does not publish the public URL as issuer: " + body(metadata))
+                .isObject().containsEntry("issuer", "https://kawa.example.com");
+        String claims = payload(jsonField(tokens, "access_token"));
+        assertThatJson(claims)
+                .withFailMessage(() -> "the access token was not issued for the public URL: " + claims)
+                .isObject().containsEntry("iss", "https://kawa.example.com").containsEntry("aud", "https://kawa.example.com");
+    }
+
+    @Test
+    void theIssuerSettingOverridesThePublicUrl() {
+        // given
+        var context = new FakeProviderContext(defaults(Map.of("issuer", "kawa-prod")), Map.of("admin", "s3cret"),
+                "https://kawa.example.com");
+        factory.create(context);
+
+        // when
+        HttpResponse metadata = metadata(context);
+        HttpResponse tokens = new AuthorizationCodeFlow(context).signIn("admin", "s3cret");
+
+        // then
+        assertThatJson(body(metadata))
+                .withFailMessage(() -> "the authorization server metadata does not publish the configured issuer: " + body(metadata))
+                .isObject().containsEntry("issuer", "kawa-prod");
+        String claims = payload(jsonField(tokens, "access_token"));
+        assertThatJson(claims)
+                .withFailMessage(() -> "the access token was not issued for the configured issuer: " + claims)
+                .isObject().containsEntry("iss", "kawa-prod");
+    }
+
+    @Test
     void signsInWithTheAuthorizationCodeFlowAndIssuesTokensItsProviderAccepts() {
         // given
         var context = context(Map.of("tokenTtl", "PT5M"));
@@ -594,9 +635,21 @@ class OAuthAuthenticationProviderFactoryTest {
         return all;
     }
 
+    /// `GET /.well-known/oauth-authorization-server` on the endpoints `context` collected.
+    private static HttpResponse metadata(FakeProviderContext context) {
+        return context.endpoints.get("GET /.well-known/oauth-authorization-server")
+                .handle(new HttpRequest("GET", "/.well-known/oauth-authorization-server", Map.of(),
+                        Map.of("host", List.of("kawa.example.com")), new byte[0]));
+    }
+
+    /// The claims of a JWT, read without verification.
+    private static String payload(String jwt) {
+        return new String(Base64.getUrlDecoder().decode(jwt.split("\\.")[1]), StandardCharsets.UTF_8);
+    }
+
     /// The `exp` claim of a JWT, read without verification.
     private static long expiry(String jwt) {
-        String payload = new String(Base64.getUrlDecoder().decode(jwt.split("\\.")[1]), StandardCharsets.UTF_8);
+        String payload = payload(jwt);
         int start = payload.indexOf("\"exp\":") + 6;
         int end = start;
         while (end < payload.length() && Character.isDigit(payload.charAt(end))) {
