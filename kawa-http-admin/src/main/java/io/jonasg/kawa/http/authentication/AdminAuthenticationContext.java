@@ -8,16 +8,19 @@ import io.jonasg.kawa.plugin.http.HttpEndpoint;
 import io.netty.handler.codec.http.HttpMethod;
 
 /// The [AuthenticationProviderContext] the admin server hands to the selected provider: its
-/// settings, kawa's admin users, and public endpoints registered straight into the [Router].
+/// settings, kawa's admin users, the admin API's public URL, and public endpoints registered straight
+/// into the [Router].
 public final class AdminAuthenticationContext implements AuthenticationProviderContext {
 
     private final ProviderSettings settings;
     private final AdminUserDirectory adminUsers;
+    private final String publicUrl;
     private final Router router;
 
-    public AdminAuthenticationContext(ProviderSettings settings, AdminUserDirectory adminUsers, Router router) {
+    public AdminAuthenticationContext(ProviderSettings settings, AdminUserDirectory adminUsers, String publicUrl, Router router) {
         this.settings = settings;
         this.adminUsers = adminUsers;
+        this.publicUrl = publicUrl;
         this.router = router;
     }
 
@@ -29,6 +32,11 @@ public final class AdminAuthenticationContext implements AuthenticationProviderC
     @Override
     public AdminUserDirectory adminUsers() {
         return adminUsers;
+    }
+
+    @Override
+    public String publicUrl() {
+        return publicUrl;
     }
 
     @Override

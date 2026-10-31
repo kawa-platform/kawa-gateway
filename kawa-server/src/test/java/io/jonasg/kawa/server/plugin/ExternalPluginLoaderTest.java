@@ -193,6 +193,11 @@ class ExternalPluginLoaderTest {
             }
 
             @Override
+            public String publicUrl() {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
             public void publicEndpoint(String method, String path, HttpEndpoint endpoint) {
                 throw new UnsupportedOperationException();
             }

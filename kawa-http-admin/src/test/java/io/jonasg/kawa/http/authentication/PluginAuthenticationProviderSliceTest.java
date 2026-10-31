@@ -54,6 +54,25 @@ class PluginAuthenticationProviderSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void handsTheConfiguredPublicUrlToTheProvider() throws Exception {
+        // given
+        useApiKeyProvider();
+        publicUrl = "https://kawa.example.com/";
+        startServer();
+
+        // when
+        var response = send("GET", "/test/public-url");
+
+        // then
+        assertThat(response).hasStatusCode(200);
+        assertThatJson(response.body())
+                .withFailMessage(() -> "the provider was not handed admin.publicUrl: " + response.body())
+                .isEqualTo("""
+                        {"publicUrl":"https://kawa.example.com"}
+                        """);
+    }
+
+    @Test
     void failsToStartForAnUnknownProvider() {
         // given
         auth = new AdminAuthConfig("oidc", null, Map.of());
@@ -97,6 +116,8 @@ class PluginAuthenticationProviderSliceTest extends AdminHttpSliceTestBase {
                     String apiKey = providerContext.settings().requireString("apiKey");
                     providerContext.publicEndpoint("GET", "/test/hello",
                             request -> HttpResponse.json(200, "{\"hello\":\"from the api-key plugin\"}"));
+                    providerContext.publicEndpoint("GET", "/test/public-url",
+                            request -> HttpResponse.json(200, "{\"publicUrl\":\"" + providerContext.publicUrl() + "\"}"));
                     return request -> request.header("x-api-key")
                             .filter(apiKey::equals)
                             .map(_ -> new KawaPrincipal("api-key-client"));

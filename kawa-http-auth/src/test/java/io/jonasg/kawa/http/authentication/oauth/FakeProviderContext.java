@@ -18,11 +18,22 @@ final class FakeProviderContext implements AuthenticationProviderContext {
 
     private final Map<String, String> settings;
     private final Map<String, String> users;
+    private final String publicUrl;
     final Map<String, HttpEndpoint> endpoints = new HashMap<>();
 
     FakeProviderContext(Map<String, String> settings, Map<String, String> users) {
+        this(settings, users, "http://localhost:8080");
+    }
+
+    FakeProviderContext(Map<String, String> settings, Map<String, String> users, String publicUrl) {
         this.settings = settings;
         this.users = users;
+        this.publicUrl = publicUrl;
+    }
+
+    @Override
+    public String publicUrl() {
+        return publicUrl;
     }
 
     @Override

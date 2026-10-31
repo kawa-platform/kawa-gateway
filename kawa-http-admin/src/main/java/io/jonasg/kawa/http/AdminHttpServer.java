@@ -85,7 +85,7 @@ public final class AdminHttpServer {
         router.publicGet("/docs", new GetDocsHandler());
         this.authenticationProvider = authenticationProviders.require(adminAuthConfig.type()).create(
                 new AdminAuthenticationContext(new MapProviderSettings(adminAuthConfig.settings()),
-                        services.adminUserAuthenticator(), router));
+                        services.adminUserAuthenticator(), config.resolvedPublicUrl(), router));
     }
 
     public void start() throws InterruptedException {
