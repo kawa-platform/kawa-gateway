@@ -26,7 +26,7 @@ class GetProtectedResourceMetadataSliceTest extends AdminHttpSliceTestBase {
                 .isEqualTo("""
                         {
                           "resource": "https://kawa.example.com",
-                          "authorization_servers": ["https://kawa.example.com"],
+                          "authorization_servers": ["kawa-test"],
                           "bearer_methods_supported": ["header"]
                         }
                         """);
