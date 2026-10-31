@@ -25,6 +25,9 @@ import java.util.Optional;
 /// principal is the subject, and its actor the operator. The actor is therefore `kawa-operator` exactly
 /// when the operator made the request, which a name cannot fake: an admin user may be called
 /// `kawa-operator` too, but its principal never carries an actor.
+///
+/// A rejected request is challenged with the URL of the RFC 9728 protected resource metadata, from
+/// which a client can discover kawa's authorization server.
 public final class KawaTokenAuthenticationProvider implements AuthenticationProvider {
 
     private static final String BEARER = "bearer ";
@@ -32,11 +35,15 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
     private final TokenVerifier verifier;
     private final AdminUserDirectory users;
     private final OperatorClient operator;
+    private final String challenge;
 
-    KawaTokenAuthenticationProvider(SigningKeys keys, String issuer, AdminUserDirectory users, OperatorClient operator) {
+    /// @param publicUrl the admin API's public URL, under which the protected resource metadata is served
+    KawaTokenAuthenticationProvider(SigningKeys keys, String issuer, AdminUserDirectory users, OperatorClient operator,
+                                    String publicUrl) {
         this.verifier = new TokenVerifier(keys, issuer, TokenIssuer.ACCESS_TOKEN_TYPE);
         this.users = users;
         this.operator = operator;
+        this.challenge = "Bearer resource_metadata=\"" + publicUrl + ProtectedResourceMetadataEndpoint.PATH + "\"";
     }
 
     @Override
@@ -71,5 +78,10 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
                 && operator.mayActAs(claims.getSubject())
                 ? Optional.of(new KawaPrincipal(claims.getSubject(), TokenIssuer.OPERATOR_CLIENT_ID))
                 : Optional.empty();
+    }
+
+    @Override
+    public String challenge() {
+        return challenge;
     }
 }

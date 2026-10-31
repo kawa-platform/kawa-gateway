@@ -44,7 +44,45 @@ class OAuthAuthenticationProviderFactoryTest {
                         "POST /oauth/login",
                         "POST /oauth/token",
                         "GET /.well-known/jwks.json",
-                        "GET /.well-known/oauth-authorization-server");
+                        "GET /.well-known/oauth-authorization-server",
+                        "GET /.well-known/oauth-protected-resource");
+    }
+
+    @Test
+    void publishesTheAdminApiAsProtectedResource() {
+        // given
+        var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"), "https://kawa.example.com");
+        factory.create(context);
+
+        // when
+        HttpResponse response = context.endpoints.get("GET /.well-known/oauth-protected-resource")
+                .handle(new HttpRequest("GET", "/.well-known/oauth-protected-resource", Map.of(), Map.of(), new byte[0]));
+
+        // then
+        assertThat(response.status()).isEqualTo(200);
+        assertThatJson(body(response))
+                .withFailMessage(() -> "the protected resource metadata does not describe the admin API: " + body(response))
+                .isEqualTo("""
+                        {
+                          "resource": "https://kawa.example.com",
+                          "authorization_servers": ["https://kawa.example.com"],
+                          "bearer_methods_supported": ["header"]
+                        }
+                        """);
+    }
+
+    @Test
+    void challengesWithTheProtectedResourceMetadataUrl() {
+        // given
+        var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"), "https://kawa.example.com");
+
+        // when
+        String challenge = factory.create(context).challenge();
+
+        // then
+        assertThat(challenge)
+                .withFailMessage(() -> "the challenge does not point at the protected resource metadata: " + challenge)
+                .isEqualTo("Bearer resource_metadata=\"https://kawa.example.com/.well-known/oauth-protected-resource\"");
     }
 
     @Test
