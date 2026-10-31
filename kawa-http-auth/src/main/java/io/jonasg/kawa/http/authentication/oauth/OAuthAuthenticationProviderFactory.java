@@ -86,7 +86,7 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
                 new TokenVerifier(keys, issuer, TokenIssuer.ACCESS_TOKEN_TYPE)));
         context.publicEndpoint("GET", "/.well-known/jwks.json", new JwksEndpoint(keys));
         context.publicEndpoint("GET", "/.well-known/oauth-authorization-server", new AuthorizationServerMetadataEndpoint(issuer));
-        context.publicEndpoint("GET", ProtectedResourceMetadataEndpoint.PATH, new ProtectedResourceMetadataEndpoint(context.publicUrl()));
+        context.publicEndpoint("GET", ProtectedResourceMetadataEndpoint.PATH, new ProtectedResourceMetadataEndpoint(context.publicUrl(), issuer));
         return new KawaTokenAuthenticationProvider(keys, issuer, context.adminUsers(), operator, context.publicUrl());
     }
 

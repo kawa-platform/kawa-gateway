@@ -11,18 +11,19 @@ import java.util.List;
 /// `GET /.well-known/oauth-protected-resource`: RFC 9728 metadata describing the admin API as an
 /// OAuth protected resource. It names kawa's built-in authorization server and that tokens go in the
 /// `Authorization` header, so a client that got a `401` can discover where to obtain a token on its
-/// own (as MCP clients do). Both the resource and the authorization server are the admin API's public
-/// URL.
+/// own (as MCP clients do). The resource is the admin API's public URL; the authorization server is
+/// named by its issuer, so a client can match it against the `issuer` of the authorization server
+/// metadata.
 final class ProtectedResourceMetadataEndpoint implements HttpEndpoint {
 
     static final String PATH = "/.well-known/oauth-protected-resource";
 
     private final String metadata;
 
-    ProtectedResourceMetadataEndpoint(String publicUrl) {
+    ProtectedResourceMetadataEndpoint(String publicUrl, String issuer) {
         var document = new LinkedHashMap<String, Object>();
         document.put("resource", publicUrl);
-        document.put("authorization_servers", List.of(publicUrl));
+        document.put("authorization_servers", List.of(issuer));
         document.put("bearer_methods_supported", List.of("header"));
         this.metadata = JSONObjectUtils.toJSONString(document);
     }

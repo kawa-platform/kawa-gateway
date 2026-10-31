@@ -895,8 +895,9 @@ paths:
       summary: Protected resource metadata
       description: |
         RFC 9728 metadata describing the admin API as an OAuth protected resource: the resource
-        (`admin.publicUrl`), the authorization server that issues its tokens (kawa itself, also
-        `admin.publicUrl`) and that tokens go in the `Authorization` header. Only exists with
+        (`admin.publicUrl`), the authorization server that issues its tokens (kawa itself, named by
+        its issuer: `admin.auth.settings.issuer`, defaulting to `admin.publicUrl`) and that tokens go
+        in the `Authorization` header. Only exists with
         `admin.auth.type: oauth`.
       security: []
       responses:

@@ -55,8 +55,7 @@ class OAuthAuthenticationProviderFactoryTest {
         factory.create(context);
 
         // when
-        HttpResponse response = context.endpoints.get("GET /.well-known/oauth-protected-resource")
-                .handle(new HttpRequest("GET", "/.well-known/oauth-protected-resource", Map.of(), Map.of(), new byte[0]));
+        HttpResponse response = protectedResourceMetadata(context);
 
         // then
         assertThat(response.status()).isEqualTo(200);
@@ -69,6 +68,24 @@ class OAuthAuthenticationProviderFactoryTest {
                           "bearer_methods_supported": ["header"]
                         }
                         """);
+    }
+
+    @Test
+    void namesTheAuthorizationServerByItsIssuer() {
+        // given
+        var context = new FakeProviderContext(defaults(Map.of("issuer", "https://auth.example.com")), Map.of("admin", "s3cret"),
+                "https://kawa.example.com");
+        factory.create(context);
+
+        // when
+        HttpResponse response = protectedResourceMetadata(context);
+
+        // then
+        assertThatJson(body(response))
+                .withFailMessage(() -> "the protected resource metadata does not name the configured issuer: " + body(response))
+                .isObject()
+                .containsEntry("resource", "https://kawa.example.com")
+                .containsEntry("authorization_servers", List.of("https://auth.example.com"));
     }
 
     @Test
@@ -678,6 +695,12 @@ class OAuthAuthenticationProviderFactoryTest {
         return context.endpoints.get("GET /.well-known/oauth-authorization-server")
                 .handle(new HttpRequest("GET", "/.well-known/oauth-authorization-server", Map.of(),
                         Map.of("host", List.of("kawa.example.com")), new byte[0]));
+    }
+
+    /// `GET /.well-known/oauth-protected-resource` on the endpoints `context` collected.
+    private static HttpResponse protectedResourceMetadata(FakeProviderContext context) {
+        return context.endpoints.get("GET /.well-known/oauth-protected-resource")
+                .handle(new HttpRequest("GET", "/.well-known/oauth-protected-resource", Map.of(), Map.of(), new byte[0]));
     }
 
     /// The claims of a JWT, read without verification.
