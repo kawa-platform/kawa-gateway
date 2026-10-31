@@ -2,10 +2,17 @@ package io.jonasg.kawa.it;
 
 import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
+import io.modelcontextprotocol.client.McpClient;
+import io.modelcontextprotocol.client.McpSyncClient;
+import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
+import io.modelcontextprotocol.spec.McpSchema;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.ServerSocket;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -13,25 +20,95 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
+import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /// End-to-end OAuth on the admin API of a real gateway: kawa seeds the bootstrap user into the config
 /// topic, issues tokens for the admin users stored there, and rejects requests without one.
+///
+/// The admin port is picked up front so `admin.publicUrl` can name it: kawa publishes that URL as issuer
+/// and in its discovery metadata, and an ephemeral port would only be known after binding.
 class AdminOAuthIT extends AdminHTTPTestSupport {
 
     private static final String REDIRECT_URI = "http://localhost:5173/admin/auth/callback";
+    private static final int ADMIN_PORT = freePort();
+    private static final String PUBLIC_URL = "http://127.0.0.1:" + ADMIN_PORT;
+    private static final Pattern RESOURCE_METADATA = Pattern.compile("resource_metadata=\"([^\"]+)\"");
 
     @Override
     protected AdminConfig adminConfig() {
-        return new AdminConfig(true, "127.0.0.1", 0, null,
+        return new AdminConfig(true, "127.0.0.1", ADMIN_PORT, null,
                 new AdminAuthConfig("oauth", new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), Map.of(
                         "loginUrl", "http://localhost:5173/admin/login",
-                        "redirectUris", REDIRECT_URI)));
+                        "redirectUris", REDIRECT_URI)),
+                PUBLIC_URL);
+    }
+
+    @Test
+    void mcpClientDiscoversTheAuthorizationServerAndCallsATool() throws Exception {
+        // given: an MCP request without a token is challenged with the protected resource metadata URL
+        HttpResponse<String> challenged = httpExec(reqBuilder("/mcp")
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"""))
+                .build());
+        assertThat(challenged.statusCode())
+                .withFailMessage(() -> "POST /mcp without a token was not rejected: " + challenged.statusCode())
+                .isEqualTo(401);
+        String challenge = challenged.headers().firstValue("WWW-Authenticate").orElse("");
+        Matcher resourceMetadataUrl = RESOURCE_METADATA.matcher(challenge);
+        assertThat(resourceMetadataUrl.find())
+                .withFailMessage(() -> "the 401 does not point at the protected resource metadata: " + challenge)
+                .isTrue();
+
+        // and: the protected resource metadata names the authorization server
+        JsonNode resourceMetadata = getJson(resourceMetadataUrl.group(1));
+        assertThat(resourceMetadata.get("resource").asString())
+                .withFailMessage(() -> "the protected resource is not the admin public URL: " + resourceMetadata)
+                .isEqualTo(PUBLIC_URL);
+        String issuer = resourceMetadata.get("authorization_servers").get(0).asString();
+
+        // and: the authorization server metadata, fetched at the advertised issuer, matches it
+        JsonNode serverMetadata = getJson(issuer + "/.well-known/oauth-authorization-server");
+        assertThat(serverMetadata.get("issuer").asString())
+                .withFailMessage(() -> "the authorization server metadata does not belong to issuer " + issuer + ": " + serverMetadata)
+                .isEqualTo(issuer);
+
+        // and: the pre-registered client obtains a token from the advertised endpoints
+        String token = signIn("admin@kawa", "s3cret", serverMetadata.get("authorization_endpoint").asString(),
+                serverMetadata.get("token_endpoint").asString()).get("access_token").asString();
+
+        // when
+        McpSyncClient client = McpClient.sync(HttpClientStreamableHttpTransport.builder(PUBLIC_URL).endpoint("/mcp")
+                        .httpRequestCustomizer((request, method, uri, body, context) ->
+                                request.header("Authorization", "Bearer " + token))
+                        .build())
+                .requestTimeout(Duration.ofSeconds(10))
+                .build();
+        McpSchema.CallToolResult result;
+        try {
+            client.initialize();
+            result = client.callTool(new McpSchema.CallToolRequest("list_topics", Map.of()));
+        } finally {
+            client.closeGracefully();
+        }
+
+        // then
+        assertThat(result.isError())
+                .withFailMessage(() -> "list_topics with a discovered token failed: " + result.content())
+                .isFalse();
+        assertThatJson(result.structuredContent())
+                .withFailMessage(() -> "list_topics returned no topic listing: " + result.structuredContent())
+                .isObject().containsKeys("virtualTopics", "physicalTopics");
     }
 
     @Test
@@ -136,15 +213,20 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
         return signIn(username, password).get("access_token").asString();
     }
 
+    private JsonNode signIn(String username, String password) throws Exception {
+        return signIn(username, password, baseUrl() + "/oauth/authorize", baseUrl() + "/oauth/token");
+    }
+
     /// The authorization code flow with PKCE, as kawa studio and the browser run it: authorize (redirect
     /// to the login UI with a challenge), log in, then redeem the code.
-    private JsonNode signIn(String username, String password) throws Exception {
+    private JsonNode signIn(String username, String password, String authorizeEndpoint, String tokenEndpoint) throws Exception {
         String verifier = "verifier-" + UUID.randomUUID() + "-" + UUID.randomUUID();
         String challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
                 MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII)));
-        HttpResponse<String> authorize = httpExec(reqBuilder("/oauth/authorize?response_type=code&client_id=kawa-studio"
+        HttpResponse<String> authorize = httpExec(HttpRequest.newBuilder(URI.create(authorizeEndpoint
+                + "?response_type=code&client_id=kawa-studio"
                 + "&redirect_uri=" + encode(REDIRECT_URI) + "&code_challenge=" + challenge
-                + "&code_challenge_method=S256&state=it").GET().build());
+                + "&code_challenge_method=S256&state=it")).GET().build());
         String loginChallenge = queryParam(authorize.headers().firstValue("Location")
                 .orElseThrow(() -> new AssertionError("authorize did not redirect: " + authorize.body())), "login_challenge");
         HttpResponse<String> login = httpExec(reqBuilder("/oauth/login")
@@ -156,8 +238,24 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
                 .withFailMessage(() -> "login as '" + username + "' failed: " + login.body())
                 .isEqualTo(200);
         String code = queryParam(JsonMapper.builder().build().readTree(login.body()).get("redirect_to").asString(), "code");
-        return tokenResponse("grant_type=authorization_code&client_id=kawa-studio&code=" + encode(code)
+        return tokenResponse(tokenEndpoint, "grant_type=authorization_code&client_id=kawa-studio&code=" + encode(code)
                 + "&redirect_uri=" + encode(REDIRECT_URI) + "&code_verifier=" + verifier);
+    }
+
+    private JsonNode getJson(String url) throws Exception {
+        HttpResponse<String> response = httpExec(HttpRequest.newBuilder(URI.create(url)).GET().build());
+        assertThat(response.statusCode())
+                .withFailMessage(() -> "GET " + url + " failed: " + response.body())
+                .isEqualTo(200);
+        return JsonMapper.builder().build().readTree(response.body());
+    }
+
+    private static int freePort() {
+        try (var socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private static String queryParam(String url, String name) {
@@ -174,7 +272,11 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
     }
 
     private JsonNode tokenResponse(String form) throws Exception {
-        HttpResponse<String> response = httpExec(reqBuilder("/oauth/token")
+        return tokenResponse(baseUrl() + "/oauth/token", form);
+    }
+
+    private JsonNode tokenResponse(String tokenEndpoint, String form) throws Exception {
+        HttpResponse<String> response = httpExec(HttpRequest.newBuilder(URI.create(tokenEndpoint))
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .POST(HttpRequest.BodyPublishers.ofString(form))
                 .build());
