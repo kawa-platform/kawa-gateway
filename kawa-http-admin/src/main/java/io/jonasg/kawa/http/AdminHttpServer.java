@@ -2,14 +2,9 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
-import io.jonasg.kawa.config.DynamicConfigRepository;
-import io.jonasg.kawa.core.cluster.MetadataCache;
-import io.jonasg.kawa.governance.GovernancePolicy;
-import io.jonasg.kawa.http.auth.AdminUserAuthenticator;
 import io.jonasg.kawa.http.auth.AuthenticationProviderRegistry;
 import io.jonasg.kawa.http.auth.MapProviderSettings;
 import io.jonasg.kawa.plugin.auth.AuthenticationProvider;
-import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
@@ -29,28 +24,28 @@ import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.time.Clock;
-import java.util.function.Function;
 
 /// Netty HTTP server exposing the gateway's admin/UI surface: `GET /topics` reads the
-/// [VirtualTopicManager] and [MetadataCache], `POST /topics` and `DELETE /topics/{name}`
+/// [VirtualTopicManager][io.jonasg.kawa.virtualtopic.VirtualTopicManager] and
+/// [MetadataCache][io.jonasg.kawa.core.cluster.MetadataCache], `POST /topics` and `DELETE /topics/{name}`
 /// create/delete physical topics on the broker through the [TopicAdmin], and the
 /// `/rbac/...`, `/auth/...`, `/governance` and `/modules` endpoints read and write the dynamic config
-/// through the [DynamicConfigRepository]. Config writes go to the config topic and are
-/// applied by the consumer.
+/// through the [DynamicConfigRepository][io.jonasg.kawa.config.DynamicConfigRepository]. Config writes
+/// go to the config topic and are applied by the consumer.
 ///
 /// Requests are authenticated by the provider that `admin.auth.type` selects from the
 /// [AuthenticationProviderRegistry]: kawa's built-in `none` or `oauth`, or one registered by a
 /// plugin. A provider may add public endpoints of its own (e.g. a token endpoint); every other
 /// endpoint except `/docs` requires the provider to accept the request.
 ///
-/// Constructing the server seeds `admin.auth.bootstrapUser` into the admin users (see
-/// [BootstrapUserSeeder]), so it must happen after the config topic has been read.
+/// The routes dispatch to the [AdminServices] the server is given. Building those services seeds
+/// `admin.auth.bootstrapUser` into the admin users (see [AdminServices#create]); the server creates
+/// the authentication provider only afterwards, as a provider may require an admin user to exist.
 public final class AdminHttpServer {
 
     private static final Logger log = LoggerFactory.getLogger(AdminHttpServer.class);
 
     private final AdminConfig config;
-    private final TopicAdmin topicAdmin;
     private final Router router;
     private final AuthenticationProvider authenticationProvider;
     private final int routerExecutorThreads;
@@ -60,47 +55,26 @@ public final class AdminHttpServer {
     private @Nullable EventExecutorGroup routerExecutorGroup;
     private @Nullable Channel serverChannel;
 
+    /// @param services built by [AdminServices#create], which seeds the bootstrap user before the
+    ///                 authentication provider is created here. The server does not close them.
     public AdminHttpServer(
             AdminConfig config,
-            VirtualTopicManager virtualTopics,
-            MetadataCache cache,
-            DynamicConfigRepository configRepository,
-            GovernancePolicy governance,
-            TopicAdmin topicAdmin,
+            AdminServices services,
             AuthenticationProviderRegistry authenticationProviders
     ) {
-        this(config, virtualTopics, cache, configRepository, governance, topicAdmin, authenticationProviders, System::getenv);
-    }
-
-    /// @param env looks up environment variables, such as the bootstrap user reset switch
-    AdminHttpServer(
-            AdminConfig config,
-            VirtualTopicManager virtualTopics,
-            MetadataCache cache,
-            DynamicConfigRepository configRepository,
-            GovernancePolicy governance,
-            TopicAdmin topicAdmin,
-            AuthenticationProviderRegistry authenticationProviders,
-            Function<String, @Nullable String> env
-    ) {
         this.config = config;
-        this.topicAdmin = topicAdmin;
         this.routerExecutorThreads = Math.max(4, Runtime.getRuntime().availableProcessors());
-        var topicService = new TopicService(virtualTopics, cache, configRepository, topicAdmin, governance);
-        var roleService = new RbacRoleService(configRepository);
-        var groupService = new RbacGroupService(configRepository);
-        var clientService = new AuthClientService(configRepository);
-        var governanceService = new GovernanceService(configRepository);
+        var topicService = services.topics();
+        var roleService = services.roles();
+        var groupService = services.groups();
+        var clientService = services.clients();
+        var governanceService = services.governanceRules();
         var governanceMapper = new GovernanceConfigMapper();
-        AdminAuthConfig adminAuthConfig = config.auth();
-        // Before the provider is created: a provider may require an admin user to exist.
-        new BootstrapUserSeeder(configRepository, Clock.systemUTC())
-                .seed(adminAuthConfig.bootstrapUser(), Boolean.parseBoolean(env.apply(BootstrapUserSeeder.RESET_ENV)));
-        var adminUsers = new AdminUserAuthenticator(configRepository);
-        var adminUserService = new AdminUserService(configRepository);
+        var adminUserService = services.adminUsers();
         var adminUserMapper = new AdminUserMapper(Clock.systemUTC());
-        var moduleService = new ModuleService(configRepository);
+        var moduleService = services.modules();
         var moduleMapper = new ModuleConfigMapper();
+        AdminAuthConfig adminAuthConfig = config.auth();
         this.router = new Router()
                 .get("/topics", new GetTopicsHandler(topicService))
                 .post("/topics", new PostTopicHandler(topicService))
@@ -133,7 +107,7 @@ public final class AdminHttpServer {
                 .get("/governance/exemptions/{name}", new GetGovernanceExemptionHandler(governanceService, governanceMapper))
                 .put("/governance/exemptions/{name}", new PutGovernanceExemptionHandler(governanceService, governanceMapper))
                 .delete("/governance/exemptions/{name}", new DeleteGovernanceExemptionHandler(governanceService))
-                .post("/governance/dry-run", new PostGovernanceDryRunHandler(governance, governanceService, governanceMapper))
+                .post("/governance/dry-run", new PostGovernanceDryRunHandler(governanceService, governanceMapper))
                 .get("/governance/variables", new GetGovernanceVariablesHandler(governanceService, governanceMapper))
                 .put("/governance/variables/{name}", new PutGovernanceVariableHandler(governanceService, governanceMapper))
                 .delete("/governance/variables/{name}", new DeleteGovernanceVariableHandler(governanceService))
@@ -150,7 +124,8 @@ public final class AdminHttpServer {
 
                 .publicGet("/docs", new GetDocsHandler());
         this.authenticationProvider = authenticationProviders.require(adminAuthConfig.type()).create(
-                new AdminAuthenticationContext(new MapProviderSettings(adminAuthConfig.settings()), adminUsers, router));
+                new AdminAuthenticationContext(new MapProviderSettings(adminAuthConfig.settings()),
+                        services.adminUserAuthenticator(), router));
     }
 
     public void start() throws InterruptedException {
@@ -191,7 +166,6 @@ public final class AdminHttpServer {
         if (routerExecutorGroup != null) {
             routerExecutorGroup.shutdownGracefully();
         }
-        topicAdmin.close();
     }
 
     /// The route table this server dispatches to. Other surfaces (e.g. MCP) may register routes on

@@ -1,6 +1,5 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.governance.GovernanceTrace;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -8,13 +7,11 @@ import tools.jackson.databind.json.JsonMapper;
 /// against one unsaved rule, and returns the full trace. Nothing is created or stored.
 public final class PostGovernanceDryRunHandler implements Router.Handler {
 
-    private final GovernancePolicy policy;
     private final GovernanceService service;
     private final GovernanceConfigMapper mapper;
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
-    public PostGovernanceDryRunHandler(GovernancePolicy policy, GovernanceService service, GovernanceConfigMapper mapper) {
-        this.policy = policy;
+    public PostGovernanceDryRunHandler(GovernanceService service, GovernanceConfigMapper mapper) {
         this.service = service;
         this.mapper = mapper;
     }
@@ -31,11 +28,11 @@ public final class PostGovernanceDryRunHandler implements Router.Handler {
             var governanceRequest = mapper.toGovernanceRequest(dryRunReq);
             GovernanceTrace trace;
             if (dryRunReq.rule() == null) {
-                trace = policy.dryRun(governanceRequest);
+                trace = service.dryRun(governanceRequest);
             } else {
                 var name = dryRunReq.rule().name() == null || dryRunReq.rule().name().isBlank() ? "draft" : dryRunReq.rule().name();
                 var rule = mapper.toGovernanceRuleConfig(name, dryRunReq.rule(), service.get().variables().values());
-                trace = policy.dryRun(governanceRequest, rule);
+                trace = service.dryRun(governanceRequest, rule);
             }
             return Router.Response.ok(mapper.toGovernanceDryRunView(trace));
         } catch (IllegalArgumentException e) {

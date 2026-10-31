@@ -5,20 +5,35 @@ import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceVariableConfig;
 import io.jonasg.kawa.governance.GovernancePolicy;
+import io.jonasg.kawa.governance.GovernanceRequest;
+import io.jonasg.kawa.governance.GovernanceTrace;
 
-/// Owns reading and writing the governance config snapshot.
+/// Owns reading and writing the governance config snapshot, and dry runs against the applied
+/// [GovernancePolicy].
 final class GovernanceService {
 
     private final DynamicConfigRepository repository;
+    private final GovernancePolicy policy;
     private final ConsistencyAwareUpdater updater;
 
-    GovernanceService(DynamicConfigRepository repository) {
+    GovernanceService(DynamicConfigRepository repository, GovernancePolicy policy) {
         this.repository = repository;
+        this.policy = policy;
         this.updater = new ConsistencyAwareUpdater(repository);
     }
 
     GovernanceConfig get() {
         return repository.getActiveConfigOrEmpty().governance();
+    }
+
+    /// Evaluates `request` against the applied governance. Nothing is created or stored.
+    GovernanceTrace dryRun(GovernanceRequest request) {
+        return policy.dryRun(request);
+    }
+
+    /// Evaluates `request` against the unsaved `rule` alone. Nothing is created or stored.
+    GovernanceTrace dryRun(GovernanceRequest request, GovernanceRuleConfig rule) {
+        return policy.dryRun(request, rule);
     }
 
     /// The rule stored under `name`.

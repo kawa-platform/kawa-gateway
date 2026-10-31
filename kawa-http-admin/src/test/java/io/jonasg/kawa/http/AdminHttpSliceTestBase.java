@@ -56,6 +56,7 @@ abstract class AdminHttpSliceTestBase {
     /// The environment the server sees, e.g. `KAWA_ADMIN_RESET`.
     protected Map<String, String> env = Map.of();
 
+    private AdminServices services;
     private AdminHttpServer server;
     private final HttpClient client = HttpClient.newHttpClient();
 
@@ -68,13 +69,16 @@ abstract class AdminHttpSliceTestBase {
         if (server != null) {
             server.stop();
         }
+        if (services != null) {
+            services.close();
+        }
     }
 
     /// Boots the server with the current fakes. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
-        server = new AdminHttpServer(
-                new AdminConfig(true, "127.0.0.1", 0, cors, auth),
-                virtualTopics, cache, repository, governance, topicAdmin, authenticationProviders, env::get);
+        services = AdminServices.create(virtualTopics, cache, repository, governance, topicAdmin,
+                auth.bootstrapUser(), env::get);
+        server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, cors, auth), services, authenticationProviders);
         server.start();
     }
 

@@ -3,6 +3,7 @@ package io.jonasg.kawa.server;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.http.AdminHttpServer;
+import io.jonasg.kawa.http.AdminServices;
 import io.jonasg.kawa.http.KafkaTopicAdmin;
 import io.jonasg.kawa.http.auth.AuthenticationProviderRegistry;
 import io.jonasg.kawa.mcp.KawaMcpServer;
@@ -15,6 +16,7 @@ import java.util.Properties;
 /// [DynamicGatewayState]'s config manager to the config topic.
 public final class AdminSurface implements AutoCloseable {
 
+    private final AdminServices services;
     private final AdminHttpServer server;
     private final KawaMcpServer mcp;
 
@@ -22,8 +24,9 @@ public final class AdminSurface implements AutoCloseable {
                         String bootstrapServers, Properties brokerSecurity,
                         AuthenticationProviderRegistry authenticationProviders) {
         var topicAdmin = new KafkaTopicAdmin(bootstrapServers, brokerSecurity);
-        server = new AdminHttpServer(config, state.virtualTopics(), cache, state.configManager(),
-                state.governance(), topicAdmin, authenticationProviders);
+        services = AdminServices.create(state.virtualTopics(), cache, state.configManager(),
+                state.governance(), topicAdmin, config.auth().bootstrapUser(), System::getenv);
+        server = new AdminHttpServer(config, services, authenticationProviders);
         mcp = new KawaMcpServer(server.router(), config.cors());
     }
 
@@ -38,6 +41,7 @@ public final class AdminSurface implements AutoCloseable {
     @Override
     public void close() {
         mcp.close();
-        server.stop(); // AdminHttpServer.stop() also closes the TopicAdmin
+        server.stop();
+        services.close(); // closes the TopicAdmin
     }
 }
