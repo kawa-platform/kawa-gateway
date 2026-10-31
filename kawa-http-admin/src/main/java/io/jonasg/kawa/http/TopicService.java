@@ -31,8 +31,9 @@ import java.util.stream.Collectors;
 /// broker create/delete, and governance admission. Governance judges each change as the
 /// authenticated caller (`principal`): an admin user's email, a service client's id, or the
 /// principal a delegate acts for (e.g. `k8s:team-a`). Every virtual topic write honours
-/// [Ownership]: a managed virtual topic only changes through its owner.
-final class TopicService {
+/// [Ownership]: a managed virtual topic only changes through its owner. Owns the [TopicAdmin]:
+/// closing the service closes it.
+final class TopicService implements AutoCloseable {
 
     private static final String KIND = "topic";
     private static final String SERVICE = "kawa";
@@ -58,6 +59,11 @@ final class TopicService {
         this.topicAdmin = topicAdmin;
         this.governance = governance;
         this.updater = new ConsistencyAwareUpdater(repository);
+    }
+
+    @Override
+    public void close() {
+        topicAdmin.close();
     }
 
     TopicListing listTopics() {
