@@ -10,6 +10,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -46,9 +48,18 @@ class McpIT extends AdminHTTPTestSupport {
         client.initialize();
     }
 
+    /// Switches the mcp module back on, so a test that switched it off cannot break the others.
+    /// Switching it on when it already is changes nothing.
     @AfterEach
-    void disconnect() {
-        client.closeGracefully();
+    void reEnableMcpAndDisconnect() throws Exception {
+        try {
+            setMcpModule(true);
+            eventually(() -> assertThat(mcpStatus())
+                    .withFailMessage(() -> "/mcp was not switched back on by the mcp module")
+                    .isEqualTo(200));
+        } finally {
+            client.closeGracefully();
+        }
     }
 
     @Test
@@ -61,6 +72,20 @@ class McpIT extends AdminHTTPTestSupport {
                 .withFailMessage(() -> "MCP server did not advertise list_topics: " + tools)
                 .extracting(McpSchema.Tool::name)
                 .contains("list_topics");
+    }
+
+    @Test
+    void mcpModuleSwitchesTheEndpointOffThroughTheConfigTopic() throws Exception {
+        // when
+        var disableMcpResp = setMcpModule(false);
+
+        // then
+        assertThat(disableMcpResp.statusCode())
+                .withFailMessage(() -> "PUT /modules/mcp was not accepted: " + disableMcpResp.body())
+                .isEqualTo(200);
+        eventually(() -> assertThat(mcpStatus())
+                .withFailMessage(() -> "/mcp was not switched off by the mcp module")
+                .isEqualTo(404));
     }
 
     @Test
@@ -81,5 +106,20 @@ class McpIT extends AdminHTTPTestSupport {
                     .withFailMessage(() -> "the text content is not the structured content as JSON: " + text)
                     .isEqualTo(result.structuredContent());
         });
+    }
+
+    private HttpResponse<String> setMcpModule(boolean enabled) throws Exception {
+        return httpExec(reqBuilder("/modules/mcp")
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString("{\"enabled\":" + enabled + "}"))
+                .build());
+    }
+
+    private int mcpStatus() throws Exception {
+        return httpExec(reqBuilder("/mcp")
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}"))
+                .build()).statusCode();
     }
 }

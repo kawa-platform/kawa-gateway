@@ -10,6 +10,7 @@ import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.core.cluster.MetadataSnapshot;
 import io.jonasg.kawa.core.cluster.PartitionMetadata;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
+import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.http.AdminHttpServer;
 import io.jonasg.kawa.http.AdminServices;
@@ -42,6 +43,8 @@ abstract class McpSliceTestBase {
 
     protected VirtualTopicManager virtualTopics = new VirtualTopicManager(Map.of());
     protected MetadataCache cache = new MetadataCache();
+    /// The gateway's modules, reloaded from the config on every write as the config consumer would.
+    protected ModuleRegistry modules = new ModuleRegistry();
     /// Replaces the real topic service when set, e.g. with a mock that fails.
     protected @Nullable TopicService topicService;
 
@@ -65,7 +68,7 @@ abstract class McpSliceTestBase {
 
     /// Boots the server with the current state. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
-        var real = AdminServices.create(virtualTopics, cache, new InMemoryConfigRepository(),
+        var real = AdminServices.create(virtualTopics, cache, new InMemoryConfigRepository(modules),
                 new GovernancePolicy(new GovernanceConfig(null)), mock(TopicAdmin.class), null, _ -> null);
         services = topicService == null ? real : new AdminServices(topicService, real.roles(), real.groups(),
                 real.clients(), real.governanceRules(), real.adminUsers(), real.adminUserAuthenticator(), real.modules());
@@ -73,8 +76,17 @@ abstract class McpSliceTestBase {
         new BuiltInAuthenticationPlugin().register(authenticationProviders::register);
         server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none()), services,
                 authenticationProviders);
-        mcp = new KawaMcpServer(server.router(), services, null);
+        mcp = new KawaMcpServer(server.router(), services, modules, null);
         server.start();
+    }
+
+    /// Sends a request to the admin API, e.g. `PUT /modules/mcp`. A `null` body sends none.
+    protected HttpResponse<String> send(String method, String path, @Nullable String body) throws Exception {
+        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.boundPort() + path))
+                .header("Content-Type", "application/json")
+                .method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body))
+                .build();
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
     /// Sends the JSON-RPC request `method` with `params` (a JSON object) to `POST /mcp`.
@@ -113,10 +125,15 @@ abstract class McpSliceTestBase {
         return TopicMetadata.of(name, partitionList);
     }
 
-    /// Holds the config in memory; writes apply at once.
+    /// Holds the config in memory; a write applies at once and reloads the modules from it.
     private static final class InMemoryConfigRepository implements GatewayConfigRepository {
 
+        private final ModuleRegistry modules;
         private GatewayConfig current = GatewayConfig.empty();
+
+        private InMemoryConfigRepository(ModuleRegistry modules) {
+            this.modules = modules;
+        }
 
         @Override
         public GatewayConfig getActiveConfig() {
@@ -126,6 +143,7 @@ abstract class McpSliceTestBase {
         @Override
         public synchronized void update(UnaryOperator<GatewayConfig> mutation) {
             current = mutation.apply(current);
+            modules.reload(current.modules());
         }
 
         @Override

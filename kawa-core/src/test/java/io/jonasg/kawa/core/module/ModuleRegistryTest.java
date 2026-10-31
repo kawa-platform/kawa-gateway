@@ -47,7 +47,7 @@ class ModuleRegistryTest {
                 .isFalse();
         assertThat(registry.enabled())
                 .withFailMessage(() -> "Expected only 'rbac' to be off: " + registry.enabled())
-                .containsExactlyInAnyOrder(ModuleId.VIRTUAL_TOPICS, ModuleId.GOVERNANCE);
+                .containsExactlyInAnyOrder(ModuleId.VIRTUAL_TOPICS, ModuleId.GOVERNANCE, ModuleId.MCP);
     }
 
     @Test
@@ -76,7 +76,7 @@ class ModuleRegistryTest {
         // then
         assertThat(seen)
                 .withFailMessage(() -> "The subscriber was not told the current set on subscribing: " + seen)
-                .containsExactly(Set.of(ModuleId.VIRTUAL_TOPICS, ModuleId.GOVERNANCE));
+                .containsExactly(Set.of(ModuleId.VIRTUAL_TOPICS, ModuleId.GOVERNANCE, ModuleId.MCP));
     }
 
     @Test
@@ -96,7 +96,7 @@ class ModuleRegistryTest {
                 .withFailMessage(() -> "Expected the initial set, the switch-off and the switch-on, got: " + seen)
                 .containsExactly(
                         Set.of(ModuleId.values()),
-                        Set.of(ModuleId.RBAC, ModuleId.GOVERNANCE),
+                        Set.of(ModuleId.RBAC, ModuleId.GOVERNANCE, ModuleId.MCP),
                         Set.of(ModuleId.values()));
     }
 }

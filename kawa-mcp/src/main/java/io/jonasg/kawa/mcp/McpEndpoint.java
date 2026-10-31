@@ -1,5 +1,7 @@
 package io.jonasg.kawa.mcp;
 
+import io.jonasg.kawa.config.ModuleId;
+import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.http.web.Router;
 import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.json.McpJsonMapper;
@@ -25,6 +27,9 @@ import java.util.Map;
 /// admin server's HTTP pipeline, authentication and router executor (which makes blocking on the
 /// SDK's `Mono`s safe). The authenticated caller is put into the [McpTransportContext] under
 /// [#PRINCIPAL] for the tools to act as.
+///
+/// While the [ModuleId#MCP] module is switched off, every request is answered with the router's
+/// standard `404`, as if `/mcp` did not exist. Authentication still runs first.
 final class McpEndpoint implements Router.Handler, McpStatelessServerTransport {
 
     /// [McpTransportContext] key of the authenticated caller's [io.jonasg.kawa.plugin.auth.KawaPrincipal].
@@ -34,12 +39,14 @@ final class McpEndpoint implements Router.Handler, McpStatelessServerTransport {
     private static final String JSON = "application/json";
     private static final String EVENT_STREAM = "text/event-stream";
 
+    private final ModuleRegistry modules;
     private final McpJsonMapper mapper;
     private final ServerTransportSecurityValidator securityValidator;
     private @Nullable McpStatelessServerHandler mcpHandler;
     private volatile boolean closing;
 
-    McpEndpoint(McpJsonMapper mapper, ServerTransportSecurityValidator securityValidator) {
+    McpEndpoint(ModuleRegistry modules, McpJsonMapper mapper, ServerTransportSecurityValidator securityValidator) {
+        this.modules = modules;
         this.mapper = mapper;
         this.securityValidator = securityValidator;
     }
@@ -57,6 +64,9 @@ final class McpEndpoint implements Router.Handler, McpStatelessServerTransport {
     @Override
     @SuppressWarnings("ConstantConditions") // mcpHandler is set by McpServer.sync(...).build()
     public Router.Response<?> handle(Router.Request request) {
+        if (!modules.isEnabled(ModuleId.MCP)) {
+            return Router.Response.notFound("not found");
+        }
         if (closing) {
             return error(503, McpSchema.ErrorCodes.INTERNAL_ERROR, "Server is shutting down");
         }

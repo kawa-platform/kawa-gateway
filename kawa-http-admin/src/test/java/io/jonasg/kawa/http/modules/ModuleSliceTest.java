@@ -28,6 +28,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body()).isEqualTo("""
                 [
                   {"id":"governance","enabled":true},
+                  {"id":"mcp","enabled":true},
                   {"id":"rbac","enabled":true},
                   {"id":"virtual-topics","enabled":true}
                 ]
@@ -49,6 +50,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body()).isEqualTo("""
                 [
                   {"id":"governance","enabled":false},
+                  {"id":"mcp","enabled":true},
                   {"id":"rbac","enabled":true},
                   {"id":"virtual-topics","enabled":true}
                 ]

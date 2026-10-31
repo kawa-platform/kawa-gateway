@@ -117,3 +117,9 @@ depend on production modules such as `kawa-config`, but never on a module that u
 - Java source and tests use four-space indentation and no tabs. Checkstyle enforces this, along with a 160-character
   line limit, naming conventions, import hygiene, modifier order, blank-line rules, and newline-at-EOF. The
   configuration lives in `checkstyle.xml` and runs during `validate`.
+
+## Docs
+
+The user documentation lives in the separate `kawa-docs` repository, not in this one. When a change here alters
+documented behaviour, update `kawa-docs` as well. Keep its RBAC "What is enforced today" table in sync with
+`kawa-rbac`'s `AuthorizationInterceptor` registry.
