@@ -6,6 +6,8 @@ import io.jonasg.kawa.plugin.http.HttpRequest;
 import io.jonasg.kawa.plugin.http.HttpResponse;
 import io.jonasg.kawa.test.TestSigningKeys;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -422,6 +424,34 @@ class OAuthAuthenticationProviderFactoryTest {
         assertThatThrownBy(() -> factory.create(context))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("admin.auth.type 'oauth' requires an admin user: set admin.auth.bootstrapUser to create the first one");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://0.0.0.0:8080", "http://[::]:8080", "http://[0:0:0:0:0:0:0:0]:8080"})
+    void refusesAWildcardPublicUrl(String publicUrl) {
+        // given
+        var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"), publicUrl);
+
+        // when / then
+        assertThatThrownBy(() -> factory.create(context))
+                .withFailMessage(() -> "the oauth provider started with the wildcard public URL " + publicUrl)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("set admin.publicUrl");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://127.0.0.1:8080", "http://localhost:8080", "https://kawa.example.com", "http://[::1]:8080"})
+    void acceptsAReachablePublicUrl(String publicUrl) {
+        // given
+        var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"), publicUrl);
+
+        // when
+        var provider = factory.create(context);
+
+        // then
+        assertThat(provider)
+                .withFailMessage(() -> "the oauth provider did not start with the public URL " + publicUrl)
+                .isNotNull();
     }
 
     @Test
