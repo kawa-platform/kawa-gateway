@@ -29,6 +29,10 @@ info:
     references or changing a managed group's membership through a client - is refused with `409`
     unless it comes from the owner. `DELETE .../{name}/managed-by` releases an entry. With
     `admin.auth.type: none` nothing is ever marked.
+
+    The same port also serves an MCP server at `POST /mcp` (stateless Streamable HTTP, JSON-RPC
+    2.0; not described here). It requires the same authentication; its tools answer with the JSON
+    of the corresponding admin endpoint (e.g. `list_topics` ↔ `GET /topics`).
   version: 0.1.0-SNAPSHOT
 security:
   - bearerAuth: []

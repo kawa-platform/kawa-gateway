@@ -46,6 +46,22 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
     }
 
     @Test
+    void rejectsMcpRequestsWithoutToken() throws Exception {
+        // when
+        HttpResponse<String> response = httpExec(reqBuilder("/mcp")
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"""))
+                .build());
+
+        // then
+        assertThat(response.statusCode())
+                .withFailMessage(() -> "POST /mcp without a token was not rejected: " + response.statusCode())
+                .isEqualTo(401);
+    }
+
+    @Test
     void bootstrapUserCallsTheAdminApiWithAToken() throws Exception {
         // given
         String token = login("admin@kawa", "s3cret");
