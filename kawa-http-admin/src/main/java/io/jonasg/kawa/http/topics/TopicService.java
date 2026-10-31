@@ -72,7 +72,9 @@ public final class TopicService implements AutoCloseable {
         topicAdmin.close();
     }
 
-    TopicListing listTopics() {
+    /// The virtual topics the [VirtualTopicManager] serves and the physical topics in the broker
+    /// metadata cache.
+    public TopicListing listTopics() {
         Map<String, VirtualTopicConfig> configured = repository.getActiveConfigOrEmpty().virtualTopics();
         List<VirtualTopicEntry> virtual = new ArrayList<>();
         for (Map.Entry<String, String> entry : virtualTopics.virtualTopics().entrySet()) {
@@ -252,11 +254,14 @@ public final class TopicService implements AutoCloseable {
         }
     }
 
-    int partitionCount(String physicalTopic) {
+    /// The number of partitions of `physicalTopic` in the broker metadata cache, or `0` if unknown.
+    public int partitionCount(String physicalTopic) {
         return cache.partitionCount(physicalTopic);
     }
 
-    int replicationFactor(String physicalTopic) {
+    /// The replica count per partition of `physicalTopic` in the broker metadata cache, or `0` if
+    /// unknown.
+    public int replicationFactor(String physicalTopic) {
         return cache.replicationFactor(physicalTopic);
     }
 
@@ -293,17 +298,26 @@ public final class TopicService implements AutoCloseable {
         return false;
     }
 
-    /// Raw virtual and physical topic data returned by [listTopics].
-    record TopicListing(List<VirtualTopicEntry> virtual, List<TopicMetadata> physical) {
+    /// Raw virtual and physical topic data returned by [#listTopics()].
+    ///
+    /// @param virtual  the virtual topics
+    /// @param physical the topics the broker metadata cache knows
+    public record TopicListing(List<VirtualTopicEntry> virtual, List<TopicMetadata> physical) {
     }
 
     /// One virtual topic as known by the [VirtualTopicManager].
-    record VirtualTopicEntry(
+    ///
+    /// @param name                the virtual topic's name
+    /// @param physicalTopic       the broker topic it maps to
+    /// @param filter              the consume filter, or `null` when every record is served
+    /// @param exposePhysicalTopic whether the physical topic is also served under its own name
+    /// @param valueFormat         how record values are encoded, or `null` when they are not decoded
+    public record VirtualTopicEntry(
             String name,
             String physicalTopic,
-            VirtualTopicFilterConfig filter,
+            @Nullable VirtualTopicFilterConfig filter,
             boolean exposePhysicalTopic,
-            PayloadFormatConfig valueFormat,
+            @Nullable PayloadFormatConfig valueFormat,
             @Nullable ManagedBy managedBy
     ) {
     }

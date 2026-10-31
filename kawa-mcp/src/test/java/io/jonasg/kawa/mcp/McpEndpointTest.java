@@ -3,39 +3,29 @@ package io.jonasg.kawa.mcp;
 import io.jonasg.kawa.config.CorsConfig;
 import io.jonasg.kawa.http.web.Router;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
+import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.netty.handler.codec.http.HttpMethod;
 import org.jspecify.annotations.Nullable;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
-import static org.assertj.core.api.Assertions.assertThat;
+import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 
 class McpEndpointTest {
 
     private static final KawaPrincipal ALICE = new KawaPrincipal("alice");
 
-    private final AtomicReference<@Nullable KawaPrincipal> topicsCaller = new AtomicReference<>();
-    private Router router;
-
-    @BeforeEach
-    void setUp() {
-        router = new Router().get("/topics", request -> {
-            topicsCaller.set(request.principal());
-            return Router.Response.ok(List.of(Map.of("type", "physical", "name", "orders")));
-        });
-    }
+    private final Router router = new Router();
 
     @Test
-    void initializeAdvertisesServerInfoAndTools() {
+    void initializeAdvertisesServerInfoAndToolsCapability() {
         // given
-        new KawaMcpServer(router, null);
+        serve(null);
 
         // when
         var response = post(rpc(1, "initialize", """
@@ -50,53 +40,9 @@ class McpEndpointTest {
     }
 
     @Test
-    void listsTheListTopicsTool() {
-        // given
-        new KawaMcpServer(router, null);
-
-        // when
-        var response = post(rpc(2, "tools/list", "{}"));
-
-        // then
-        assertThatJson(body(response)).inPath("result.tools[*].name").isArray().containsExactly("list_topics");
-    }
-
-    @Test
-    void listTopicsDispatchesToTheTopicsRouteAsTheCaller() {
-        // given
-        new KawaMcpServer(router, null);
-
-        // when
-        var response = post(rpc(3, "tools/call", """
-                {"name":"list_topics","arguments":{}}"""));
-
-        // then
-        assertThatJson(body(response)).inPath("result.isError").isEqualTo(false);
-        assertThatJson(body(response)).inPath("result.content[0].text").isString()
-                .satisfies(text -> assertThatJson(text).isEqualTo("[{\"type\":\"physical\",\"name\":\"orders\"}]"));
-        assertThat(topicsCaller.get())
-                .withFailMessage(() -> "GET /topics was not called as the MCP caller but as " + topicsCaller.get())
-                .isEqualTo(ALICE);
-    }
-
-    @Test
-    void routeErrorBecomesToolError() {
-        // given
-        router = new Router().get("/topics", _ -> Router.Response.notFound("gone"));
-        new KawaMcpServer(router, null);
-
-        // when
-        var response = post(rpc(4, "tools/call", """
-                {"name":"list_topics","arguments":{}}"""));
-
-        // then
-        assertThatJson(body(response)).inPath("result.isError").isEqualTo(true);
-    }
-
-    @Test
     void notificationIsAccepted() {
         // given
-        new KawaMcpServer(router, null);
+        serve(null);
 
         // when
         var response = post("""
@@ -111,7 +57,7 @@ class McpEndpointTest {
     @Test
     void rejectsNonJsonContentType() {
         // given
-        new KawaMcpServer(router, null);
+        serve(null);
 
         // when
         var response = handle(request(rpc(5, "tools/list", "{}"), Map.of("content-type", "text/plain")));
@@ -125,7 +71,7 @@ class McpEndpointTest {
     @Test
     void rejectsMissingAcceptHeader() {
         // given
-        new KawaMcpServer(router, null);
+        serve(null);
 
         // when
         var response = handle(request(rpc(6, "tools/list", "{}"), Map.of("accept", "application/json")));
@@ -140,7 +86,7 @@ class McpEndpointTest {
     @Test
     void rejectsOriginNotAllowedByCors() {
         // given
-        new KawaMcpServer(router, CorsConfig.of(List.of("https://ui.example"), null, null, null, null));
+        serve(CorsConfig.of(List.of("https://ui.example"), null, null, null, null));
 
         // when
         var response = handle(request(rpc(7, "tools/list", "{}"), Map.of("origin", "https://evil.example")));
@@ -154,7 +100,7 @@ class McpEndpointTest {
     @Test
     void allowsOriginAllowedByCors() {
         // given
-        new KawaMcpServer(router, CorsConfig.of(List.of("https://ui.example"), null, null, null, null));
+        serve(CorsConfig.of(List.of("https://ui.example"), null, null, null, null));
 
         // when
         var response = handle(request(rpc(8, "tools/list", "{}"), Map.of("origin", "https://ui.example")));
@@ -168,7 +114,7 @@ class McpEndpointTest {
     @Test
     void rejectsMalformedJson() {
         // given
-        new KawaMcpServer(router, null);
+        serve(null);
 
         // when
         var response = post("{not json");
@@ -178,6 +124,11 @@ class McpEndpointTest {
                 .withFailMessage(() -> "malformed JSON was not refused with 400 but " + response.status())
                 .isEqualTo(400);
         assertThatJson(body(response)).inPath("error.code").isEqualTo(-32600);
+    }
+
+    /// Serves `/mcp` on the test router without tools: these tests cover the transport only.
+    private void serve(@Nullable CorsConfig cors) {
+        new KawaMcpServer(router, cors, McpJsonDefaults.getMapper(), List.of());
     }
 
     private static String rpc(int id, String method, String params) {

@@ -73,8 +73,13 @@ class McpIT extends AdminHTTPTestSupport {
             assertThat(result.isError())
                     .withFailMessage(() -> "list_topics failed: " + result.content())
                     .isFalse();
+            assertThatJson(result.structuredContent()).inPath("virtualTopics[?(@.name == 'orders')].physicalTopic")
+                    .isArray().containsExactly("orders-v2");
+            assertThatJson(result.structuredContent()).inPath("physicalTopics[*].name").isArray().contains("orders-v2");
             String text = ((McpSchema.TextContent) result.content().getFirst()).text();
-            assertThatJson(text).inPath("[?(@.name == 'orders')].physicalTopic").isArray().containsExactly("orders-v2");
+            assertThatJson(text)
+                    .withFailMessage(() -> "the text content is not the structured content as JSON: " + text)
+                    .isEqualTo(result.structuredContent());
         });
     }
 }

@@ -13,6 +13,10 @@
     <name>Kawa MCP</name>
     <description>MCP server exposing gateway state to agents, served on the admin HTTP port.</description>
 
+    <properties>
+        <mockito.agent.argLine>-javaagent:@{org.mockito:mockito-core:jar}</mockito.agent.argLine>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.jonasg</groupId>
@@ -47,6 +51,12 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>io.jonasg</groupId>
+            <artifactId>kawa-http-auth</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
@@ -54,6 +64,11 @@
         <dependency>
             <groupId>org.assertj</groupId>
             <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -67,4 +82,13 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
 </project>

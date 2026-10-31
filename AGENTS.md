@@ -92,7 +92,7 @@ depend on production modules such as `kawa-config`, but never on a module that u
 - `kawa-http-auth`: kawa's built-in admin API authentication providers (`none`, `oauth` with Nimbus), shipped as a
   `KawaPlugin` (`BuiltInAuthenticationPlugin`). Depends only on `kawa-plugin-api` - never on `kawa-http-admin` or
   `kawa-config` - so the built-ins use exactly the contract a third-party provider gets. Only `kawa-server` depends on
-  it (and `kawa-http-admin` with `test` scope, for the slice tests).
+  it (and `kawa-http-admin` and `kawa-mcp` with `test` scope, for the slice tests).
 - `kawa-server`: Netty server, broker clients, shading. Produces the runnable shaded jar
   (`mainClass=io.jonasg.kawa.server.GatewayLauncher`).
 - `kawa-integration-tests`: real-client + raw-socket wire tests against a broker via
