@@ -15,4 +15,11 @@ import java.util.Optional;
 public interface AuthenticationProvider {
 
     Optional<KawaPrincipal> authenticate(AuthenticationRequest request);
+
+    /// The `WWW-Authenticate` challenge sent with a `401 Unauthorized`, telling the client how to
+    /// authenticate. Override it to point clients at the provider's own metadata, e.g. an RFC 9728
+    /// `resource_metadata` URL.
+    default String challenge() {
+        return "Bearer realm=\"kawa\"";
+    }
 }

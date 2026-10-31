@@ -4,9 +4,12 @@ import io.jonasg.kawa.plugin.auth.AdminUserDirectory;
 import io.jonasg.kawa.plugin.auth.AuthenticationProvider;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderFactory;
+import io.jonasg.kawa.plugin.auth.AuthenticationRequest;
+import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.plugin.auth.ProviderSettings;
 import io.jonasg.kawa.plugin.http.HttpEndpoint;
 
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /// Runs calls into an isolated plugin with the plugin's classloader as the thread context classloader.
@@ -42,7 +45,17 @@ final class IsolatedPluginCalls {
             public AuthenticationProvider create(AuthenticationProviderContext context) {
                 AuthenticationProvider provider = withContextClassLoader(loader,
                         () -> factory.create(isolate(context, loader)));
-                return request -> withContextClassLoader(loader, () -> provider.authenticate(request));
+                return new AuthenticationProvider() {
+                    @Override
+                    public Optional<KawaPrincipal> authenticate(AuthenticationRequest request) {
+                        return withContextClassLoader(loader, () -> provider.authenticate(request));
+                    }
+
+                    @Override
+                    public String challenge() {
+                        return withContextClassLoader(loader, provider::challenge);
+                    }
+                };
             }
 
             @Override
