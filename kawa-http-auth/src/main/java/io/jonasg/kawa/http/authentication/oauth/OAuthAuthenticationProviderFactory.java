@@ -4,6 +4,7 @@ import io.jonasg.kawa.plugin.auth.AuthenticationProvider;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderFactory;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Clock;
@@ -34,6 +35,9 @@ import java.util.stream.Collectors;
 ///
 /// Users log in with the authorization code flow with PKCE (no password grant, per OAuth 2.1).
 ///
+/// Requires a public URL (`admin.publicUrl`, or the bind address it defaults to) that clients can reach:
+/// a wildcard bind address such as `0.0.0.0` is refused, as tokens and metadata would name it.
+///
 /// Requires at least one admin user: without one nobody could log in to create further admin users.
 /// The gateway seeds `admin.auth.bootstrapUser` as the first admin user before the provider is created.
 public final class OAuthAuthenticationProviderFactory implements AuthenticationProviderFactory {
@@ -62,6 +66,7 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
             throw new IllegalArgumentException("admin.auth.type 'oauth' requires an admin user: "
                     + "set admin.auth.bootstrapUser to create the first one");
         }
+        requireReachable(context.publicUrl());
         var settings = context.settings();
         String issuer = settings.string("issuer").orElseGet(context::publicUrl);
         Duration tokenTtl = positive("tokenTtl", settings.duration("tokenTtl").orElse(DEFAULT_TOKEN_TTL));
@@ -88,6 +93,25 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
         context.publicEndpoint("GET", "/.well-known/oauth-authorization-server", new AuthorizationServerMetadataEndpoint(issuer));
         context.publicEndpoint("GET", ProtectedResourceMetadataEndpoint.PATH, new ProtectedResourceMetadataEndpoint(context.publicUrl(), issuer));
         return new KawaTokenAuthenticationProvider(keys, issuer, context.adminUsers(), operator, context.publicUrl());
+    }
+
+    private static void requireReachable(String publicUrl) {
+        String host = URI.create(publicUrl).getHost();
+        if (host != null && host.startsWith("[") && host.endsWith("]")) {
+            host = host.substring(1, host.length() - 1);
+        }
+        if (host != null && isWildcard(host)) {
+            throw new IllegalArgumentException("admin.auth.type 'oauth' needs the URL clients reach the admin API at, but the "
+                    + "public URL " + publicUrl + " is a wildcard bind address: set admin.publicUrl, e.g. https://kawa.example.com");
+        }
+    }
+
+    private static boolean isWildcard(String host) {
+        try {
+            return InetAddress.ofLiteral(host).isAnyLocalAddress();
+        } catch (IllegalArgumentException notAnIpLiteral) {
+            return false;
+        }
     }
 
     private static URI absoluteUri(String setting, String value) {
