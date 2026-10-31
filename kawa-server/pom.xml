@@ -55,6 +55,11 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>io.jonasg</groupId>
+            <artifactId>kawa-mcp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <!-- kawa's built-in admin authentication providers, discovered as a plugin via ServiceLoader -->
             <groupId>io.jonasg</groupId>
             <artifactId>kawa-http-auth</artifactId>
