@@ -23,6 +23,7 @@
         <module>kawa-governance</module>
         <module>kawa-http-auth</module>
         <module>kawa-http-admin</module>
+        <module>kawa-mcp</module>
         <module>kawa-server</module>
         <module>kawa-integration-tests</module>
     </modules>
@@ -51,6 +52,7 @@
         <avro.version>1.12.1</avro.version>
         <openapi-generator.version>7.25.0</openapi-generator.version>
         <jspecify.version>1.0.1</jspecify.version>
+        <mcp-sdk.version>2.0.1</mcp-sdk.version>
         <nimbus-oauth2-oidc-sdk.version>11.38.2</nimbus-oauth2-oidc-sdk.version>
 
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
@@ -72,6 +74,14 @@
                 <groupId>tools.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
                 <version>${jackson.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp-bom</artifactId>
+                <version>${mcp-sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>

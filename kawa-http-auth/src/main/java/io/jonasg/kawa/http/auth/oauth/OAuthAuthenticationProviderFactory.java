@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 /// The gateway seeds `admin.auth.bootstrapUser` as the first admin user before the provider is created.
 public final class OAuthAuthenticationProviderFactory implements AuthenticationProviderFactory {
 
-    static final String DEFAULT_ISSUER = "kawa";
+    static final String DEFAULT_ISSUER = "http://localhost:8080";
     static final Duration DEFAULT_TOKEN_TTL = Duration.ofMinutes(15);
     static final Duration DEFAULT_SESSION_TTL = Duration.ofHours(8);
     static final String DEFAULT_CLIENT_ID = "kawa-studio";

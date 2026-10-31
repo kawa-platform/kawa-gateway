@@ -62,7 +62,7 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
 The build dependency direction is: `kawa-config` → `kawa-core` and
 `kawa-protocol-kafka`; `kawa-virtual-topic` depends on core/config; `kawa-rbac` depends on
 core/config/virtual-topic; `kawa-governance` depends on core/config; `kawa-http-admin` depends on
-core/config/governance/virtual-topic; `kawa-server` assembles the runtime modules; and
+core/config/governance/virtual-topic; `kawa-mcp` depends on http-admin; `kawa-server` assembles the runtime modules; and
 `kawa-integration-tests` depends on `kawa-server`. `kawa-test-support` is consumed with `test` scope only; it may
 depend on production modules such as `kawa-config`, but never on a module that uses it.
 
@@ -77,6 +77,9 @@ depend on production modules such as `kawa-config`, but never on a module that u
   entirely (fail-open: no interceptor, every Kafka request admitted) - see epic #45.
 - `kawa-http-admin`: admin HTTP surface (e.g. `GET /topics`) exposing gateway state to a UI; reads
   `VirtualTopicManager`/`MetadataCache`, never talks to the broker.
+- `kawa-mcp`: MCP server (official `io.modelcontextprotocol.sdk`) served at `POST /mcp` on the admin port. The
+  stateless Streamable HTTP transport (`McpEndpoint`) is a `Router.Handler`, so `/mcp` shares the admin pipeline and
+  authentication; tools (`RouteTool`) dispatch into existing admin routes as the caller instead of re-implementing them.
 - `kawa-plugin-api`: public SPI (`KawaPlugin`, `KawaPluginContext`, admin `AuthenticationProviderFactory` and the
   minimal `HttpEndpoint` types) for plugins such as Kawa Pro. Must stay dependency-free and small; `kawa-server`'s
   `PluginLoader` discovers implementations via `ServiceLoader` at startup: built-ins on kawa's classpath, external

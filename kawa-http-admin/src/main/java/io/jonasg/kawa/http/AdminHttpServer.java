@@ -190,6 +190,12 @@ public final class AdminHttpServer {
         topicAdmin.close();
     }
 
+    /// The route table this server dispatches to. Other surfaces (e.g. MCP) may register routes on
+    /// it, but only before [#start()].
+    public Router router() {
+        return router;
+    }
+
     boolean hasDedicatedRouterExecutor() {
         return routerExecutorGroup != null;
     }

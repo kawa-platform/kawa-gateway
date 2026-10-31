@@ -33,6 +33,7 @@ COPY kawa-rbac/pom.xml kawa-rbac/
 COPY kawa-governance/pom.xml kawa-governance/
 COPY kawa-http-auth/pom.xml kawa-http-auth/
 COPY kawa-http-admin/pom.xml kawa-http-admin/
+COPY kawa-mcp/pom.xml kawa-mcp/
 COPY kawa-integration-tests/pom.xml kawa-integration-tests/
 
 RUN --mount=type=cache,target=/root/.m2 \
@@ -49,6 +50,7 @@ COPY kawa-rbac/src kawa-rbac/src
 COPY kawa-governance/src kawa-governance/src
 COPY kawa-http-auth/src kawa-http-auth/src
 COPY kawa-http-admin/src kawa-http-admin/src
+COPY kawa-mcp/src kawa-mcp/src
 COPY kawa-integration-tests/src kawa-integration-tests/src
 
 RUN --mount=type=cache,target=/root/.m2 \

@@ -20,6 +20,10 @@ info:
     `/oauth/login`, then `/oauth/token`) and send the access token as
     `Authorization: Bearer <token>`. Every endpoint except `/oauth/*`, `/.well-known/*` and `/docs`
     then answers `401` without a valid token.
+
+    The same port also serves an MCP server at `POST /mcp` (stateless Streamable HTTP, JSON-RPC
+    2.0; not described here). It requires the same authentication; its tools answer with the JSON
+    of the corresponding admin endpoint (e.g. `list_topics` ↔ `GET /topics`).
   version: 0.1.0-SNAPSHOT
 security:
   - bearerAuth: []
