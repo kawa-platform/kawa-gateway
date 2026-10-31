@@ -19,7 +19,10 @@ info:
     the authorization code flow with PKCE (`/oauth/authorize`, the external login UI posting to
     `/oauth/login`, then `/oauth/token`) and send the access token as
     `Authorization: Bearer <token>`. Every endpoint except `/oauth/*`, `/.well-known/*` and `/docs`
-    then answers `401` without a valid token.
+    then answers `401` without a valid token; its `WWW-Authenticate` header points at the RFC 9728
+    protected resource metadata (`/.well-known/oauth-protected-resource`), from which clients
+    discover the authorization server. URLs kawa publishes are based on `admin.publicUrl`
+    (defaults to `http://<admin.host>:<admin.port>`).
 
     Virtual topics, RBAC roles and groups, and auth clients can be *managed*: a write by the
     kawa operator (its own token, or one it obtained for another principal) marks the entry
@@ -887,6 +890,36 @@ paths:
             application/json:
               schema:
                 type: object
+  /.well-known/oauth-protected-resource:
+    get:
+      summary: Protected resource metadata
+      description: |
+        RFC 9728 metadata describing the admin API as an OAuth protected resource: the resource
+        (`admin.publicUrl`), the authorization server that issues its tokens (kawa itself, also
+        `admin.publicUrl`) and that tokens go in the `Authorization` header. Only exists with
+        `admin.auth.type: oauth`.
+      security: []
+      responses:
+        '200':
+          description: The metadata document
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resource:
+                    type: string
+                    example: https://kawa.example.com
+                  authorization_servers:
+                    type: array
+                    items:
+                      type: string
+                    example: [https://kawa.example.com]
+                  bearer_methods_supported:
+                    type: array
+                    items:
+                      type: string
+                    example: [header]
   /.well-known/oauth-authorization-server:
     get:
       summary: Authorization server metadata
@@ -1137,7 +1170,7 @@ components:
         WWW-Authenticate:
           schema:
             type: string
-          example: Bearer realm="kawa"
+          example: Bearer resource_metadata="https://kawa.example.com/.well-known/oauth-protected-resource"
       content:
         application/json:
           schema:

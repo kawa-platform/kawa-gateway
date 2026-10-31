@@ -25,6 +25,7 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
     void rejectsRequestWithoutToken() throws Exception {
         // given
         enableOAuth();
+        publicUrl = "https://kawa.example.com";
         startServer();
 
         // when
@@ -33,8 +34,8 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response).hasStatusCode(401);
         assertThat(response.headers().firstValue("WWW-Authenticate"))
-                .withFailMessage(() -> "the 401 carries no bearer challenge: " + response.headers())
-                .hasValue("Bearer realm=\"kawa\"");
+                .withFailMessage(() -> "the 401 does not point at the protected resource metadata: " + response.headers())
+                .hasValue("Bearer resource_metadata=\"https://kawa.example.com/.well-known/oauth-protected-resource\"");
     }
 
     @Test
