@@ -52,6 +52,8 @@ public abstract class AdminHttpSliceTestBase {
     protected FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
     protected CorsConfig cors;
     protected AdminAuthConfig auth = AdminAuthConfig.none();
+    /// `admin.publicUrl`; `null` derives it from the bind address.
+    protected @Nullable String publicUrl;
     protected AuthenticationProviderRegistry authenticationProviders = registryOf(new BuiltInAuthenticationPlugin());
     /// The environment the server sees, e.g. `KAWA_ADMIN_RESET`.
     protected Map<String, String> env = Map.of();
@@ -78,7 +80,7 @@ public abstract class AdminHttpSliceTestBase {
     protected void startServer() throws InterruptedException {
         services = AdminServices.create(virtualTopics, cache, repository, governance, topicAdmin,
                 auth.bootstrapUser(), env::get);
-        server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, cors, auth), services, authenticationProviders);
+        server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, cors, auth, publicUrl), services, authenticationProviders);
         server.start();
     }
 

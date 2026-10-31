@@ -65,6 +65,11 @@ final class IsolatedPluginCalls {
             }
 
             @Override
+            public String publicUrl() {
+                return context.publicUrl();
+            }
+
+            @Override
             public void publicEndpoint(String method, String path, HttpEndpoint endpoint) {
                 context.publicEndpoint(method, path, request -> withContextClassLoader(loader, () -> endpoint.handle(request)));
             }

@@ -215,4 +215,51 @@ class ConfigLoaderTest {
                 .hasMessageContaining(file.toString())
                 .hasMessageContaining("rbac");
     }
+
+    @Test
+    void loadsAdminPublicUrl() {
+        // when
+        GatewayConfig config = loader.loadFromYaml("""
+                admin:
+                  enabled: true
+                  port: 8081
+                  publicUrl: https://kawa.example.com/
+                """);
+
+        // then
+        assertThat(config.admin().resolvedPublicUrl())
+                .withFailMessage(() -> "admin.publicUrl was not used as the public URL (trailing slash dropped): "
+                        + config.admin().resolvedPublicUrl())
+                .isEqualTo("https://kawa.example.com");
+    }
+
+    @Test
+    void adminPublicUrlDefaultsToTheBindAddress() {
+        // when
+        GatewayConfig config = loader.loadFromYaml("""
+                admin:
+                  enabled: true
+                  host: 127.0.0.1
+                  port: 8081
+                """);
+
+        // then
+        assertThat(config.admin().publicUrl())
+                .withFailMessage(() -> "admin.publicUrl was set although the config has none")
+                .isNull();
+        assertThat(config.admin().resolvedPublicUrl())
+                .withFailMessage(() -> "public URL was not derived from the bind address: " + config.admin().resolvedPublicUrl())
+                .isEqualTo("http://127.0.0.1:8081");
+    }
+
+    @Test
+    void rejectsARelativeAdminPublicUrl() {
+        // when / then
+        assertThatThrownBy(() -> loader.loadFromYaml("""
+                admin:
+                  publicUrl: kawa.example.com
+                """))
+                .withFailMessage(() -> "a relative admin.publicUrl was accepted")
+                .hasStackTraceContaining("admin.publicUrl must be an absolute http(s) URL");
+    }
 }
