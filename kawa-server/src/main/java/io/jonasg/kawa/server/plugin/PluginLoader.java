@@ -1,6 +1,6 @@
 package io.jonasg.kawa.server.plugin;
 
-import io.jonasg.kawa.http.auth.AuthenticationProviderRegistry;
+import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
 import io.jonasg.kawa.plugin.KawaPlugin;
 import io.jonasg.kawa.plugin.KawaPluginContext;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderFactory;

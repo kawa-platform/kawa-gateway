@@ -4,7 +4,16 @@ import io.jonasg.kawa.config.AdminAuthConfig.BootstrapUser;
 import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.governance.GovernancePolicy;
-import io.jonasg.kawa.http.auth.AdminUserAuthenticator;
+import io.jonasg.kawa.http.clients.AuthClientService;
+import io.jonasg.kawa.http.governance.GovernanceService;
+import io.jonasg.kawa.http.modules.ModuleService;
+import io.jonasg.kawa.http.rbac.RbacGroupService;
+import io.jonasg.kawa.http.rbac.RbacRoleService;
+import io.jonasg.kawa.http.topics.TopicAdmin;
+import io.jonasg.kawa.http.topics.TopicService;
+import io.jonasg.kawa.http.users.AdminUserAuthenticator;
+import io.jonasg.kawa.http.users.AdminUserService;
+import io.jonasg.kawa.http.users.BootstrapUserSeeder;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.jspecify.annotations.Nullable;
 

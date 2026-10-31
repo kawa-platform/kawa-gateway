@@ -2,8 +2,19 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
-import io.jonasg.kawa.http.auth.AuthenticationProviderRegistry;
-import io.jonasg.kawa.http.auth.MapProviderSettings;
+import io.jonasg.kawa.http.authentication.AdminAuthenticationContext;
+import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
+import io.jonasg.kawa.http.authentication.MapProviderSettings;
+import io.jonasg.kawa.http.clients.ClientRoutes;
+import io.jonasg.kawa.http.governance.GovernanceRoutes;
+import io.jonasg.kawa.http.modules.ModuleRoutes;
+import io.jonasg.kawa.http.rbac.RbacRoutes;
+import io.jonasg.kawa.http.topics.TopicRoutes;
+import io.jonasg.kawa.http.users.UserRoutes;
+import io.jonasg.kawa.http.web.CorsConfigFactory;
+import io.jonasg.kawa.http.web.GetDocsHandler;
+import io.jonasg.kawa.http.web.HttpRouterHandler;
+import io.jonasg.kawa.http.web.Router;
 import io.jonasg.kawa.plugin.auth.AuthenticationProvider;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
@@ -23,12 +34,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
-import java.time.Clock;
 
 /// Netty HTTP server exposing the gateway's admin/UI surface: `GET /topics` reads the
 /// [VirtualTopicManager][io.jonasg.kawa.virtualtopic.VirtualTopicManager] and
 /// [MetadataCache][io.jonasg.kawa.core.cluster.MetadataCache], `POST /topics` and `DELETE /topics/{name}`
-/// create/delete physical topics on the broker through the [TopicAdmin], and the
+/// create/delete physical topics on the broker through the [TopicAdmin][io.jonasg.kawa.http.topics.TopicAdmin], and the
 /// `/rbac/...`, `/auth/...`, `/governance` and `/modules` endpoints read and write the dynamic config
 /// through the [DynamicConfigRepository][io.jonasg.kawa.config.DynamicConfigRepository]. Config writes
 /// go to the config topic and are applied by the consumer.
@@ -64,65 +74,15 @@ public final class AdminHttpServer {
     ) {
         this.config = config;
         this.routerExecutorThreads = Math.max(4, Runtime.getRuntime().availableProcessors());
-        var topicService = services.topics();
-        var roleService = services.roles();
-        var groupService = services.groups();
-        var clientService = services.clients();
-        var governanceService = services.governanceRules();
-        var governanceMapper = new GovernanceConfigMapper();
-        var adminUserService = services.adminUsers();
-        var adminUserMapper = new AdminUserMapper(Clock.systemUTC());
-        var moduleService = services.modules();
-        var moduleMapper = new ModuleConfigMapper();
         AdminAuthConfig adminAuthConfig = config.auth();
-        this.router = new Router()
-                .get("/topics", new GetTopicsHandler(topicService))
-                .post("/topics", new PostTopicHandler(topicService))
-                .put("/topics/{name}", new PutTopicHandler(topicService))
-                .patch("/topics/{name}", new PatchTopicHandler(topicService))
-                .delete("/topics/{name}", new DeleteTopicHandler(topicService))
-                .delete("/topics/{name}/managed-by", new DeleteManagedByHandler(topicService::releaseVirtualTopic))
-
-                .get("/rbac/roles", new GetRbacRolesHandler(roleService))
-                .put("/rbac/roles/{name}", new PutRbacRoleHandler(roleService))
-                .delete("/rbac/roles/{name}", new DeleteRbacRoleHandler(roleService))
-                .delete("/rbac/roles/{name}/managed-by", new DeleteManagedByHandler(roleService::releaseRole))
-                .get("/rbac/groups", new GetRbacGroupsHandler(groupService))
-                .put("/rbac/groups/{name}", new PutRbacGroupHandler(groupService))
-                .delete("/rbac/groups/{name}", new DeleteRbacGroupHandler(groupService))
-                .patch("/rbac/groups/{name}", new PatchRbacGroupHandler(groupService))
-                .delete("/rbac/groups/{name}/managed-by", new DeleteManagedByHandler(groupService::releaseGroup))
-
-                .get("/auth/clients", new GetAuthClientsHandler(clientService))
-                .put("/auth/clients/{name}", new PutAuthClientHandler(clientService))
-                .patch("/auth/clients/{name}", new PatchAuthClientHandler(clientService))
-                .delete("/auth/clients/{name}", new DeleteAuthClientHandler(clientService))
-                .delete("/auth/clients/{name}/managed-by", new DeleteManagedByHandler(clientService::releaseClient))
-
-                .get("/governance/rules", new GetGovernanceRulesHandler(governanceService, governanceMapper))
-                .get("/governance/rules/{name}", new GetGovernanceRuleHandler(governanceService, governanceMapper))
-                .put("/governance/rules/{name}", new PutGovernanceRuleHandler(governanceService, governanceMapper))
-                .delete("/governance/rules/{name}", new DeleteGovernanceRuleHandler(governanceService))
-                .get("/governance/exemptions", new GetGovernanceExemptionsHandler(governanceService, governanceMapper))
-                .get("/governance/exemptions/{name}", new GetGovernanceExemptionHandler(governanceService, governanceMapper))
-                .put("/governance/exemptions/{name}", new PutGovernanceExemptionHandler(governanceService, governanceMapper))
-                .delete("/governance/exemptions/{name}", new DeleteGovernanceExemptionHandler(governanceService))
-                .post("/governance/dry-run", new PostGovernanceDryRunHandler(governanceService, governanceMapper))
-                .get("/governance/variables", new GetGovernanceVariablesHandler(governanceService, governanceMapper))
-                .put("/governance/variables/{name}", new PutGovernanceVariableHandler(governanceService, governanceMapper))
-                .delete("/governance/variables/{name}", new DeleteGovernanceVariableHandler(governanceService))
-
-                .get("/admin/users", new GetAdminUsersHandler(adminUserService, adminUserMapper))
-                .post("/admin/users", new PostAdminUserHandler(adminUserService, adminUserMapper))
-                .get("/admin/users/{id}", new GetAdminUserHandler(adminUserService, adminUserMapper))
-                .patch("/admin/users/{id}", new PatchAdminUserHandler(adminUserService, adminUserMapper))
-                .delete("/admin/users/{id}", new DeleteAdminUserHandler(adminUserService))
-
-                .get("/modules", new GetModulesHandler(moduleService, moduleMapper))
-                .get("/modules/{id}", new GetModuleHandler(moduleService, moduleMapper))
-                .put("/modules/{id}", new PutModuleHandler(moduleService, moduleMapper))
-
-                .publicGet("/docs", new GetDocsHandler());
+        this.router = new Router();
+        TopicRoutes.register(router, services.topics());
+        RbacRoutes.register(router, services.roles(), services.groups());
+        ClientRoutes.register(router, services.clients());
+        GovernanceRoutes.register(router, services.governanceRules());
+        UserRoutes.register(router, services.adminUsers());
+        ModuleRoutes.register(router, services.modules());
+        router.publicGet("/docs", new GetDocsHandler());
         this.authenticationProvider = authenticationProviders.require(adminAuthConfig.type()).create(
                 new AdminAuthenticationContext(new MapProviderSettings(adminAuthConfig.settings()),
                         services.adminUserAuthenticator(), router));

@@ -4,6 +4,29 @@
 
 These instructions apply to the `kawa-http-admin` module only.
 
+## Packages
+
+Code is grouped by what the admin API manages. `io.jonasg.kawa.http` is the composition root
+(`AdminHttpServer`, `AdminServices`) and wires the domains:
+
+| Package          | Holds                                                                                |
+|------------------|--------------------------------------------------------------------------------------|
+| `topics`         | `/topics`: `TopicService`, `TopicAdmin`, `KafkaTopicAdmin`                           |
+| `rbac`           | `/rbac/roles`, `/rbac/groups`: `RbacRoleService`, `RbacGroupService`                 |
+| `clients`        | `/auth/clients`: `AuthClientService`                                                 |
+| `governance`     | `/governance`: `GovernanceService`, `GovernanceConfigMapper`                         |
+| `modules`        | `/modules`: `ModuleService`, `ModuleConfigMapper`                                    |
+| `users`          | `/admin/users`: `AdminUserService`, `BootstrapUserSeeder`, `AdminUserAuthenticator`  |
+| `authentication` | `AuthenticationProviderRegistry`, the provider context and settings                  |
+| `configchange`   | `Consistency`, `ConsistencyAwareUpdater` and the 404/409/403 exceptions              |
+| `web`            | `Router`, `HttpRouterHandler`, CORS and `/docs`                                      |
+
+- Dependencies point from the root to the domains and from the domains to `configchange` and `web`; no cycles.
+- A domain's handlers, mappers, requests and views stay package-private. It exposes its service(s) and one
+  `<Domain>Routes.register(Router, ...)` that `AdminHttpServer` calls.
+- Tests live in the package of the code they cover. `AdminHttpSliceTestBase`, the fakes and the Object Mothers stay
+  in the root test package.
+
 ## Handler naming
 
 Name HTTP handlers after the HTTP method they own: `Get`, `Post`, `Put`, `Patch`, or `Delete`,
@@ -24,7 +47,7 @@ service:  updater.update(consistency, cfg -> cfg.upsertX(config))
 
 - **Handlers** own the HTTP concerns: parsing, the path name, status codes, and calling the mapper on both sides.
 - **Mappers** convert between transport types and `kawa-config` records, one mapper per section (e.g.
-  `GovernanceConfigMapper`). A mapper is a stateless instance created once in `AdminHttpServer` and injected into
+  `GovernanceConfigMapper`). A mapper is a stateless instance created once in its domain's `<Domain>Routes` and injected into
   the handlers that need it — never static, never `new`-ed inside a service — so it can take collaborators later
   without rewiring callers.
 - **Mapper methods are named after the full type they return**: `to` + the simple type name, so a method producing
@@ -57,7 +80,7 @@ service:  updater.update(consistency, cfg -> cfg.upsertX(config))
 
 ## Transport type naming
 
-Every admin HTTP request and response body is a transport type declared in `io.jonasg.kawa.http`, never a
+Every admin HTTP request and response body is a transport type declared in its domain package (e.g. `io.jonasg.kawa.http.governance`), never a
 `kawa-config` record. The config records stay the domain: the config repository stores them, and mappers convert
 between the two. For `BaseCRUDHandler<C, R, G, P>`, `C` is the config record a section stores, `R` the body the
 endpoint accepts, `G` the `GET` list element and `P` the `PUT` response body — the last two named after the method

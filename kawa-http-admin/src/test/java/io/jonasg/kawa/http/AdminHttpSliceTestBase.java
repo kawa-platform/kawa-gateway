@@ -11,8 +11,8 @@ import io.jonasg.kawa.core.cluster.MetadataSnapshot;
 import io.jonasg.kawa.core.cluster.PartitionMetadata;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
 import io.jonasg.kawa.governance.GovernancePolicy;
-import io.jonasg.kawa.http.auth.AuthenticationProviderRegistry;
-import io.jonasg.kawa.http.auth.builtin.BuiltInAuthenticationPlugin;
+import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
+import io.jonasg.kawa.http.authentication.builtin.BuiltInAuthenticationPlugin;
 import io.jonasg.kawa.plugin.KawaPlugin;
 import io.jonasg.kawa.test.TestSigningKeys;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
@@ -43,7 +43,7 @@ import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 /// port wired to in-memory fakes, and sends real HTTP requests through the full Netty pipeline.
 /// The slice tests assert the JSON wire format the admin UI consumes, so they exercise the
 /// server bootstrap, routing, serialization and CORS handling - not just the plain handlers.
-abstract class AdminHttpSliceTestBase {
+public abstract class AdminHttpSliceTestBase {
 
     protected VirtualTopicManager virtualTopics = new VirtualTopicManager(Map.of());
     protected MetadataCache cache = new MetadataCache();

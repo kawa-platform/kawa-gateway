@@ -1,6 +1,6 @@
 package io.jonasg.kawa.server.plugin;
 
-import io.jonasg.kawa.http.auth.builtin.BuiltInAuthenticationPlugin;
+import io.jonasg.kawa.http.authentication.builtin.BuiltInAuthenticationPlugin;
 import io.jonasg.kawa.plugin.KawaPlugin;
 import org.junit.jupiter.api.Test;
 

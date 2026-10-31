@@ -1,7 +1,7 @@
 package io.jonasg.kawa.mcp;
 
 import io.jonasg.kawa.config.CorsConfig;
-import io.jonasg.kawa.http.Router;
+import io.jonasg.kawa.http.web.Router;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpStatelessSyncServer;
