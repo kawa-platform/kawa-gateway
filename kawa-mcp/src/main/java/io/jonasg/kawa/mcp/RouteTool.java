@@ -1,6 +1,6 @@
 package io.jonasg.kawa.mcp;
 
-import io.jonasg.kawa.http.Router;
+import io.jonasg.kawa.http.web.Router;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.server.McpStatelessServerFeatures;

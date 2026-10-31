@@ -1,7 +1,7 @@
 package io.jonasg.kawa.mcp;
 
 import io.jonasg.kawa.config.CorsConfig;
-import io.jonasg.kawa.http.Router;
+import io.jonasg.kawa.http.web.Router;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.netty.handler.codec.http.HttpMethod;
 import org.jspecify.annotations.Nullable;

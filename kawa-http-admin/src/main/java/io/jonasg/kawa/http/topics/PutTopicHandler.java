@@ -1,0 +1,45 @@
+package io.jonasg.kawa.http.topics;
+
+import io.jonasg.kawa.http.configchange.ConflictException;
+import io.jonasg.kawa.http.configchange.Consistency;
+import io.jonasg.kawa.http.configchange.ForbiddenException;
+import io.jonasg.kawa.http.web.Router;
+import tools.jackson.databind.json.JsonMapper;
+
+/// Serves `PUT /topics/{name}`: upserts the virtual topic config for `name`.
+final class PutTopicHandler implements Router.Handler {
+
+    private final TopicService topicService;
+    private final JsonMapper mapper = JsonMapper.builder().build();
+
+    PutTopicHandler(TopicService topicService) {
+        this.topicService = topicService;
+    }
+
+    @Override
+    public Router.Response<?> handle(Router.Request request) {
+        String name = request.pathParams().get("name");
+        TopicRequest body;
+        try {
+            body = mapper.readValue(request.body(), TopicRequest.class);
+        } catch (Exception e) {
+            return Router.Response.badRequest("invalid topic body: " + e.getMessage());
+        }
+        try {
+            var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
+            var value = topicService.upsertVirtualTopic(request.principal(), name, body, consistency);
+            return Router.Response.ok(new VirtualTopicConfigView(
+                    value.topic(),
+                    value.filter(),
+                    value.exposePhysicalTopic(),
+                    value.valueFormat(),
+                    value.managedBy()));
+        } catch (ConflictException e) {
+            return Router.Response.conflict(e.getMessage());
+        } catch (ForbiddenException e) {
+            return Router.Response.forbidden(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return Router.Response.badRequest(e.getMessage());
+        }
+    }
+}

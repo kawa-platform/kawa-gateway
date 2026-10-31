@@ -2,6 +2,7 @@ package io.jonasg.kawa.http;
 
 import io.jonasg.kawa.governance.TopicDescriber.TopicState;
 import io.jonasg.kawa.governance.TopicSpec;
+import io.jonasg.kawa.http.topics.TopicAdmin;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -13,13 +14,13 @@ import java.util.concurrent.CompletionStage;
 
 /// In-memory [TopicAdmin] for handler tests: records create/delete calls and describes from
 /// [#states] instead of talking to a broker.
-final class FakeTopicAdmin implements TopicAdmin {
+public final class FakeTopicAdmin implements TopicAdmin {
 
-    final List<TopicSpec> created = new ArrayList<>();
-    final List<String> deleted = new ArrayList<>();
-    RuntimeException createError;
+    public final List<TopicSpec> created = new ArrayList<>();
+    public final List<String> deleted = new ArrayList<>();
+    public RuntimeException createError;
     /// What [#describe] reports, by topic name.
-    final Map<String, TopicState> states = new HashMap<>();
+    public final Map<String, TopicState> states = new HashMap<>();
 
     @Override
     public void createTopic(TopicSpec spec) {

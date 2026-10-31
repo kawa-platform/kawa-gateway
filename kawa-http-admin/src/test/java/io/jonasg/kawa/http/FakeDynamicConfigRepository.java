@@ -7,11 +7,11 @@ import java.util.function.UnaryOperator;
 
 /// In-memory [DynamicConfigRepository] for handler tests: [update] replaces the current
 /// snapshot synchronously, mirroring what the config-topic consumer does asynchronously.
-final class FakeDynamicConfigRepository implements DynamicConfigRepository {
+public final class FakeDynamicConfigRepository implements DynamicConfigRepository {
 
     private DynamicConfig current;
 
-    FakeDynamicConfigRepository(DynamicConfig initial) {
+    public FakeDynamicConfigRepository(DynamicConfig initial) {
         this.current = initial;
     }
 

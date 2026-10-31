@@ -1,0 +1,37 @@
+package io.jonasg.kawa.http.rbac;
+
+import io.jonasg.kawa.http.configchange.ConflictException;
+import io.jonasg.kawa.http.configchange.Consistency;
+import io.jonasg.kawa.http.web.Router;
+import tools.jackson.databind.json.JsonMapper;
+
+/// Serves `PUT /rbac/groups/{name}`.
+final class PutRbacGroupHandler implements Router.Handler {
+
+    private final RbacGroupService service;
+    private final JsonMapper mapper = JsonMapper.builder().build();
+
+    PutRbacGroupHandler(RbacGroupService service) {
+        this.service = service;
+    }
+
+    @Override
+    public Router.Response<?> handle(Router.Request request) {
+        String name = request.pathParams().get("name");
+        GroupConfigRequest body;
+        try {
+            body = mapper.readValue(request.body(), GroupConfigRequest.class);
+        } catch (Exception e) {
+            return Router.Response.badRequest("invalid group body: " + e.getMessage());
+        }
+        try {
+            var consistency = Consistency.fromQueryParam(request.queryParams().get("consistency"));
+            var value = service.upsertGroup(request.principal(), name, body, consistency);
+            return Router.Response.ok(new GroupPutView(value.clients(), value.roles(), value.managedBy()));
+        } catch (ConflictException e) {
+            return Router.Response.conflict(e.getMessage());
+        } catch (IllegalArgumentException e) {
+            return Router.Response.badRequest(e.getMessage());
+        }
+    }
+}

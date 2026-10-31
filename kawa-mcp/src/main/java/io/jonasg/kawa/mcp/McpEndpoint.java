@@ -1,6 +1,6 @@
 package io.jonasg.kawa.mcp;
 
-import io.jonasg.kawa.http.Router;
+import io.jonasg.kawa.http.web.Router;
 import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpStatelessServerHandler;
