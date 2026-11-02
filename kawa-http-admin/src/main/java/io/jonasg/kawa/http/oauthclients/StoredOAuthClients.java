@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http.oauthclients;
 
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.OAuthClientConfig;
 import io.jonasg.kawa.plugin.auth.OAuthClient;
 import io.jonasg.kawa.plugin.auth.OAuthClientDirectory;
@@ -12,9 +12,9 @@ import java.util.Optional;
 /// the authentication provider decides what that means.
 public final class StoredOAuthClients implements OAuthClientDirectory {
 
-    private final GatewayConfigRepository repository;
+    private final DynamicConfigRepository repository;
 
-    public StoredOAuthClients(GatewayConfigRepository repository) {
+    public StoredOAuthClients(DynamicConfigRepository repository) {
         this.repository = repository;
     }
 

@@ -1,8 +1,8 @@
 package io.jonasg.kawa.http.oauthclients;
 
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.http.AdminHttpSliceTestBase;
-import io.jonasg.kawa.http.FakeGatewayConfigRepository;
+import io.jonasg.kawa.http.FakeDynamicConfigRepository;
 import org.junit.jupiter.api.Test;
 
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
@@ -14,7 +14,7 @@ class DeleteOAuthClientSliceTest extends AdminHttpSliceTestBase {
     @Test
     void removesOAuthClientAndPersistsSnapshot() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
                 .upsertOAuthClient(OAuthClients.claude())
                 .upsertOAuthClient(OAuthClients.adminTool()));
         startServer();

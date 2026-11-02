@@ -1,22 +1,29 @@
 package io.jonasg.kawa.http.authentication;
 
 import io.jonasg.kawa.config.DynamicConfig;
+import io.jonasg.kawa.config.OAuthClientConfig;
+import io.jonasg.kawa.config.OAuthClientConfig.Audience;
 import io.jonasg.kawa.http.AdminHttpSliceTestBase;
 import io.jonasg.kawa.http.FakeDynamicConfigRepository;
 import io.jonasg.kawa.http.authentication.oauth.SigningKeys;
 import io.jonasg.kawa.http.authentication.oauth.TokenIssuer;
+import io.jonasg.kawa.http.web.Router;
 import io.jonasg.kawa.test.TestSigningKeys;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.HashMap;
+import java.util.List;
 
 import static io.jonasg.kawa.http.AdminUserConfigMother.ALICE_ID;
 import static io.jonasg.kawa.http.AdminUserConfigMother.BOB_ID;
 import static io.jonasg.kawa.http.AdminUserConfigMother.adminUser;
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
+import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 
 /// Slice tests for bearer-token enforcement on the admin API with `admin.auth.type: oauth`.
 class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
@@ -223,5 +230,38 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response).hasStatusCode(200);
+    }
+
+    @Test
+    void acceptsAnMcpClientsTokenOnlyOnPostMcp() throws Exception {
+        // given: an MCP client, and a stand-in for kawa-mcp's endpoint at POST /mcp
+        enableOAuth();
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertOAuthClient(new OAuthClientConfig(
+                "kawa-mcp-claude", "Claude Code", true, List.of("http://localhost:*/callback"), Audience.MCP)));
+        startServer();
+        server().router().post("/mcp", request -> {
+            var caller = new HashMap<String, String>();
+            caller.put("name", request.principalName());
+            caller.put("clientId", request.principal() == null ? null : request.principal().clientId());
+            return Router.Response.ok(caller);
+        });
+        var tokenResp = signIn("kawa-mcp-claude", "http://localhost:43123/callback", "admin@kawa", "s3cret");
+        assertThat(tokenResp).hasStatusCode(200);
+        String token = JsonMapper.builder().build().readTree(tokenResp.body()).get("access_token").asString();
+
+        // when
+        var mcpResp = send("POST", "/mcp", "{}", bearer(token));
+        var topicsResp = send("GET", "/topics", null, bearer(token));
+
+        // then
+        assertThat(mcpResp).hasStatusCode(200);
+        assertThatJson(mcpResp.body())
+                .withFailMessage(() -> "POST /mcp did not see the MCP client's caller: " + mcpResp.body())
+                .isEqualTo("""
+                        {"name": "admin@kawa", "clientId": "kawa-mcp-claude"}""");
+        assertThat(topicsResp).hasStatusCode(401);
+        assertThat(topicsResp.headers().firstValue("WWW-Authenticate"))
+                .withFailMessage(() -> "the 401 for the MCP token on GET /topics carries no challenge: " + topicsResp.headers())
+                .hasValueSatisfying(challenge -> assertThat(challenge).startsWith("Bearer resource_metadata="));
     }
 }

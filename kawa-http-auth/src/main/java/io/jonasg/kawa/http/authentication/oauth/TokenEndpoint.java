@@ -36,7 +36,8 @@ import java.util.List;
 ///   (which must still be known and enabled), the redirect URI and the PKCE verifier (RFC 7636), and starts a
 ///   session for the client and the audience the code was issued for
 /// - `grant_type=refresh_token`: continues a session with a valid refresh token of a user that still
-///   exists, rotating the refresh token without extending the session, and keeping its client and audience
+///   exists, rotating the refresh token without extending the session, and keeping its client and audience. The
+///   client must still be known and enabled and still have the session's audience ([OAuthClients#clientOf])
 /// - `grant_type=client_credentials`: the [OperatorClient] authenticates with its secret
 ///   (`client_secret_basic` or `client_secret_post`) and gets an access token, without a refresh token
 /// - `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` (RFC 8693): the operator
@@ -111,14 +112,11 @@ final class TokenEndpoint implements HttpEndpoint {
 
     private HttpResponse refresh(RefreshTokenGrant grant, @Nullable List<URI> resources) {
         return refreshTokens.verify(grant.getRefreshToken().getValue())
-                .flatMap(claims -> users.username(claims.getSubject()).map(username -> {
-                    String clientId = clientId(claims);
-                    String audience = claims.getAudience().getFirst();
-                    return clients.acceptsResources(clientId, audience, resources)
-                            ? tokens(new AccessTokenResponse(
-                                    tokenIssuer.refreshSession(claims.getSubject(), username, clientId, audience, sessionExpiry(claims))))
-                            : invalidTarget(audience);
-                }))
+                .flatMap(claims -> clients.clientOf(claims).flatMap(client -> users.username(claims.getSubject()).map(username ->
+                        clients.acceptsResources(client.id(), client.audience(), resources)
+                                ? tokens(new AccessTokenResponse(tokenIssuer.refreshSession(
+                                        claims.getSubject(), username, client.id(), client.audience(), sessionExpiry(claims))))
+                                : invalidTarget(client.audience()))))
                 .orElseGet(() -> error(OAuth2Error.INVALID_GRANT.setDescription("invalid or expired refresh token")));
     }
 
@@ -154,16 +152,6 @@ final class TokenEndpoint implements HttpEndpoint {
     private boolean authenticatedOperator(ClientAuthentication authentication) {
         return authentication instanceof PlainClientSecret secret
                 && operator.authenticate(secret.getClientID().getValue(), secret.getClientSecret().getValue());
-    }
-
-    /// The client a refresh token was issued to; kawa studio for one issued before tokens named their client.
-    private String clientId(JWTClaimsSet claims) {
-        try {
-            String clientId = claims.getStringClaim(TokenIssuer.CLIENT_ID_CLAIM);
-            return clientId == null ? clients.studioId() : clientId;
-        } catch (java.text.ParseException e) {
-            return clients.studioId();
-        }
     }
 
     private static Instant sessionExpiry(JWTClaimsSet claims) {

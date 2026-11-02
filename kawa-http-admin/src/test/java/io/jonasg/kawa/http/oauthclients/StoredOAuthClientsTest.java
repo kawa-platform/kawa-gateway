@@ -1,9 +1,9 @@
 package io.jonasg.kawa.http.oauthclients;
 
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.OAuthClientConfig;
 import io.jonasg.kawa.config.OAuthClientConfig.Audience;
-import io.jonasg.kawa.http.FakeGatewayConfigRepository;
+import io.jonasg.kawa.http.FakeDynamicConfigRepository;
 import io.jonasg.kawa.plugin.auth.OAuthClient;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +14,7 @@ import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 /// Unit tests for [StoredOAuthClients].
 class StoredOAuthClientsTest {
 
-    private final FakeGatewayConfigRepository repository = new FakeGatewayConfigRepository(GatewayConfig.empty()
+    private final FakeDynamicConfigRepository repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
             .upsertOAuthClient(OAuthClients.claude())
             .upsertOAuthClient(OAuthClients.adminTool()));
     private final StoredOAuthClients directory = new StoredOAuthClients(repository);

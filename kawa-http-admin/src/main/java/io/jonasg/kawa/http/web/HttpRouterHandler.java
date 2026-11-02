@@ -100,7 +100,7 @@ public final class HttpRouterHandler extends SimpleChannelInboundHandler<FullHtt
             return;
         }
         log.info("admin {} {} -> {} principal={} actor={}", request.method(), request.path(), response.status(),
-                request.principal().name(), request.principal().actor() == null ? "-" : request.principal().actor());
+                request.principal().name(), request.principal().clientId() == null ? "-" : request.principal().clientId());
     }
 
     private @Nullable KawaPrincipal authenticate(String method, String path, Map<String, List<String>> headers) {

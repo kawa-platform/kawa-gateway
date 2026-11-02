@@ -141,8 +141,13 @@ public abstract class AdminHttpSliceTestBase {
 
     /// `GET /oauth/authorize` for kawa studio with a PKCE challenge for `verifier`.
     protected HttpResponse<String> authorize(String verifier) throws Exception {
-        return send("GET", "/oauth/authorize?response_type=code&client_id=kawa-studio&state=xyz"
-                + "&redirect_uri=" + encode(REDIRECT_URI)
+        return authorize("kawa-studio", REDIRECT_URI, verifier);
+    }
+
+    /// `GET /oauth/authorize` for the OAuth client `clientId` with a PKCE challenge for `verifier`.
+    protected HttpResponse<String> authorize(String clientId, String redirectUri, String verifier) throws Exception {
+        return send("GET", "/oauth/authorize?response_type=code&client_id=" + encode(clientId) + "&state=xyz"
+                + "&redirect_uri=" + encode(redirectUri)
                 + "&code_challenge=" + codeChallenge(verifier) + "&code_challenge_method=S256");
     }
 
@@ -156,16 +161,22 @@ public abstract class AdminHttpSliceTestBase {
     /// Runs the whole authorization code flow with PKCE, as kawa studio and the browser do, and returns
     /// the token endpoint's response.
     protected HttpResponse<String> signIn(String username, String password) throws Exception {
+        return signIn("kawa-studio", REDIRECT_URI, username, password);
+    }
+
+    /// Like [#signIn(String, String)], through the OAuth client `clientId` redirecting to `redirectUri`.
+    protected HttpResponse<String> signIn(String clientId, String redirectUri, String username, String password) throws Exception {
         String verifier = "verifier-" + UUID.randomUUID() + "-" + UUID.randomUUID();
-        String challenge = queryParam(authorize(verifier).headers().firstValue("Location").orElseThrow(), "login_challenge");
+        String challenge = queryParam(authorize(clientId, redirectUri, verifier).headers().firstValue("Location").orElseThrow(),
+                "login_challenge");
         var login = loginWithChallenge(challenge, username, password);
         if (login.statusCode() != 200) {
             return login;
         }
         String redirectTo = JsonMapper.builder().build().readTree(login.body()).get("redirect_to").asString();
-        return send("POST", "/oauth/token", "grant_type=authorization_code&client_id=kawa-studio"
+        return send("POST", "/oauth/token", "grant_type=authorization_code&client_id=" + encode(clientId)
                         + "&code=" + encode(queryParam(redirectTo, "code"))
-                        + "&redirect_uri=" + encode(REDIRECT_URI) + "&code_verifier=" + verifier,
+                        + "&redirect_uri=" + encode(redirectUri) + "&code_verifier=" + verifier,
                 Map.of("Content-Type", "application/x-www-form-urlencoded"));
     }
 
