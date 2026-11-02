@@ -17,13 +17,15 @@ import java.util.stream.Collectors;
 /// @param governance    topic governance configuration
 /// @param adminUsers    admin API users, keyed by their gateway-assigned UUID
 /// @param modules       gateway modules switched on or off, keyed by [ModuleId#id]
+/// @param oauthClients  OAuth clients MCP clients sign in with, keyed by [OAuthClientConfig#id]
 public record DynamicConfig(
         @JsonDeserialize(using = VirtualTopicMapDeserializer.class) Map<String, VirtualTopicConfig> virtualTopics,
         AuthConfig auth,
         RbacConfig rbac,
         GovernanceConfig governance,
         Map<String, AdminUserConfig> adminUsers,
-        Map<String, ModuleConfig> modules) {
+        Map<String, ModuleConfig> modules,
+        Map<String, OAuthClientConfig> oauthClients) {
 
     public DynamicConfig {
         if (virtualTopics == null) {
@@ -44,6 +46,14 @@ public record DynamicConfig(
         if (modules == null) {
             modules = Map.of();
         }
+        if (oauthClients == null) {
+            oauthClients = Map.of();
+        }
+        oauthClients.forEach((id, client) -> {
+            if (!id.equals(client.id())) {
+                throw new IllegalArgumentException("OAuth client '" + client.id() + "' is stored under id '" + id + "'");
+            }
+        });
     }
 
     public DynamicConfig(
@@ -60,7 +70,7 @@ public record DynamicConfig(
             RbacConfig rbac,
             GovernanceConfig governance,
             Map<String, AdminUserConfig> adminUsers) {
-        this(virtualTopics, auth, rbac, governance, adminUsers, null);
+        this(virtualTopics, auth, rbac, governance, adminUsers, null, null);
     }
 
     /// A fully-defaulted, empty dynamic config: no virtual topics, no RBAC, no client auth.
@@ -156,12 +166,30 @@ public record DynamicConfig(
         return withModules(Map.copyOf(newModules));
     }
 
+    /// Returns a new [DynamicConfig] with the given OAuth client added or replaced.
+    public DynamicConfig upsertOAuthClient(OAuthClientConfig client) {
+        var clients = new HashMap<>(oauthClients);
+        clients.put(client.id(), client);
+        return withOAuthClients(Map.copyOf(clients));
+    }
+
+    /// Returns a new [DynamicConfig] with the OAuth client `id` removed.
+    public DynamicConfig removeOAuthClient(String id) {
+        var clients = new HashMap<>(oauthClients);
+        clients.remove(id);
+        return withOAuthClients(Map.copyOf(clients));
+    }
+
     private DynamicConfig withAdminUsers(Map<String, AdminUserConfig> adminUsers) {
-        return new DynamicConfig(virtualTopics, auth, rbac, governance, adminUsers, modules);
+        return new DynamicConfig(virtualTopics, auth, rbac, governance, adminUsers, modules, oauthClients);
     }
 
     private DynamicConfig withModules(Map<String, ModuleConfig> modules) {
-        return new DynamicConfig(virtualTopics, auth, rbac, governance, adminUsers, modules);
+        return new DynamicConfig(virtualTopics, auth, rbac, governance, adminUsers, modules, oauthClients);
+    }
+
+    private DynamicConfig withOAuthClients(Map<String, OAuthClientConfig> oauthClients) {
+        return new DynamicConfig(virtualTopics, auth, rbac, governance, adminUsers, modules, oauthClients);
     }
 
     private DynamicConfig copyWith(
@@ -170,6 +198,6 @@ public record DynamicConfig(
             RbacConfig rbac,
             GovernanceConfig governance
     ) {
-        return new DynamicConfig(virtualTopics, auth, rbac, governance, adminUsers, modules);
+        return new DynamicConfig(virtualTopics, auth, rbac, governance, adminUsers, modules, oauthClients);
     }
 }

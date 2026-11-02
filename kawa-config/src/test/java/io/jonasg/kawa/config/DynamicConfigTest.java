@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DynamicConfigTest {
 
@@ -186,6 +187,62 @@ class DynamicConfigTest {
         assertThat(restored.modules())
                 .withFailMessage(() -> "modules changed in the round trip: " + restored.modules())
                 .isEqualTo(config.modules());
+    }
+
+    @Test
+    void upsertOAuthClientAddsUnderItsIdAndRemoveOAuthClientRemoves() {
+        // given
+        var client = new OAuthClientConfig("kawa-mcp-claude", "Claude Code", true,
+                List.of("http://localhost:*/callback"), OAuthClientConfig.Audience.MCP);
+
+        // when
+        var added = DynamicConfig.empty().upsertOAuthClient(client);
+        var removed = added.removeOAuthClient("kawa-mcp-claude");
+
+        // then
+        assertThat(added.oauthClients())
+                .withFailMessage(() -> "OAuth client 'kawa-mcp-claude' was not added under its id: " + added.oauthClients())
+                .containsExactlyEntriesOf(Map.of("kawa-mcp-claude", client));
+        assertThat(removed.oauthClients())
+                .withFailMessage(() -> "OAuth client 'kawa-mcp-claude' was not removed: " + removed.oauthClients())
+                .isEmpty();
+    }
+
+    @Test
+    void oauthClientsSurviveAJsonRoundTrip() {
+        // given
+        var mapper = JsonMapper.builder().build();
+        var config = DynamicConfig.empty()
+                .upsertOAuthClient(new OAuthClientConfig("kawa-mcp-claude", "Claude Code", false,
+                        List.of("http://localhost:*/callback"), OAuthClientConfig.Audience.MCP))
+                .upsertOAuthClient(new OAuthClientConfig("kawa-mcp-cursor", null, true,
+                        List.of("https://cursor.example.com/callback"), OAuthClientConfig.Audience.ADMIN));
+
+        // when
+        String json = mapper.writeValueAsString(config);
+        DynamicConfig restored = mapper.readValue(json, DynamicConfig.class);
+
+        // then
+        assertThat(json)
+                .withFailMessage(() -> "the audience was not stored by its name: " + json)
+                .contains("\"audience\":\"mcp\"", "\"audience\":\"admin\"");
+        assertThat(restored.oauthClients())
+                .withFailMessage(() -> "OAuth clients changed in the round trip: " + restored.oauthClients())
+                .isEqualTo(config.oauthClients());
+    }
+
+    @Test
+    void rejectsAnOAuthClientStoredUnderAnotherId() {
+        // given
+        var client = new OAuthClientConfig("kawa-mcp-claude", null, true, List.of("http://localhost:*/callback"),
+                OAuthClientConfig.Audience.MCP);
+
+        // when / then
+        assertThatThrownBy(() -> new DynamicConfig(null, null, null, null, null, null,
+                Map.of("kawa-mcp-cursor", client)))
+                .withFailMessage(() -> "an OAuth client stored under another id was accepted")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("OAuth client 'kawa-mcp-claude' is stored under id 'kawa-mcp-cursor'");
     }
 
     @Test
