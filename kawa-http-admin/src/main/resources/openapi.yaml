@@ -1124,6 +1124,102 @@ paths:
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalError'
+  /admin/oauth-clients:
+    get:
+      summary: List OAuth clients
+      description: |
+        The OAuth clients of kawa's built-in authorization server stored in the config topic, sorted
+        by id. These are public clients using PKCE, such as MCP clients (Claude Code, Cursor, ...).
+        `kawa-studio`, the client of kawa's own UI, is configured with `admin.auth` and is not listed.
+      responses:
+        '200':
+          description: The OAuth clients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OAuthClientConfigView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /admin/oauth-clients/{id}:
+    get:
+      summary: Get an OAuth client
+      parameters:
+        - $ref: '#/components/parameters/OAuthClientId'
+      responses:
+        '200':
+          description: The OAuth client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthClientConfigView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      summary: Upsert an OAuth client
+      description: |
+        Adds or replaces the OAuth client `id`. The id comes from the path; an `id` in the body is
+        ignored. A replaced client keeps nothing of its previous state: a field left out takes its
+        default. `kawa-studio` is reserved for kawa's own UI and is refused with `409`.
+      parameters:
+        - $ref: '#/components/parameters/OAuthClientId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthClientRequest'
+            example:
+              name: Claude Code
+              redirectUris:
+                - http://localhost:*/callback
+              audience: mcp
+      responses:
+        '200':
+          description: The stored OAuth client
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthClientConfigView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: The id `kawa-studio` is reserved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      summary: Delete an OAuth client
+      description: |
+        Removes the OAuth client. `kawa-studio` is reserved for kawa's own UI and is refused with
+        `409`.
+      parameters:
+        - $ref: '#/components/parameters/OAuthClientId'
+      responses:
+        '204':
+          description: OAuth client deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The id `kawa-studio` is reserved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   securitySchemes:
     bearerAuth:
@@ -1163,6 +1259,14 @@ components:
       schema:
         type: string
         enum: [virtual-topics, rbac, governance, mcp]
+    OAuthClientId:
+      name: id
+      in: path
+      required: true
+      description: The OAuth client's `client_id`.
+      schema:
+        type: string
+        pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
   responses:
     Unauthorized:
       description: |
@@ -1216,6 +1320,58 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
+    OAuthClientRequest:
+      type: object
+      required:
+        - redirectUris
+        - audience
+      properties:
+        name:
+          type: string
+          nullable: true
+          description: An optional human-readable label.
+        enabled:
+          type: boolean
+          default: true
+          description: Whether the client may sign in.
+        redirectUris:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: |
+            Absolute `https` URIs, or `http` on `localhost`, `127.0.0.1` or `[::1]`, without a
+            fragment. Matched exactly, except that an `http` loopback URI may give `*` as its entire
+            port (e.g. `http://localhost:*/callback`) for clients listening on a random local port.
+        audience:
+          type: string
+          enum: [mcp, admin]
+          description: |
+            Where the client's tokens are accepted: `mcp` only on `POST /mcp`, `admin` on the whole
+            admin API.
+    OAuthClientConfigView:
+      type: object
+      required:
+        - id
+        - name
+        - enabled
+        - redirectUris
+        - audience
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          nullable: true
+        enabled:
+          type: boolean
+        redirectUris:
+          type: array
+          items:
+            type: string
+        audience:
+          type: string
+          enum: [mcp, admin]
     Module:
       type: object
       required:

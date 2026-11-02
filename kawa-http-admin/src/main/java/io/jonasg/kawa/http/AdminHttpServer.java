@@ -8,6 +8,7 @@ import io.jonasg.kawa.http.authentication.MapProviderSettings;
 import io.jonasg.kawa.http.clients.ClientRoutes;
 import io.jonasg.kawa.http.governance.GovernanceRoutes;
 import io.jonasg.kawa.http.modules.ModuleRoutes;
+import io.jonasg.kawa.http.oauthclients.OAuthClientRoutes;
 import io.jonasg.kawa.http.rbac.RbacRoutes;
 import io.jonasg.kawa.http.topics.TopicRoutes;
 import io.jonasg.kawa.http.users.UserRoutes;
@@ -82,6 +83,7 @@ public final class AdminHttpServer {
         GovernanceRoutes.register(router, services.governanceRules());
         UserRoutes.register(router, services.adminUsers());
         ModuleRoutes.register(router, services.modules());
+        OAuthClientRoutes.register(router, services.oauthClients());
         router.publicGet("/docs", new GetDocsHandler());
         this.authenticationProvider = authenticationProviders.require(adminAuthConfig.type()).create(
                 new AdminAuthenticationContext(new MapProviderSettings(adminAuthConfig.settings()),
