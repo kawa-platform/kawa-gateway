@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 
-/// Slice tests for `GET /.well-known/oauth-protected-resource`.
+/// Slice tests for `GET /.well-known/oauth-protected-resource` and its `/mcp` path suffix.
 class GetProtectedResourceMetadataSliceTest extends AdminHttpSliceTestBase {
 
     @Test
@@ -26,6 +26,29 @@ class GetProtectedResourceMetadataSliceTest extends AdminHttpSliceTestBase {
                 .isEqualTo("""
                         {
                           "resource": "https://kawa.example.com",
+                          "authorization_servers": ["kawa-test"],
+                          "bearer_methods_supported": ["header"]
+                        }
+                        """);
+    }
+
+    @Test
+    void describesTheMcpEndpointAsProtectedResourceWithoutAToken() throws Exception {
+        // given
+        enableOAuth();
+        publicUrl = "https://kawa.example.com";
+        startServer();
+
+        // when
+        var response = send("GET", "/.well-known/oauth-protected-resource/mcp");
+
+        // then
+        assertThat(response).hasStatusCode(200);
+        assertThatJson(response.body())
+                .withFailMessage(() -> "the protected resource metadata does not describe the MCP endpoint: " + response.body())
+                .isEqualTo("""
+                        {
+                          "resource": "https://kawa.example.com/mcp",
                           "authorization_servers": ["kawa-test"],
                           "bearer_methods_supported": ["header"]
                         }

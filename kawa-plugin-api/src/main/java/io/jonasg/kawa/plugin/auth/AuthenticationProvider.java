@@ -16,10 +16,10 @@ public interface AuthenticationProvider {
 
     Optional<KawaPrincipal> authenticate(AuthenticationRequest request);
 
-    /// The `WWW-Authenticate` challenge sent with a `401 Unauthorized`, telling the client how to
-    /// authenticate. Override it to point clients at the provider's own metadata, e.g. an RFC 9728
-    /// `resource_metadata` URL.
-    default String challenge() {
+    /// The `WWW-Authenticate` challenge sent with the `401 Unauthorized` for `request`, telling the
+    /// client how to authenticate. Override it to point clients at the provider's own metadata, e.g.
+    /// an RFC 9728 `resource_metadata` URL, which may differ per path.
+    default String challenge(AuthenticationRequest request) {
         return "Bearer realm=\"kawa\"";
     }
 }

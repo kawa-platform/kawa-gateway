@@ -54,7 +54,7 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
 
     @Test
     void mcpClientDiscoversTheAuthorizationServerAndCallsATool() throws Exception {
-        // given: an MCP request without a token is challenged with the protected resource metadata URL
+        // given: an MCP request without a token is challenged with the MCP endpoint's protected resource metadata URL
         HttpResponse<String> challenged = httpExec(reqBuilder("/mcp")
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json, text/event-stream")
@@ -69,12 +69,15 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
         assertThat(resourceMetadataUrl.find())
                 .withFailMessage(() -> "the 401 does not point at the protected resource metadata: " + challenge)
                 .isTrue();
+        assertThat(resourceMetadataUrl.group(1))
+                .withFailMessage(() -> "the 401 on /mcp does not point at the MCP endpoint's metadata: " + challenge)
+                .isEqualTo(PUBLIC_URL + "/.well-known/oauth-protected-resource/mcp");
 
-        // and: the protected resource metadata names the authorization server
+        // and: the protected resource metadata names the MCP endpoint the client was given and the authorization server
         JsonNode resourceMetadata = getJson(resourceMetadataUrl.group(1));
         assertThat(resourceMetadata.get("resource").asString())
-                .withFailMessage(() -> "the protected resource is not the admin public URL: " + resourceMetadata)
-                .isEqualTo(PUBLIC_URL);
+                .withFailMessage(() -> "the protected resource is not the MCP endpoint URL: " + resourceMetadata)
+                .isEqualTo(PUBLIC_URL + "/mcp");
         String issuer = resourceMetadata.get("authorization_servers").get(0).asString();
 
         // and: the authorization server metadata, fetched at the advertised issuer, matches it

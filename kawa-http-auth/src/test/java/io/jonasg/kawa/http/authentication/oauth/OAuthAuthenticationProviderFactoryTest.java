@@ -47,7 +47,8 @@ class OAuthAuthenticationProviderFactoryTest {
                         "POST /oauth/token",
                         "GET /.well-known/jwks.json",
                         "GET /.well-known/oauth-authorization-server",
-                        "GET /.well-known/oauth-protected-resource");
+                        "GET /.well-known/oauth-protected-resource",
+                        "GET /.well-known/oauth-protected-resource/mcp");
     }
 
     @Test
@@ -73,6 +74,29 @@ class OAuthAuthenticationProviderFactoryTest {
     }
 
     @Test
+    void publishesTheMcpEndpointAsProtectedResource() {
+        // given
+        var context = new FakeProviderContext(defaults(Map.of("issuer", "https://auth.example.com")), Map.of("admin", "s3cret"),
+                "https://kawa.example.com");
+        factory.create(context);
+
+        // when
+        HttpResponse response = protectedResourceMetadata(context, "/.well-known/oauth-protected-resource/mcp");
+
+        // then
+        assertThat(response.status()).isEqualTo(200);
+        assertThatJson(body(response))
+                .withFailMessage(() -> "the protected resource metadata does not describe the MCP endpoint: " + body(response))
+                .isEqualTo("""
+                        {
+                          "resource": "https://kawa.example.com/mcp",
+                          "authorization_servers": ["https://auth.example.com"],
+                          "bearer_methods_supported": ["header"]
+                        }
+                        """);
+    }
+
+    @Test
     void namesTheAuthorizationServerByItsIssuer() {
         // given
         var context = new FakeProviderContext(defaults(Map.of("issuer", "https://auth.example.com")), Map.of("admin", "s3cret"),
@@ -90,18 +114,33 @@ class OAuthAuthenticationProviderFactoryTest {
                 .containsEntry("authorization_servers", List.of("https://auth.example.com"));
     }
 
-    @Test
-    void challengesWithTheProtectedResourceMetadataUrl() {
+    @ParameterizedTest
+    @ValueSource(strings = {"/topics", "/", "/mcp/other", "/admin/oauth-clients"})
+    void challengesWithTheAdminApiMetadataUrl(String path) {
         // given
         var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"), "https://kawa.example.com");
 
         // when
-        String challenge = factory.create(context).challenge();
+        String challenge = factory.create(context).challenge(new AuthenticationRequest("GET", path, Map.of()));
 
         // then
         assertThat(challenge)
-                .withFailMessage(() -> "the challenge does not point at the protected resource metadata: " + challenge)
+                .withFailMessage(() -> "the challenge on " + path + " does not point at the admin API's metadata: " + challenge)
                 .isEqualTo("Bearer resource_metadata=\"https://kawa.example.com/.well-known/oauth-protected-resource\"");
+    }
+
+    @Test
+    void challengesMcpRequestsWithTheMcpMetadataUrl() {
+        // given
+        var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"), "https://kawa.example.com");
+
+        // when
+        String challenge = factory.create(context).challenge(new AuthenticationRequest("POST", "/mcp", Map.of()));
+
+        // then
+        assertThat(challenge)
+                .withFailMessage(() -> "the challenge on POST /mcp does not point at the MCP endpoint's metadata: " + challenge)
+                .isEqualTo("Bearer resource_metadata=\"https://kawa.example.com/.well-known/oauth-protected-resource/mcp\"");
     }
 
     @Test
@@ -729,8 +768,12 @@ class OAuthAuthenticationProviderFactoryTest {
 
     /// `GET /.well-known/oauth-protected-resource` on the endpoints `context` collected.
     private static HttpResponse protectedResourceMetadata(FakeProviderContext context) {
-        return context.endpoints.get("GET /.well-known/oauth-protected-resource")
-                .handle(new HttpRequest("GET", "/.well-known/oauth-protected-resource", Map.of(), Map.of(), new byte[0]));
+        return protectedResourceMetadata(context, "/.well-known/oauth-protected-resource");
+    }
+
+    /// `GET path` on the endpoints `context` collected.
+    private static HttpResponse protectedResourceMetadata(FakeProviderContext context, String path) {
+        return context.endpoints.get("GET " + path).handle(new HttpRequest("GET", path, Map.of(), Map.of(), new byte[0]));
     }
 
     /// The claims of a JWT, read without verification.
