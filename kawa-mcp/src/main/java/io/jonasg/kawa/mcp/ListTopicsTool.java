@@ -48,7 +48,7 @@ final class ListTopicsTool {
                 .build();
         return SyncToolSpecification.builder()
                 .tool(tool)
-                .callHandler((_, _) -> ToolResults.guarded(NAME, this::call))
+                .callHandler((context, _) -> ToolResults.guarded(NAME, context, this::call))
                 .build();
     }
 

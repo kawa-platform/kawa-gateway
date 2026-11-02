@@ -1,11 +1,16 @@
 package io.jonasg.kawa.mcp;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.http.topics.TopicService;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Map;
@@ -103,6 +108,33 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
         assertThat(listTopicsResp).hasStatusCode(200);
         assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(true);
         assertThatJson(listTopicsResp.body()).inPath("result.content[0].text").isEqualTo(ToolResults.INTERNAL_ERROR);
+    }
+
+    @Test
+    void logsOneLineWithCallerAndToolButNotTheArguments() throws Exception {
+        // given
+        startServer();
+        var logger = (Logger) LoggerFactory.getLogger(ToolResults.class);
+        var logs = new ListAppender<ILoggingEvent>();
+        logs.start();
+        logger.addAppender(logs);
+
+        // when
+        try {
+            rpc("tools/call", """
+                    {"name":"list_topics","arguments":{"secret":"s3cr3t-value"}}""");
+        } finally {
+            logger.detachAppender(logs);
+        }
+
+        // then
+        var lines = logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+        assertThat(logs.list.stream().filter(event -> event.getLevel() == Level.INFO).map(ILoggingEvent::getFormattedMessage))
+                .withFailMessage(() -> "the call was not logged once with the 'none' provider's admin and no client: " + lines)
+                .containsExactly("MCP tool list_topics called by admin via -: ok");
+        assertThat(lines)
+                .withFailMessage(() -> "the tool arguments were logged: " + lines)
+                .noneMatch(line -> line.contains("s3cr3t-value"));
     }
 
     private static String structuredContent(String body) {
