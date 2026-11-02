@@ -96,6 +96,7 @@ class ConfigLoaderTest {
         "governance:\n  rules: {}\n",
         "adminUsers: {}\n",
         "modules: {}\n",
+        "oauthClients: {}\n",
         "auth:\n  mechanisms: [PLAIN]\n",
         "auth:\n  clients:\n    alice:\n      mechanism: PLAIN\n      password: s3cret\n",
     })
@@ -219,7 +220,7 @@ class ConfigLoaderTest {
     @Test
     void loadsAdminPublicUrl() {
         // when
-        GatewayConfig config = loader.loadFromYaml("""
+        BootstrapConfig config = loader.loadFromYaml("""
                 admin:
                   enabled: true
                   port: 8081
@@ -236,7 +237,7 @@ class ConfigLoaderTest {
     @Test
     void adminPublicUrlDefaultsToTheBindAddress() {
         // when
-        GatewayConfig config = loader.loadFromYaml("""
+        BootstrapConfig config = loader.loadFromYaml("""
                 admin:
                   enabled: true
                   host: 127.0.0.1
