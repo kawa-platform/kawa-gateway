@@ -6,6 +6,7 @@ import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -38,10 +39,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 /// and in its discovery metadata, and an ephemeral port would only be known after binding.
 class AdminOAuthIT extends AdminHTTPTestSupport {
 
+    private static final String STUDIO_CLIENT_ID = "kawa-studio";
     private static final String REDIRECT_URI = "http://localhost:5173/admin/auth/callback";
+    private static final String MCP_CLIENT_ID = "kawa-mcp-claude";
     private static final int ADMIN_PORT = freePort();
     private static final String PUBLIC_URL = "http://127.0.0.1:" + ADMIN_PORT;
+    private static final String MCP_RESOURCE = PUBLIC_URL + "/mcp";
     private static final Pattern RESOURCE_METADATA = Pattern.compile("resource_metadata=\"([^\"]+)\"");
+    private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Override
     protected AdminConfig adminConfig() {
@@ -52,58 +57,28 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
                 PUBLIC_URL);
     }
 
+    /// Removes the OAuth client a test created, so no test depends on another's leftovers.
+    @AfterEach
+    void deleteMcpClient() throws Exception {
+        HttpResponse<String> deleteClientResp = httpExec(reqBuilder("/admin/oauth-clients/" + MCP_CLIENT_ID)
+                .header("Authorization", "Bearer " + login("admin@kawa", "s3cret"))
+                .DELETE().build());
+        assertThat(deleteClientResp.statusCode())
+                .withFailMessage(() -> "OAuth client '" + MCP_CLIENT_ID + "' was not cleaned up: " + deleteClientResp.body())
+                .isIn(200, 204, 404);
+    }
+
     @Test
     void mcpClientDiscoversTheAuthorizationServerAndCallsATool() throws Exception {
-        // given: an MCP request without a token is challenged with the MCP endpoint's protected resource metadata URL
-        HttpResponse<String> challenged = httpExec(reqBuilder("/mcp")
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json, text/event-stream")
-                .POST(HttpRequest.BodyPublishers.ofString("""
-                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"""))
-                .build());
-        assertThat(challenged.statusCode())
-                .withFailMessage(() -> "POST /mcp without a token was not rejected: " + challenged.statusCode())
-                .isEqualTo(401);
-        String challenge = challenged.headers().firstValue("WWW-Authenticate").orElse("");
-        Matcher resourceMetadataUrl = RESOURCE_METADATA.matcher(challenge);
-        assertThat(resourceMetadataUrl.find())
-                .withFailMessage(() -> "the 401 does not point at the protected resource metadata: " + challenge)
-                .isTrue();
-        assertThat(resourceMetadataUrl.group(1))
-                .withFailMessage(() -> "the 401 on /mcp does not point at the MCP endpoint's metadata: " + challenge)
-                .isEqualTo(PUBLIC_URL + "/.well-known/oauth-protected-resource/mcp");
-
-        // and: the protected resource metadata names the MCP endpoint the client was given and the authorization server
-        JsonNode resourceMetadata = getJson(resourceMetadataUrl.group(1));
-        assertThat(resourceMetadata.get("resource").asString())
-                .withFailMessage(() -> "the protected resource is not the MCP endpoint URL: " + resourceMetadata)
-                .isEqualTo(PUBLIC_URL + "/mcp");
-        String issuer = resourceMetadata.get("authorization_servers").get(0).asString();
-
-        // and: the authorization server metadata, fetched at the advertised issuer, matches it
-        JsonNode serverMetadata = getJson(issuer + "/.well-known/oauth-authorization-server");
-        assertThat(serverMetadata.get("issuer").asString())
-                .withFailMessage(() -> "the authorization server metadata does not belong to issuer " + issuer + ": " + serverMetadata)
-                .isEqualTo(issuer);
+        // given: the discovered authorization server metadata
+        JsonNode serverMetadata = discoverAuthorizationServer();
 
         // and: the pre-registered client obtains a token from the advertised endpoints
         String token = signIn("admin@kawa", "s3cret", serverMetadata.get("authorization_endpoint").asString(),
                 serverMetadata.get("token_endpoint").asString()).get("access_token").asString();
 
         // when
-        McpSyncClient client = McpClient.sync(HttpClientStreamableHttpTransport.builder(PUBLIC_URL).endpoint("/mcp")
-                        .httpRequestCustomizer((request, method, uri, body, context) ->
-                                request.header("Authorization", "Bearer " + token))
-                        .build())
-                .requestTimeout(Duration.ofSeconds(10))
-                .build();
-        McpSchema.CallToolResult result;
-        try {
-            client.initialize();
-            result = client.callTool(new McpSchema.CallToolRequest("list_topics", Map.of()));
-        } finally {
-            client.closeGracefully();
-        }
+        McpSchema.CallToolResult result = listTopicsOverMcp(token);
 
         // then
         assertThat(result.isError())
@@ -112,6 +87,164 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
         assertThatJson(result.structuredContent())
                 .withFailMessage(() -> "list_topics returned no topic listing: " + result.structuredContent())
                 .isObject().containsKeys("virtualTopics", "physicalTopics");
+    }
+
+    @Test
+    void storedMcpClientSignsInOnARandomLoopbackPortAndCallsATool() throws Exception {
+        // given: an admin registers an MCP client that accepts any port on localhost
+        String adminToken = login("admin@kawa", "s3cret");
+        HttpResponse<String> putClientResp = putMcpClient(adminToken, true);
+        assertThat(putClientResp.statusCode())
+                .withFailMessage(() -> "PUT /admin/oauth-clients/" + MCP_CLIENT_ID + " was not accepted: " + putClientResp.body())
+                .isEqualTo(200);
+        String redirectUri = "http://localhost:" + freePort() + "/callback";
+        awaitAuthorizable(MCP_CLIENT_ID, redirectUri);
+
+        // and: the client discovers the authorization server from the MCP endpoint
+        JsonNode serverMetadata = discoverAuthorizationServer();
+
+        // when: it signs in with the MCP endpoint as resource
+        JsonNode tokens = signIn("admin@kawa", "s3cret", MCP_CLIENT_ID, redirectUri, MCP_RESOURCE,
+                serverMetadata.get("authorization_endpoint").asString(), serverMetadata.get("token_endpoint").asString());
+        String token = tokens.get("access_token").asString();
+
+        // then: the token is for the MCP endpoint and names the client
+        JsonNode claims = claims(token);
+        assertThat(claims.get("aud").isArray() ? claims.get("aud").get(0).asString() : claims.get("aud").asString())
+                .withFailMessage(() -> "the token's audience is not the MCP endpoint: " + claims)
+                .isEqualTo(MCP_RESOURCE);
+        assertThat(claims.get("client_id").asString())
+                .withFailMessage(() -> "the token does not name client '" + MCP_CLIENT_ID + "': " + claims)
+                .isEqualTo(MCP_CLIENT_ID);
+
+        // and: it calls an MCP tool
+        McpSchema.CallToolResult result = listTopicsOverMcp(token);
+        assertThat(result.isError())
+                .withFailMessage(() -> "list_topics with the MCP client's token failed: " + result.content())
+                .isFalse();
+
+        // and: it is refused on the rest of the admin API
+        HttpResponse<String> topicsResp = httpExec(reqBuilder("/topics").GET()
+                .header("Authorization", "Bearer " + token).build());
+        assertThat(topicsResp.statusCode())
+                .withFailMessage(() -> "GET /topics with an MCP-audience token was not rejected: " + topicsResp.statusCode())
+                .isEqualTo(401);
+    }
+
+    @Test
+    void refusesRedirectUrisAndClientsThatAreNotRegistered() throws Exception {
+        // given
+        HttpResponse<String> putClientResp = putMcpClient(login("admin@kawa", "s3cret"), true);
+        assertThat(putClientResp.statusCode())
+                .withFailMessage(() -> "PUT /admin/oauth-clients/" + MCP_CLIENT_ID + " was not accepted: " + putClientResp.body())
+                .isEqualTo(200);
+        int port = freePort();
+        awaitAuthorizable(MCP_CLIENT_ID, "http://localhost:" + port + "/callback");
+
+        for (String[] refused : new String[][] {
+                {MCP_CLIENT_ID, "http://localhost:" + port + "/other"},
+                {MCP_CLIENT_ID, "https://localhost:" + port + "/callback"},
+                {"unknown-client", "http://localhost:" + port + "/callback"}}) {
+            String clientId = refused[0];
+            String redirectUri = refused[1];
+
+            // when
+            HttpResponse<String> authorizeResp = authorize(clientId, redirectUri, null, "challenge-" + UUID.randomUUID());
+
+            // then
+            assertThat(authorizeResp.statusCode())
+                    .withFailMessage(() -> "authorize for client '" + clientId + "' with redirect " + redirectUri
+                            + " was not refused with 400: " + authorizeResp.statusCode() + " " + authorizeResp.body())
+                    .isEqualTo(400);
+            assertThat(authorizeResp.headers().firstValue("Location"))
+                    .withFailMessage(() -> "authorize for client '" + clientId + "' with redirect " + redirectUri
+                            + " redirected: " + authorizeResp.headers().firstValue("Location"))
+                    .isEmpty();
+        }
+    }
+
+    @Test
+    void disablingOrDeletingAnOAuthClientRevokesItsTokens() throws Exception {
+        // given: a signed-in MCP client
+        String adminToken = login("admin@kawa", "s3cret");
+        HttpResponse<String> putClientResp = putMcpClient(adminToken, true);
+        assertThat(putClientResp.statusCode())
+                .withFailMessage(() -> "PUT /admin/oauth-clients/" + MCP_CLIENT_ID + " was not accepted: " + putClientResp.body())
+                .isEqualTo(200);
+        String redirectUri = "http://localhost:" + freePort() + "/callback";
+        awaitAuthorizable(MCP_CLIENT_ID, redirectUri);
+        JsonNode tokens = signIn("admin@kawa", "s3cret", MCP_CLIENT_ID, redirectUri, MCP_RESOURCE,
+                baseUrl() + "/oauth/authorize", baseUrl() + "/oauth/token");
+        String accessToken = tokens.get("access_token").asString();
+        String refreshToken = tokens.get("refresh_token").asString();
+        assertThat(mcpToolsList(accessToken).statusCode())
+                .withFailMessage(() -> "the MCP client's token was not accepted on /mcp before disabling it")
+                .isEqualTo(200);
+
+        // when: the client is disabled
+        HttpResponse<String> disableClientResp = putMcpClient(adminToken, false);
+
+        // then: its access and refresh tokens are refused
+        assertThat(disableClientResp.statusCode())
+                .withFailMessage(() -> "disabling OAuth client '" + MCP_CLIENT_ID + "' was not accepted: " + disableClientResp.body())
+                .isEqualTo(200);
+        eventually(() -> assertThat(mcpToolsList(accessToken).statusCode())
+                .withFailMessage(() -> "the access token of disabled client '" + MCP_CLIENT_ID + "' was not rejected on /mcp")
+                .isEqualTo(401));
+        eventually(() -> {
+            HttpResponse<String> refreshResp = tokenRequest(baseUrl() + "/oauth/token",
+                    "grant_type=refresh_token&refresh_token=" + encode(refreshToken));
+            assertThat(refreshResp.statusCode())
+                    .withFailMessage(() -> "the refresh token of disabled client '" + MCP_CLIENT_ID + "' was not refused: "
+                            + refreshResp.statusCode() + " " + refreshResp.body())
+                    .isEqualTo(400);
+            assertThatJson(refreshResp.body()).inPath("error").isString()
+                    .withFailMessage(() -> "the refused refresh is not invalid_grant: " + refreshResp.body())
+                    .isEqualTo("invalid_grant");
+        });
+
+        // when: the client is enabled again
+        HttpResponse<String> enableClientResp = putMcpClient(adminToken, true);
+
+        // then: the unexpired access token works again
+        assertThat(enableClientResp.statusCode())
+                .withFailMessage(() -> "re-enabling OAuth client '" + MCP_CLIENT_ID + "' was not accepted: " + enableClientResp.body())
+                .isEqualTo(200);
+        eventually(() -> assertThat(mcpToolsList(accessToken).statusCode())
+                .withFailMessage(() -> "the access token of re-enabled client '" + MCP_CLIENT_ID + "' was not accepted on /mcp")
+                .isEqualTo(200));
+
+        // when: the client is deleted
+        HttpResponse<String> deleteClientResp = httpExec(reqBuilder("/admin/oauth-clients/" + MCP_CLIENT_ID)
+                .header("Authorization", "Bearer " + adminToken)
+                .DELETE().build());
+
+        // then
+        assertThat(deleteClientResp.statusCode())
+                .withFailMessage(() -> "deleting OAuth client '" + MCP_CLIENT_ID + "' was not accepted: " + deleteClientResp.body())
+                .isIn(200, 204);
+        eventually(() -> assertThat(mcpToolsList(accessToken).statusCode())
+                .withFailMessage(() -> "the access token of deleted client '" + MCP_CLIENT_ID + "' was not rejected on /mcp")
+                .isEqualTo(401));
+    }
+
+    @Test
+    void studioTokenWorksOnTheAdminApiAndOnMcp() throws Exception {
+        // given
+        String token = login("admin@kawa", "s3cret");
+
+        // when
+        HttpResponse<String> topicsResp = httpExec(reqBuilder("/topics").GET()
+                .header("Authorization", "Bearer " + token).build());
+        McpSchema.CallToolResult result = listTopicsOverMcp(token);
+
+        // then
+        assertThat(topicsResp.statusCode())
+                .withFailMessage(() -> "GET /topics with a studio token failed: " + topicsResp.body())
+                .isEqualTo(200);
+        assertThat(result.isError())
+                .withFailMessage(() -> "list_topics with a studio token failed: " + result.content())
+                .isFalse();
     }
 
     @Test
@@ -128,12 +261,7 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
     @Test
     void rejectsMcpRequestsWithoutToken() throws Exception {
         // when
-        HttpResponse<String> response = httpExec(reqBuilder("/mcp")
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json, text/event-stream")
-                .POST(HttpRequest.BodyPublishers.ofString("""
-                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"""))
-                .build());
+        HttpResponse<String> response = mcpToolsList(null);
 
         // then
         assertThat(response.statusCode())
@@ -212,6 +340,83 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
                 .isEqualTo(200);
     }
 
+    /// Walks MCP discovery as a client does: the 401 on `/mcp` points at the MCP endpoint's protected resource
+    /// metadata, which names the authorization server, whose metadata is returned.
+    private JsonNode discoverAuthorizationServer() throws Exception {
+        HttpResponse<String> challenged = mcpToolsList(null);
+        assertThat(challenged.statusCode())
+                .withFailMessage(() -> "POST /mcp without a token was not rejected: " + challenged.statusCode())
+                .isEqualTo(401);
+        String challenge = challenged.headers().firstValue("WWW-Authenticate").orElse("");
+        Matcher resourceMetadataUrl = RESOURCE_METADATA.matcher(challenge);
+        assertThat(resourceMetadataUrl.find())
+                .withFailMessage(() -> "the 401 does not point at the protected resource metadata: " + challenge)
+                .isTrue();
+        assertThat(resourceMetadataUrl.group(1))
+                .withFailMessage(() -> "the 401 on /mcp does not point at the MCP endpoint's metadata: " + challenge)
+                .isEqualTo(PUBLIC_URL + "/.well-known/oauth-protected-resource/mcp");
+
+        JsonNode resourceMetadata = getJson(resourceMetadataUrl.group(1));
+        assertThat(resourceMetadata.get("resource").asString())
+                .withFailMessage(() -> "the protected resource is not the MCP endpoint URL: " + resourceMetadata)
+                .isEqualTo(MCP_RESOURCE);
+        String issuer = resourceMetadata.get("authorization_servers").get(0).asString();
+
+        JsonNode serverMetadata = getJson(issuer + "/.well-known/oauth-authorization-server");
+        assertThat(serverMetadata.get("issuer").asString())
+                .withFailMessage(() -> "the authorization server metadata does not belong to issuer " + issuer + ": " + serverMetadata)
+                .isEqualTo(issuer);
+        return serverMetadata;
+    }
+
+    private HttpResponse<String> putMcpClient(String adminToken, boolean enabled) throws Exception {
+        return httpExec(reqBuilder("/admin/oauth-clients/" + MCP_CLIENT_ID)
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + adminToken)
+                .PUT(HttpRequest.BodyPublishers.ofString("""
+                        {"name":"Claude Code","enabled":%s,"redirectUris":["http://localhost:*/callback"],"audience":"mcp"}"""
+                        .formatted(enabled)))
+                .build());
+    }
+
+    /// Waits until the gateway has applied the stored client from the config topic: authorize then redirects to
+    /// the login UI instead of refusing the client.
+    private void awaitAuthorizable(String clientId, String redirectUri) {
+        eventually(() -> {
+            HttpResponse<String> authorizeResp = authorize(clientId, redirectUri, null, "challenge-" + UUID.randomUUID());
+            assertThat(authorizeResp.statusCode())
+                    .withFailMessage(() -> "OAuth client '" + clientId + "' was not applied: " + authorizeResp.body())
+                    .isEqualTo(302);
+        });
+    }
+
+    private HttpResponse<String> mcpToolsList(String token) throws Exception {
+        HttpRequest.Builder request = reqBuilder("/mcp")
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json, text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}"""));
+        if (token != null) {
+            request.header("Authorization", "Bearer " + token);
+        }
+        return httpExec(request.build());
+    }
+
+    private static McpSchema.CallToolResult listTopicsOverMcp(String token) {
+        McpSyncClient client = McpClient.sync(HttpClientStreamableHttpTransport.builder(PUBLIC_URL).endpoint("/mcp")
+                        .httpRequestCustomizer((request, method, uri, body, context) ->
+                                request.header("Authorization", "Bearer " + token))
+                        .build())
+                .requestTimeout(Duration.ofSeconds(10))
+                .build();
+        try {
+            client.initialize();
+            return client.callTool(new McpSchema.CallToolRequest("list_topics", Map.of()));
+        } finally {
+            client.closeGracefully();
+        }
+    }
+
     private String login(String username, String password) throws Exception {
         return signIn(username, password).get("access_token").asString();
     }
@@ -220,29 +425,54 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
         return signIn(username, password, baseUrl() + "/oauth/authorize", baseUrl() + "/oauth/token");
     }
 
-    /// The authorization code flow with PKCE, as kawa studio and the browser run it: authorize (redirect
-    /// to the login UI with a challenge), log in, then redeem the code.
     private JsonNode signIn(String username, String password, String authorizeEndpoint, String tokenEndpoint) throws Exception {
+        return signIn(username, password, STUDIO_CLIENT_ID, REDIRECT_URI, null, authorizeEndpoint, tokenEndpoint);
+    }
+
+    /// The authorization code flow with PKCE, as kawa studio and the browser run it: authorize (redirect
+    /// to the login UI with a challenge), log in, then redeem the code. `resource` (RFC 8707) is sent to both
+    /// endpoints when given.
+    private JsonNode signIn(String username, String password, String clientId, String redirectUri, String resource,
+                            String authorizeEndpoint, String tokenEndpoint) throws Exception {
         String verifier = "verifier-" + UUID.randomUUID() + "-" + UUID.randomUUID();
         String challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(
                 MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII)));
-        HttpResponse<String> authorize = httpExec(HttpRequest.newBuilder(URI.create(authorizeEndpoint
-                + "?response_type=code&client_id=kawa-studio"
-                + "&redirect_uri=" + encode(REDIRECT_URI) + "&code_challenge=" + challenge
-                + "&code_challenge_method=S256&state=it")).GET().build());
+        HttpResponse<String> authorize = authorize(authorizeEndpoint, clientId, redirectUri, resource, challenge);
         String loginChallenge = queryParam(authorize.headers().firstValue("Location")
                 .orElseThrow(() -> new AssertionError("authorize did not redirect: " + authorize.body())), "login_challenge");
         HttpResponse<String> login = httpExec(reqBuilder("/oauth/login")
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(JsonMapper.builder().build().writeValueAsString(Map.of(
+                .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(Map.of(
                         "login_challenge", loginChallenge, "username", username, "password", password))))
                 .build());
         assertThat(login.statusCode())
                 .withFailMessage(() -> "login as '" + username + "' failed: " + login.body())
                 .isEqualTo(200);
-        String code = queryParam(JsonMapper.builder().build().readTree(login.body()).get("redirect_to").asString(), "code");
-        return tokenResponse(tokenEndpoint, "grant_type=authorization_code&client_id=kawa-studio&code=" + encode(code)
-                + "&redirect_uri=" + encode(REDIRECT_URI) + "&code_verifier=" + verifier);
+        String redirectTo = JSON.readTree(login.body()).get("redirect_to").asString();
+        assertThat(redirectTo)
+                .withFailMessage(() -> "login did not redirect to the requested URI " + redirectUri + ": " + redirectTo)
+                .startsWith(redirectUri + "?");
+        String code = queryParam(redirectTo, "code");
+        return tokenResponse(tokenEndpoint, "grant_type=authorization_code&client_id=" + encode(clientId) + "&code=" + encode(code)
+                + "&redirect_uri=" + encode(redirectUri) + "&code_verifier=" + verifier
+                + (resource == null ? "" : "&resource=" + encode(resource)));
+    }
+
+    private HttpResponse<String> authorize(String clientId, String redirectUri, String resource, String challenge) throws Exception {
+        return authorize(baseUrl() + "/oauth/authorize", clientId, redirectUri, resource, challenge);
+    }
+
+    private HttpResponse<String> authorize(String authorizeEndpoint, String clientId, String redirectUri, String resource,
+                                           String challenge) throws Exception {
+        return httpExec(HttpRequest.newBuilder(URI.create(authorizeEndpoint
+                + "?response_type=code&client_id=" + encode(clientId)
+                + "&redirect_uri=" + encode(redirectUri) + "&code_challenge=" + challenge
+                + "&code_challenge_method=S256&state=it"
+                + (resource == null ? "" : "&resource=" + encode(resource)))).GET().build());
+    }
+
+    private static JsonNode claims(String jwt) {
+        return JSON.readTree(Base64.getUrlDecoder().decode(jwt.split("\\.")[1]));
     }
 
     private JsonNode getJson(String url) throws Exception {
@@ -250,7 +480,7 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
         assertThat(response.statusCode())
                 .withFailMessage(() -> "GET " + url + " failed: " + response.body())
                 .isEqualTo(200);
-        return JsonMapper.builder().build().readTree(response.body());
+        return JSON.readTree(response.body());
     }
 
     private static int freePort() {
@@ -279,13 +509,17 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
     }
 
     private JsonNode tokenResponse(String tokenEndpoint, String form) throws Exception {
-        HttpResponse<String> response = httpExec(HttpRequest.newBuilder(URI.create(tokenEndpoint))
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .POST(HttpRequest.BodyPublishers.ofString(form))
-                .build());
+        HttpResponse<String> response = tokenRequest(tokenEndpoint, form);
         assertThat(response.statusCode())
                 .withFailMessage(() -> "token request failed: " + response.body())
                 .isEqualTo(200);
-        return JsonMapper.builder().build().readTree(response.body());
+        return JSON.readTree(response.body());
+    }
+
+    private HttpResponse<String> tokenRequest(String tokenEndpoint, String form) throws Exception {
+        return httpExec(HttpRequest.newBuilder(URI.create(tokenEndpoint))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(form))
+                .build());
     }
 }
