@@ -1,10 +1,10 @@
 package io.jonasg.kawa.http.oauthclients;
 
-import io.jonasg.kawa.config.GatewayConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.OAuthClientConfig;
 import io.jonasg.kawa.config.OAuthClientConfig.Audience;
 import io.jonasg.kawa.http.AdminHttpSliceTestBase;
-import io.jonasg.kawa.http.FakeGatewayConfigRepository;
+import io.jonasg.kawa.http.FakeDynamicConfigRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -50,7 +50,7 @@ class PutOAuthClientSliceTest extends AdminHttpSliceTestBase {
     @Test
     void replacesAStoredOAuthClient() throws Exception {
         // given
-        repository = new FakeGatewayConfigRepository(GatewayConfig.empty().upsertOAuthClient(OAuthClients.claude()));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertOAuthClient(OAuthClients.claude()));
         startServer();
 
         // when

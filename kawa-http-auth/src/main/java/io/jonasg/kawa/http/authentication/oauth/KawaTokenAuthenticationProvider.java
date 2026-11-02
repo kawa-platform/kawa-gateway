@@ -15,8 +15,11 @@ import java.util.Set;
 /// kawa itself (`Authorization: Bearer <jwt>`).
 ///
 /// A token is valid when [TokenVerifier] accepts it as an `at+jwt` access token for one of the accepted
-/// audiences and its `sub` is an admin user that still exists and is enabled, so deleting or disabling a user revokes their tokens
-/// immediately. The principal is named by the admin user's current username.
+/// audiences, the OAuth client it was issued to may still use it ([OAuthClients#clientOf]) and its `sub` is an admin
+/// user that still exists and is enabled, so disabling or deleting the client or the user revokes their tokens
+/// immediately. A token for the MCP endpoint (`aud = <publicUrl>/mcp`) is accepted only on `POST /mcp`; anywhere else
+/// the request is unauthenticated. The principal is named by the admin user's current username and carries the
+/// token's client.
 ///
 /// Every token names the OAuth client it was issued to in `client_id`; a token without one is
 /// rejected. A token issued to any client but the operator (kawa studio or a stored OAuth client)
@@ -35,15 +38,17 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
     private static final String BEARER = "bearer ";
 
     private final TokenVerifier verifier;
+    private final OAuthClients clients;
     private final AdminUserDirectory users;
     private final OperatorClient operator;
     private final String challenge;
 
     /// @param audiences the `aud` values a token may carry
     /// @param publicUrl the admin API's public URL, under which the protected resource metadata is served
-    KawaTokenAuthenticationProvider(SigningKeys keys, String issuer, Set<String> audiences, AdminUserDirectory users,
-                                    OperatorClient operator, String publicUrl) {
+    KawaTokenAuthenticationProvider(SigningKeys keys, String issuer, Set<String> audiences, OAuthClients clients,
+                                    AdminUserDirectory users, OperatorClient operator, String publicUrl) {
         this.verifier = new TokenVerifier(keys, issuer, audiences, TokenIssuer.ACCESS_TOKEN_TYPE);
+        this.clients = clients;
         this.users = users;
         this.operator = operator;
         this.challenge = "Bearer resource_metadata=\"" + publicUrl + ProtectedResourceMetadataEndpoint.PATH + "\"";
@@ -56,16 +61,32 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
                         && value.substring(0, BEARER.length()).toLowerCase(Locale.ROOT).equals(BEARER))
                 .map(value -> value.substring(BEARER.length()).trim())
                 .flatMap(verifier::verify)
+                .filter(token -> isMeantFor(token, request))
                 .flatMap(this::principal);
+    }
+
+    /// Whether `token` may be used for `request`: a token for the MCP endpoint only on exactly `POST /mcp`, any
+    /// other token anywhere. Which kind a token is follows from its `aud`, never from the request.
+    private boolean isMeantFor(JWTClaimsSet token, AuthenticationRequest request) {
+        return !token.getAudience().contains(clients.mcpAudience())
+                || "POST".equals(request.method()) && OAuthAuthenticationProviderFactory.MCP_PATH.equals(request.path());
     }
 
     private Optional<KawaPrincipal> principal(JWTClaimsSet claims) {
         Object clientId = claims.getClaim(TokenIssuer.CLIENT_ID_CLAIM);
-        if (clientId instanceof String id && !TokenIssuer.OPERATOR_CLIENT_ID.equals(id)) {
-            // an admin user logged in through kawa studio or a stored OAuth client
-            return users.username(claims.getSubject()).map(KawaPrincipal::new);
+        if (TokenIssuer.OPERATOR_CLIENT_ID.equals(clientId)) {
+            return operatorPrincipal(claims);
         }
-        if (!TokenIssuer.OPERATOR_CLIENT_ID.equals(clientId) || !operator.enabled()) {
+        if (clientId == null) {
+            return Optional.empty();
+        }
+        // an admin user logged in through kawa studio or a stored OAuth client, which must still be enabled
+        return clients.clientOf(claims).flatMap(client -> users.username(claims.getSubject())
+                .map(username -> new KawaPrincipal(username, client.id())));
+    }
+
+    private Optional<KawaPrincipal> operatorPrincipal(JWTClaimsSet claims) {
+        if (!operator.enabled()) {
             return Optional.empty();
         }
         Object act = claims.getClaim(TokenIssuer.ACT_CLAIM);

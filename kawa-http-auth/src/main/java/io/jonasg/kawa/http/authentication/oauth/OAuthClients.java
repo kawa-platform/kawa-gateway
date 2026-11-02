@@ -1,10 +1,12 @@
 package io.jonasg.kawa.http.authentication.oauth;
 
+import com.nimbusds.jwt.JWTClaimsSet;
 import io.jonasg.kawa.plugin.auth.OAuthClient;
 import io.jonasg.kawa.plugin.auth.OAuthClientDirectory;
 import org.jspecify.annotations.Nullable;
 
 import java.net.URI;
+import java.text.ParseException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -14,7 +16,8 @@ import java.util.Set;
 ///
 /// kawa studio is always resolved first, so a managed client with the same id is never used. Managed clients are
 /// looked up on every call, so a change through the admin API applies to the next request; a disabled client is
-/// treated as unknown.
+/// treated as unknown. The same holds for the tokens already issued ([#clientOf]): disabling or deleting a client,
+/// or changing its audience, revokes them.
 final class OAuthClients {
 
     /// A client the authorization server knows.
@@ -55,9 +58,24 @@ final class OAuthClients {
         return managed.find(id).filter(OAuthClient::enabled).map(this::client);
     }
 
-    /// The id of kawa studio, the only client before managed clients existed.
-    String studioId() {
-        return studio.id();
+    /// The client a session token (access or refresh token) was issued to, while its tokens are still valid: the
+    /// client named by the token's `client_id` (kawa studio for a token issued before tokens named their client) is
+    /// known and enabled, and its tokens still carry the token's `aud`. Empty once the client was disabled, deleted
+    /// or given another audience.
+    Optional<Client> clientOf(JWTClaimsSet token) {
+        String clientId;
+        try {
+            clientId = token.getStringClaim(TokenIssuer.CLIENT_ID_CLAIM);
+        } catch (ParseException e) {
+            return Optional.empty();
+        }
+        return find(clientId == null ? studio.id() : clientId)
+                .filter(client -> token.getAudience().equals(List.of(client.audience())));
+    }
+
+    /// The `aud` of tokens for the MCP endpoint, which are accepted only on `POST /mcp`.
+    String mcpAudience() {
+        return mcpAudience;
     }
 
     /// Whether the RFC 8707 `resources` a client requested tokens for are acceptable: none, or only `audience`, the

@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http.oauthclients;
 
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.OAuthClientConfig;
 import io.jonasg.kawa.http.configchange.ConflictException;
 import io.jonasg.kawa.http.configchange.Consistency;
@@ -17,10 +17,10 @@ public final class OAuthClientService {
 
     static final String RESERVED_ID = "kawa-studio";
 
-    private final GatewayConfigRepository repository;
+    private final DynamicConfigRepository repository;
     private final ConsistencyAwareUpdater updater;
 
-    public OAuthClientService(GatewayConfigRepository repository) {
+    public OAuthClientService(DynamicConfigRepository repository) {
         this.repository = repository;
         this.updater = new ConsistencyAwareUpdater(repository);
     }

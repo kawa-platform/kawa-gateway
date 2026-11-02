@@ -36,7 +36,8 @@ import java.util.stream.Collectors;
 /// The UI is always the client `kawa-studio`.
 ///
 /// Besides kawa studio, the authorization server issues tokens to the OAuth clients managed through the admin
-/// API ([OAuthClients]). Tokens of a client with audience `mcp` carry `aud = <publicUrl>/mcp`.
+/// API ([OAuthClients]). Tokens of a client with audience `mcp` carry `aud = <publicUrl>/mcp` and are accepted only
+/// on `POST /mcp`. Disabling or deleting a client, or changing its audience, revokes its tokens.
 ///
 /// Users log in with the authorization code flow with PKCE (no password grant, per OAuth 2.1).
 ///
@@ -101,7 +102,7 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
         context.publicEndpoint("GET", "/.well-known/jwks.json", new JwksEndpoint(keys));
         context.publicEndpoint("GET", "/.well-known/oauth-authorization-server", new AuthorizationServerMetadataEndpoint(issuer));
         context.publicEndpoint("GET", ProtectedResourceMetadataEndpoint.PATH, new ProtectedResourceMetadataEndpoint(context.publicUrl(), issuer));
-        return new KawaTokenAuthenticationProvider(keys, issuer, audiences, context.adminUsers(), operator, context.publicUrl());
+        return new KawaTokenAuthenticationProvider(keys, issuer, audiences, clients, context.adminUsers(), operator, context.publicUrl());
     }
 
     private static void requireReachable(String publicUrl) {

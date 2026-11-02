@@ -83,7 +83,7 @@ class ExternalPluginLoaderTest {
             """;
 
     /// Registers a provider named `oauth-clients` whose principal describes the OAuth client named by the
-    /// request's `x-client-id` header, as the plugin reads it from its context.
+    /// request's `x-client-id` header, as the plugin reads it from its context, and names it as its client.
     private static final String OAUTH_CLIENTS_PLUGIN = """
             package fixture;
 
@@ -108,7 +108,7 @@ class ExternalPluginLoaderTest {
                             return request -> request.header("x-client-id")
                                     .flatMap(id -> providerContext.oauthClients().find(id))
                                     .map(client -> new KawaPrincipal(client.id() + " " + client.enabled() + " "
-                                            + client.audience() + " " + client.redirectUris()));
+                                            + client.audience() + " " + client.redirectUris(), client.id()));
                         }
                     });
                 }
@@ -230,6 +230,9 @@ class ExternalPluginLoaderTest {
         assertThat(principal.map(KawaPrincipal::name))
                 .withFailMessage(() -> "the isolated plugin did not get the host's OAuth clients: " + principal)
                 .hasValue("kawa-mcp-claude true MCP [http://localhost:*/callback]");
+        assertThat(principal.map(KawaPrincipal::clientId))
+                .withFailMessage(() -> "the plugin principal's client was lost crossing the isolation boundary: " + principal)
+                .hasValue("kawa-mcp-claude");
     }
 
     @Test

@@ -45,6 +45,6 @@ public final class Ownership {
     /// Whether the operator made the request. Only the actor proves it: the authentication provider
     /// sets it for a verified operator token alone, while any admin user may be named `kawa-operator`.
     private static boolean isOperator(@Nullable KawaPrincipal caller) {
-        return caller != null && OPERATOR.equals(caller.actor());
+        return caller != null && OPERATOR.equals(caller.clientId());
     }
 }

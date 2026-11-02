@@ -2,8 +2,8 @@ package io.jonasg.kawa.mcp;
 
 import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
-import io.jonasg.kawa.config.GatewayConfig;
-import io.jonasg.kawa.config.GatewayConfigRepository;
+import io.jonasg.kawa.config.DynamicConfig;
+import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
@@ -127,28 +127,28 @@ abstract class McpSliceTestBase {
     }
 
     /// Holds the config in memory; a write applies at once and reloads the modules from it.
-    private static final class InMemoryConfigRepository implements GatewayConfigRepository {
+    private static final class InMemoryConfigRepository implements DynamicConfigRepository {
 
         private final ModuleRegistry modules;
-        private GatewayConfig current = GatewayConfig.empty();
+        private DynamicConfig current = DynamicConfig.empty();
 
         private InMemoryConfigRepository(ModuleRegistry modules) {
             this.modules = modules;
         }
 
         @Override
-        public GatewayConfig getActiveConfig() {
+        public DynamicConfig getActiveConfig() {
             return current;
         }
 
         @Override
-        public synchronized void update(UnaryOperator<GatewayConfig> mutation) {
+        public synchronized void update(UnaryOperator<DynamicConfig> mutation) {
             current = mutation.apply(current);
             modules.reload(current.modules());
         }
 
         @Override
-        public void updateAndWaitUntilApplied(UnaryOperator<GatewayConfig> mutation) {
+        public void updateAndWaitUntilApplied(UnaryOperator<DynamicConfig> mutation) {
             update(mutation);
         }
 
