@@ -71,9 +71,10 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         enableOAuth();
         startServer();
         var foreign = new TokenIssuer(SigningKeys.generate(), "kawa-test", Duration.ofMinutes(15), Duration.ofHours(8), Clock.systemUTC());
+        String token = foreign.newSession("admin@kawa", "admin", "kawa-studio", "kawa-test").getAccessToken().getValue();
 
         // when
-        var response = send("GET", "/topics", null, bearer(foreign.issue("admin@kawa").getValue()));
+        var response = send("GET", "/topics", null, bearer(token));
 
         // then
         assertThat(response).hasStatusCode(401);
@@ -86,9 +87,10 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         startServer();
         var otherIssuer = new TokenIssuer(SigningKeys.from(TestSigningKeys.SEC1_P256), "someone-else",
                 Duration.ofMinutes(15), Duration.ofHours(8), Clock.systemUTC());
+        String token = otherIssuer.newSession("admin@kawa", "admin", "kawa-studio", "kawa-test").getAccessToken().getValue();
 
         // when
-        var response = send("GET", "/topics", null, bearer(otherIssuer.issue("admin@kawa").getValue()));
+        var response = send("GET", "/topics", null, bearer(token));
 
         // then
         assertThat(response).hasStatusCode(401);
@@ -102,9 +104,10 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         var anHourAgo = Clock.fixed(Instant.now().minus(Duration.ofHours(1)), ZoneOffset.UTC);
         var expired = new TokenIssuer(SigningKeys.from(TestSigningKeys.SEC1_P256), "kawa-test",
                 Duration.ofMinutes(15), Duration.ofHours(8), anHourAgo);
+        String token = expired.newSession("admin@kawa", "admin", "kawa-studio", "kawa-test").getAccessToken().getValue();
 
         // when
-        var response = send("GET", "/topics", null, bearer(expired.issue("admin@kawa").getValue()));
+        var response = send("GET", "/topics", null, bearer(token));
 
         // then
         assertThat(response).hasStatusCode(401);

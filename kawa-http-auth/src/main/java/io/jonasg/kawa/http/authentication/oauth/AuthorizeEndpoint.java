@@ -16,28 +16,27 @@ import io.jonasg.kawa.plugin.http.HttpResponse;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /// `GET /oauth/authorize`: the authorization endpoint (RFC 6749 §4.1, with PKCE per RFC 7636). kawa
 /// serves no login page itself: a valid request is redirected to the external login UI (`loginUrl`,
 /// part of kawa studio) with a `login_challenge` that carries the request.
 ///
-/// An unknown client or redirect URI is answered with a `400` and never redirected (RFC 6749 §4.1.2.1);
-/// any other problem, such as a missing PKCE challenge, is reported back to the client's redirect URI.
+/// The client is resolved through [OAuthClients]. An unknown or disabled client, or a redirect URI the client did
+/// not register, is answered with a `400` and never redirected (RFC 6749 §4.1.2.1); any other problem, such as a
+/// missing PKCE challenge or an RFC 8707 `resource` other than the client's audience, is reported back to the
+/// client's redirect URI.
 final class AuthorizeEndpoint implements HttpEndpoint {
 
     private static final String SELF = "http://kawa/oauth/authorize";
 
     private final AuthorizationFlow flow;
-    private final String clientId;
-    private final Set<URI> redirectUris;
+    private final OAuthClients clients;
     private final String loginUrl;
 
-    AuthorizeEndpoint(AuthorizationFlow flow, String clientId, Set<URI> redirectUris, String loginUrl) {
+    AuthorizeEndpoint(AuthorizationFlow flow, OAuthClients clients, String loginUrl) {
         this.flow = flow;
-        this.clientId = clientId;
-        this.redirectUris = redirectUris;
+        this.clients = clients;
         this.loginUrl = loginUrl;
     }
 
@@ -53,7 +52,8 @@ final class AuthorizeEndpoint implements HttpEndpoint {
             return badRequest(e.getMessage());
         }
         URI redirectUri = authorization.getRedirectionURI();
-        if (!isRegistered(authorization.getClientID().getValue(), redirectUri)) {
+        var client = clients.find(authorization.getClientID().getValue()).filter(found -> found.allowsRedirect(redirectUri));
+        if (client.isEmpty()) {
             return badRequest("unknown client_id or redirect_uri");
         }
         if (!authorization.getResponseType().equals(ResponseType.CODE)) {
@@ -64,16 +64,22 @@ final class AuthorizeEndpoint implements HttpEndpoint {
             return redirectError(redirectUri, OAuth2Error.INVALID_REQUEST.setDescription("PKCE with S256 is required"),
                     authorization.getState());
         }
+        String clientId = client.get().id();
+        String audience = client.get().audience();
+        if (!clients.acceptsResources(clientId, audience, authorization.getResources())) {
+            return redirectError(redirectUri, OAuth2Error.INVALID_TARGET.setDescription("the resource must be " + audience),
+                    authorization.getState());
+        }
         String challenge = flow.challenge(new AuthorizationFlow.PendingAuthorization(
                 clientId, redirectUri, authorization.getCodeChallenge().getValue(),
-                authorization.getState() == null ? null : authorization.getState().getValue()));
+                authorization.getState() == null ? null : authorization.getState().getValue(), audience));
         String separator = loginUrl.contains("?") ? "&" : "?";
         return HttpResponse.redirect(loginUrl + separator + "login_challenge="
                 + URLEncoder.encode(challenge, StandardCharsets.UTF_8));
     }
 
     private boolean isRegistered(String requestedClientId, URI requestedRedirectUri) {
-        return clientId.equals(requestedClientId) && requestedRedirectUri != null && redirectUris.contains(requestedRedirectUri);
+        return clients.find(requestedClientId).filter(client -> client.allowsRedirect(requestedRedirectUri)).isPresent();
     }
 
     /// The query string as received: kawa hands over parameter values still URL-encoded.

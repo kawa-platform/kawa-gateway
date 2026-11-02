@@ -9,16 +9,18 @@ import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /// The `admin.auth.type: oauth` provider: admits requests carrying a valid access token issued by
 /// kawa itself (`Authorization: Bearer <jwt>`).
 ///
-/// A token is valid when [TokenVerifier] accepts it as an `at+jwt` access token and its `sub` is an
-/// admin user that still exists and is enabled, so deleting or disabling a user revokes their tokens
+/// A token is valid when [TokenVerifier] accepts it as an `at+jwt` access token for one of the accepted
+/// audiences and its `sub` is an admin user that still exists and is enabled, so deleting or disabling a user revokes their tokens
 /// immediately. The principal is named by the admin user's current username.
 ///
-/// Every token names the OAuth client it was issued to in `client_id`; a token without one, or with
-/// any other, is rejected. A [TokenIssuer#STUDIO_CLIENT_ID] token belongs to an admin user. An
+/// Every token names the OAuth client it was issued to in `client_id`; a token without one is
+/// rejected. A token issued to any client but the operator (kawa studio or a stored OAuth client)
+/// belongs to an admin user. An
 /// [TokenIssuer#OPERATOR_CLIENT_ID] token is valid while the [OperatorClient] is still configured, and
 /// the principal is the operator itself: named `kawa-operator` and with `kawa-operator` as its actor. A
 /// delegated token (with an `act` claim) is valid while the operator may still act as its subject: the
@@ -37,10 +39,11 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
     private final OperatorClient operator;
     private final String challenge;
 
+    /// @param audiences the `aud` values a token may carry
     /// @param publicUrl the admin API's public URL, under which the protected resource metadata is served
-    KawaTokenAuthenticationProvider(SigningKeys keys, String issuer, AdminUserDirectory users, OperatorClient operator,
-                                    String publicUrl) {
-        this.verifier = new TokenVerifier(keys, issuer, TokenIssuer.ACCESS_TOKEN_TYPE);
+    KawaTokenAuthenticationProvider(SigningKeys keys, String issuer, Set<String> audiences, AdminUserDirectory users,
+                                    OperatorClient operator, String publicUrl) {
+        this.verifier = new TokenVerifier(keys, issuer, audiences, TokenIssuer.ACCESS_TOKEN_TYPE);
         this.users = users;
         this.operator = operator;
         this.challenge = "Bearer resource_metadata=\"" + publicUrl + ProtectedResourceMetadataEndpoint.PATH + "\"";
@@ -58,8 +61,8 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
 
     private Optional<KawaPrincipal> principal(JWTClaimsSet claims) {
         Object clientId = claims.getClaim(TokenIssuer.CLIENT_ID_CLAIM);
-        if (TokenIssuer.STUDIO_CLIENT_ID.equals(clientId)) {
-            // an admin user logged in through kawa studio
+        if (clientId instanceof String id && !TokenIssuer.OPERATOR_CLIENT_ID.equals(id)) {
+            // an admin user logged in through kawa studio or a stored OAuth client
             return users.username(claims.getSubject()).map(KawaPrincipal::new);
         }
         if (!TokenIssuer.OPERATOR_CLIENT_ID.equals(clientId) || !operator.enabled()) {

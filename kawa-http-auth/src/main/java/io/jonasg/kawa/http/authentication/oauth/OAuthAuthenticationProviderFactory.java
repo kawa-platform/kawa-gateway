@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -16,8 +17,9 @@ import java.util.stream.Collectors;
 ///
 /// Settings (`admin.auth.settings`):
 ///
-/// - `issuer`: the `iss` and `aud` claim of issued tokens, also published as the authorization
-///   server's issuer (defaults to the admin API's public URL, `admin.publicUrl`)
+/// - `issuer`: the `iss` claim of issued tokens and the `aud` claim of tokens for the whole admin API,
+///   also published as the authorization server's issuer (defaults to the admin API's public URL,
+///   `admin.publicUrl`)
 /// - `tokenTtl`: access token lifetime as an ISO-8601 duration (defaults to `PT15M`)
 /// - `sessionTtl`: how long a login lasts before the refresh token stops working; refreshing does not
 ///   extend it (defaults to `PT8H`)
@@ -33,6 +35,9 @@ import java.util.stream.Collectors;
 ///
 /// The UI is always the client `kawa-studio`.
 ///
+/// Besides kawa studio, the authorization server issues tokens to the OAuth clients managed through the admin
+/// API ([OAuthClients]). Tokens of a client with audience `mcp` carry `aud = <publicUrl>/mcp`.
+///
 /// Users log in with the authorization code flow with PKCE (no password grant, per OAuth 2.1).
 ///
 /// Requires a public URL (`admin.publicUrl`, or the bind address it defaults to) that clients can reach:
@@ -44,6 +49,7 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
 
     static final Duration DEFAULT_TOKEN_TTL = Duration.ofMinutes(15);
     static final Duration DEFAULT_SESSION_TTL = Duration.ofHours(8);
+    static final String MCP_PATH = "/mcp";
 
     private final Clock clock;
 
@@ -80,19 +86,22 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
         }
         var operator = OperatorClient.from(settings.string("operatorSecret").orElse(null),
                 settings.string("operatorActsAs").orElse(OperatorClient.DEFAULT_ACTS_AS));
+        String mcpAudience = context.publicUrl() + MCP_PATH;
+        Set<String> audiences = Set.copyOf(List.of(issuer, mcpAudience));
+        var clients = new OAuthClients(TokenIssuer.STUDIO_CLIENT_ID, redirectUris, context.oauthClients(), issuer, mcpAudience);
         var keys = SigningKeys.from(settings.string("signingKey").orElse(null));
         var tokenIssuer = new TokenIssuer(keys, issuer, tokenTtl, sessionTtl, clock);
-        var refreshTokens = new TokenVerifier(keys, issuer, TokenIssuer.REFRESH_TOKEN_TYPE);
+        var refreshTokens = new TokenVerifier(keys, issuer, audiences, TokenIssuer.REFRESH_TOKEN_TYPE);
         var flow = new AuthorizationFlow(keys, issuer, tokenIssuer, clock);
 
-        context.publicEndpoint("GET", "/oauth/authorize", new AuthorizeEndpoint(flow, TokenIssuer.STUDIO_CLIENT_ID, redirectUris, loginUrl));
+        context.publicEndpoint("GET", "/oauth/authorize", new AuthorizeEndpoint(flow, clients, loginUrl));
         context.publicEndpoint("POST", "/oauth/login", new LoginEndpoint(flow, context.adminUsers()));
-        context.publicEndpoint("POST", "/oauth/token", new TokenEndpoint(context.adminUsers(), tokenIssuer, refreshTokens, flow, operator,
-                new TokenVerifier(keys, issuer, TokenIssuer.ACCESS_TOKEN_TYPE)));
+        context.publicEndpoint("POST", "/oauth/token", new TokenEndpoint(context.adminUsers(), tokenIssuer, refreshTokens, flow, clients,
+                operator, new TokenVerifier(keys, issuer, Set.of(issuer), TokenIssuer.ACCESS_TOKEN_TYPE)));
         context.publicEndpoint("GET", "/.well-known/jwks.json", new JwksEndpoint(keys));
         context.publicEndpoint("GET", "/.well-known/oauth-authorization-server", new AuthorizationServerMetadataEndpoint(issuer));
         context.publicEndpoint("GET", ProtectedResourceMetadataEndpoint.PATH, new ProtectedResourceMetadataEndpoint(context.publicUrl(), issuer));
-        return new KawaTokenAuthenticationProvider(keys, issuer, context.adminUsers(), operator, context.publicUrl());
+        return new KawaTokenAuthenticationProvider(keys, issuer, audiences, context.adminUsers(), operator, context.publicUrl());
     }
 
     private static void requireReachable(String publicUrl) {

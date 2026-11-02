@@ -19,11 +19,12 @@ import java.util.Date;
 import java.util.Map;
 import java.util.UUID;
 
-/// Issues kawa's admin tokens, ES256-signed JWTs carrying `iss`, `aud` (both the configured issuer),
-/// `sub` (the admin user's stable subject), `client_id` (RFC 9068), `iat`, `exp` and `jti`. Session tokens
-/// also carry `preferred_username`, the admin user's username at the time, for display. Every token names
-/// the OAuth client it was issued to: [#STUDIO_CLIENT_ID] for admin users, [#OPERATOR_CLIENT_ID] for the
-/// operator (in both `sub` and `client_id` when it acts as itself):
+/// Issues kawa's admin tokens, ES256-signed JWTs carrying `iss` (the configured issuer), `aud`, `sub` (the
+/// admin user's stable subject), `client_id` (RFC 9068), `iat`, `exp` and `jti`. `aud` is the audience of the
+/// session (the issuer for tokens kawa issues to itself). Session tokens also carry `preferred_username`, the
+/// admin user's username at the time, for display. Every token names the OAuth client it was issued to:
+/// [#STUDIO_CLIENT_ID] for kawa studio, [#OPERATOR_CLIENT_ID] for the operator (in both `sub` and `client_id`
+/// when it acts as itself), or the id of a stored OAuth client:
 ///
 /// - access tokens (`typ: at+jwt`, RFC 9068), valid for the token TTL
 /// - refresh tokens (`typ: rt+jwt`), valid until the end of the session
@@ -70,13 +71,6 @@ public final class TokenIssuer {
         }
     }
 
-    /// A new access token for the admin user `subject`, outside of any session.
-    public BearerAccessToken issue(String subject) {
-        Instant now = clock.instant();
-        Instant expiry = now.plus(tokenTtl);
-        return accessToken(claims(now, expiry).subject(subject).claim(CLIENT_ID_CLAIM, STUDIO_CLIENT_ID).build(), now, expiry);
-    }
-
     /// A new access token for the operator, outside of any session and without a refresh token: the
     /// operator authenticates again when it expires (RFC 6749 §4.4.3).
     public BearerAccessToken issueForOperator() {
@@ -99,19 +93,22 @@ public final class TokenIssuer {
         return new BearerAccessToken(jwt, Duration.between(now, expiry).toSeconds(), null, TokenTypeURI.ACCESS_TOKEN);
     }
 
-    /// Starts a session for `subject`, currently named `username` (after a login): an access token
-    /// and a refresh token that is valid until the session ends.
-    public Tokens newSession(String subject, String username) {
-        return refreshSession(subject, username, clock.instant().plus(sessionTtl));
+    /// Starts a session for `subject`, currently named `username`, who logged in to the OAuth client
+    /// `clientId`: an access token and a refresh token that is valid until the session ends, both for
+    /// `audience`.
+    public Tokens newSession(String subject, String username, String clientId, String audience) {
+        return refreshSession(subject, username, clientId, audience, clock.instant().plus(sessionTtl));
     }
 
-    /// Continues the session of `subject` that ends at `sessionExpiry`: a new access token and a
-    /// rotated refresh token with the same end, both naming the admin user's current `username`.
-    public Tokens refreshSession(String subject, String username, Instant sessionExpiry) {
+    /// Continues the session of `subject` with the OAuth client `clientId` that ends at `sessionExpiry`: a
+    /// new access token and a rotated refresh token with the same end and `audience`, both naming the admin
+    /// user's current `username`.
+    public Tokens refreshSession(String subject, String username, String clientId, String audience, Instant sessionExpiry) {
         Instant now = clock.instant();
         Instant accessExpiry = now.plus(tokenTtl).isBefore(sessionExpiry) ? now.plus(tokenTtl) : sessionExpiry;
-        String refreshToken = sign(REFRESH_TOKEN_TYPE, claims(subject, username, now, sessionExpiry));
-        return new Tokens(accessToken(claims(subject, username, now, accessExpiry), now, accessExpiry), new RefreshToken(refreshToken));
+        var session = new Session(subject, username, clientId, audience);
+        String refreshToken = sign(REFRESH_TOKEN_TYPE, session.claims(claims(now, sessionExpiry)));
+        return new Tokens(accessToken(session.claims(claims(now, accessExpiry)), now, accessExpiry), new RefreshToken(refreshToken));
     }
 
     private BearerAccessToken accessToken(JWTClaimsSet claims, Instant now, Instant expiry) {
@@ -119,8 +116,11 @@ public final class TokenIssuer {
         return new BearerAccessToken(jwt, Duration.between(now, expiry).toSeconds(), null);
     }
 
-    private JWTClaimsSet claims(String subject, String username, Instant now, Instant expiry) {
-        return claims(now, expiry).subject(subject).claim(CLIENT_ID_CLAIM, STUDIO_CLIENT_ID).claim("preferred_username", username).build();
+    private record Session(String subject, String username, String clientId, String audience) {
+
+        JWTClaimsSet claims(JWTClaimsSet.Builder claims) {
+            return claims.audience(audience).subject(subject).claim("preferred_username", username).claim(CLIENT_ID_CLAIM, clientId).build();
+        }
     }
 
     /// The claims every kawa token carries (`iss`, `aud`, `iat`, `exp`, `jti`), to be completed by the caller.
