@@ -33,7 +33,7 @@ import java.util.Map;
 ///
 /// Requests to non-public routes are authenticated with the [AuthenticationProvider] first; when it
 /// yields no principal the request is answered with `401`, carrying the provider's
-/// [challenge][AuthenticationProvider#challenge()], and never reaches the handler.
+/// [challenge][AuthenticationProvider#challenge(AuthenticationRequest)] for that request, and never reaches the handler.
 public final class HttpRouterHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
     private static final Logger log = LoggerFactory.getLogger(HttpRouterHandler.class);
@@ -66,9 +66,10 @@ public final class HttpRouterHandler extends SimpleChannelInboundHandler<FullHtt
         Map<String, List<String>> headers = headers(request);
         KawaPrincipal principal = null;
         if (!match.isPublic()) {
-            principal = authenticate(request.method().name(), path, headers);
+            var authenticationRequest = new AuthenticationRequest(request.method().name(), path, headers);
+            principal = authenticate(authenticationRequest);
             if (principal == null) {
-                writeResponse(ctx, request, Router.Response.unauthorized(authenticationProvider.challenge()));
+                writeResponse(ctx, request, Router.Response.unauthorized(authenticationProvider.challenge(authenticationRequest)));
                 return;
             }
         }
@@ -94,18 +95,18 @@ public final class HttpRouterHandler extends SimpleChannelInboundHandler<FullHtt
     }
 
     /// Logs who changed what: every authenticated request that is not a read, with the principal
-    /// and the service client that made it, if any (the operator, for itself or on the principal's behalf).
+    /// and the OAuth client it came through, if any (kawa studio, a stored client, or the operator, for itself or on the principal's behalf).
     private static void logWrite(Router.Request request, Router.Response<?> response) {
         if (request.principal() == null || request.method().equals("GET") || request.method().equals("HEAD")) {
             return;
         }
-        log.info("admin {} {} -> {} principal={} actor={}", request.method(), request.path(), response.status(),
+        log.info("admin {} {} -> {} principal={} client={}", request.method(), request.path(), response.status(),
                 request.principal().name(), request.principal().clientId() == null ? "-" : request.principal().clientId());
     }
 
-    private @Nullable KawaPrincipal authenticate(String method, String path, Map<String, List<String>> headers) {
+    private @Nullable KawaPrincipal authenticate(AuthenticationRequest request) {
         try {
-            return authenticationProvider.authenticate(new AuthenticationRequest(method, path, headers)).orElse(null);
+            return authenticationProvider.authenticate(request).orElse(null);
         } catch (RuntimeException e) {
             log.warn("Authentication provider {} failed; rejecting the request",
                     authenticationProvider.getClass().getName(), e);

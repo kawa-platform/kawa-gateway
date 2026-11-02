@@ -32,7 +32,8 @@ import java.util.Set;
 /// `kawa-operator` too, but its principal never carries an actor.
 ///
 /// A rejected request is challenged with the URL of the RFC 9728 protected resource metadata, from
-/// which a client can discover kawa's authorization server.
+/// which a client can discover kawa's authorization server: on `/mcp` the MCP endpoint's document, so its `resource`
+/// matches the URL an MCP client was given, everywhere else the admin API's.
 public final class KawaTokenAuthenticationProvider implements AuthenticationProvider {
 
     private static final String BEARER = "bearer ";
@@ -42,6 +43,7 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
     private final AdminUserDirectory users;
     private final OperatorClient operator;
     private final String challenge;
+    private final String mcpChallenge;
 
     /// @param audiences the `aud` values a token may carry
     /// @param publicUrl the admin API's public URL, under which the protected resource metadata is served
@@ -52,6 +54,8 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
         this.users = users;
         this.operator = operator;
         this.challenge = "Bearer resource_metadata=\"" + publicUrl + ProtectedResourceMetadataEndpoint.PATH + "\"";
+        this.mcpChallenge = "Bearer resource_metadata=\"" + publicUrl + ProtectedResourceMetadataEndpoint.PATH
+                + OAuthAuthenticationProviderFactory.MCP_PATH + "\"";
     }
 
     @Override
@@ -105,7 +109,7 @@ public final class KawaTokenAuthenticationProvider implements AuthenticationProv
     }
 
     @Override
-    public String challenge() {
-        return challenge;
+    public String challenge(AuthenticationRequest request) {
+        return OAuthAuthenticationProviderFactory.MCP_PATH.equals(request.path()) ? mcpChallenge : challenge;
     }
 }

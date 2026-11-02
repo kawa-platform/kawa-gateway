@@ -68,8 +68,8 @@ class PluginAuthenticationProviderSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response).hasStatusCode(401);
         assertThat(response.headers().firstValue("WWW-Authenticate"))
-                .withFailMessage(() -> "the 401 does not carry the provider's challenge: " + response.headers())
-                .hasValue("Bearer realm=\"test\", error=\"invalid_token\"");
+                .withFailMessage(() -> "the 401 does not carry the provider's challenge for the request: " + response.headers())
+                .hasValue("Bearer realm=\"test GET /topics\", error=\"invalid_token\"");
     }
 
     @Test
@@ -194,7 +194,7 @@ class PluginAuthenticationProviderSliceTest extends AdminHttpSliceTestBase {
         }
     }
 
-    /// A plugin whose provider rejects every request and answers with its own challenge.
+    /// A plugin whose provider rejects every request and answers with its own challenge, naming the request.
     static final class ChallengingPlugin implements KawaPlugin {
 
         @Override
@@ -214,8 +214,8 @@ class PluginAuthenticationProviderSliceTest extends AdminHttpSliceTestBase {
                         }
 
                         @Override
-                        public String challenge() {
-                            return "Bearer realm=\"test\", error=\"invalid_token\"";
+                        public String challenge(AuthenticationRequest request) {
+                            return "Bearer realm=\"test " + request.method() + " " + request.path() + "\", error=\"invalid_token\"";
                         }
                     };
                 }

@@ -35,7 +35,9 @@ info:
 
     The same port also serves an MCP server at `POST /mcp` (stateless Streamable HTTP, JSON-RPC
     2.0; not described here). It requires the same authentication and is switched on and off as
-    the `mcp` module (see `/modules`): while it is disabled, `/mcp` answers `404`.
+    the `mcp` module (see `/modules`): while it is disabled, `/mcp` answers `404`. A `401` on
+    `/mcp` points at the MCP endpoint's own metadata instead:
+    `WWW-Authenticate: Bearer resource_metadata="<admin.publicUrl>/.well-known/oauth-protected-resource/mcp"`.
   version: 0.1.0-SNAPSHOT
 security:
   - bearerAuth: []
@@ -911,6 +913,37 @@ paths:
                   resource:
                     type: string
                     example: https://kawa.example.com
+                  authorization_servers:
+                    type: array
+                    items:
+                      type: string
+                    example: [https://kawa.example.com]
+                  bearer_methods_supported:
+                    type: array
+                    items:
+                      type: string
+                    example: [header]
+  /.well-known/oauth-protected-resource/mcp:
+    get:
+      summary: MCP protected resource metadata
+      description: |
+        RFC 9728 metadata describing the MCP endpoint (`POST /mcp`) as an OAuth protected resource,
+        in the path-suffix form for the resource `<admin.publicUrl>/mcp`. Identical to
+        `/.well-known/oauth-protected-resource` except that `resource` is `<admin.publicUrl>/mcp`,
+        the URL an MCP client was given. A `401` on `/mcp` points here. Only exists with
+        `admin.auth.type: oauth`.
+      security: []
+      responses:
+        '200':
+          description: The metadata document
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resource:
+                    type: string
+                    example: https://kawa.example.com/mcp
                   authorization_servers:
                     type: array
                     items:

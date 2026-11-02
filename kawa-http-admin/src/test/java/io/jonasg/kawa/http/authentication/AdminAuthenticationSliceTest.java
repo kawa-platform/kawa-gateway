@@ -46,6 +46,24 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void pointsAnUnauthenticatedMcpRequestAtTheMcpMetadata() throws Exception {
+        // given: a stand-in for kawa-mcp's endpoint at POST /mcp
+        enableOAuth();
+        publicUrl = "https://kawa.example.com";
+        startServer();
+        server().router().post("/mcp", _ -> Router.Response.ok(null));
+
+        // when
+        var response = send("POST", "/mcp", "{}");
+
+        // then
+        assertThat(response).hasStatusCode(401);
+        assertThat(response.headers().firstValue("WWW-Authenticate"))
+                .withFailMessage(() -> "the 401 on POST /mcp does not point at the MCP endpoint's metadata: " + response.headers())
+                .hasValue("Bearer resource_metadata=\"https://kawa.example.com/.well-known/oauth-protected-resource/mcp\"");
+    }
+
+    @Test
     void admitsRequestWithValidToken() throws Exception {
         // given
         enableOAuth();
@@ -261,7 +279,8 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
                         {"name": "admin@kawa", "clientId": "kawa-mcp-claude"}""");
         assertThat(topicsResp).hasStatusCode(401);
         assertThat(topicsResp.headers().firstValue("WWW-Authenticate"))
-                .withFailMessage(() -> "the 401 for the MCP token on GET /topics carries no challenge: " + topicsResp.headers())
-                .hasValueSatisfying(challenge -> assertThat(challenge).startsWith("Bearer resource_metadata="));
+                .withFailMessage(() -> "the 401 for the MCP token on GET /topics does not point at the admin API's metadata: "
+                        + topicsResp.headers())
+                .hasValueSatisfying(challenge -> assertThat(challenge).endsWith("/.well-known/oauth-protected-resource\""));
     }
 }

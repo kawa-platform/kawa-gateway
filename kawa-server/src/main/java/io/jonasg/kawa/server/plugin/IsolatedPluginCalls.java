@@ -53,8 +53,8 @@ final class IsolatedPluginCalls {
                     }
 
                     @Override
-                    public String challenge() {
-                        return withContextClassLoader(loader, provider::challenge);
+                    public String challenge(AuthenticationRequest request) {
+                        return withContextClassLoader(loader, () -> provider.challenge(request));
                     }
                 };
             }

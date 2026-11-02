@@ -84,9 +84,10 @@ depend on production modules such as `kawa-config`, but never on a module that u
   authentication. It is switched by the runtime `mcp` module (`ModuleId.MCP`); while off, `/mcp` answers `404`. Tools
   call the services in `AdminServices` directly, one class per tool (`ListTopicsTool`), and answer with MCP-specific
   views as `structuredContent` plus the same JSON as text; failures become tool errors via `ToolResults`. MCP clients
-  find OAuth on their own: the provider's 401 challenge (`AuthenticationProvider.challenge()`) points at
-  `/.well-known/oauth-protected-resource`, which names the issuer. Both are built from `admin.publicUrl`, which the
-  `oauth` provider requires when the admin port binds a wildcard address.
+  find OAuth on their own: the provider's 401 challenge (`AuthenticationProvider.challenge(AuthenticationRequest)`) on
+  `/mcp` points at `/.well-known/oauth-protected-resource/mcp` (resource `<publicUrl>/mcp`), which names the issuer.
+  Both are built from `admin.publicUrl`, which the `oauth` provider requires when the admin port binds a wildcard
+  address.
 - `kawa-plugin-api`: public SPI (`KawaPlugin`, `KawaPluginContext`, admin `AuthenticationProviderFactory` and the
   minimal `HttpEndpoint` types) for plugins such as Kawa Pro. Must stay dependency-free and small; `kawa-server`'s
   `PluginLoader` discovers implementations via `ServiceLoader` at startup: built-ins on kawa's classpath, external

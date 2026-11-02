@@ -29,7 +29,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ExternalPluginLoaderTest {
 
     /// Registers a provider named `<what Greeting says>-<isolated|leaky>` whose principal, and the realm
-    /// of whose challenge, is the name of the thread context classloader it was called with.
+    /// of whose challenge, is the name of the thread context classloader it was called with; the challenge
+    /// also names the request path it was asked for.
     private static final String GREETING_PLUGIN = """
             package fixture;
 
@@ -68,8 +69,8 @@ class ExternalPluginLoaderTest {
                                 }
 
                                 @Override
-                                public String challenge() {
-                                    return "Bearer realm=\\"" + contextClassLoader() + "\\"";
+                                public String challenge(AuthenticationRequest request) {
+                                    return "Bearer realm=\\"" + contextClassLoader() + " " + request.path() + "\\"";
                                 }
                             };
                         }
@@ -195,7 +196,7 @@ class ExternalPluginLoaderTest {
     }
 
     @Test
-    void forwardsThePluginsChallengeCalledWithItsClassLoader() throws IOException {
+    void forwardsTheRequestToThePluginsChallengeCalledWithItsClassLoader() throws IOException {
         // given
         PluginJars.build(plugins.resolve("greeting").resolve("greeting.jar"),
                 Map.of("fixture.GreetingPlugin", GREETING_PLUGIN, "com.example.lib.Greeting", PLUGIN_GREETING),
@@ -204,13 +205,13 @@ class ExternalPluginLoaderTest {
                 .authenticationProviders().require("plugin-isolated").create(noContext());
 
         // when
-        String challenge = provider.challenge();
+        String challenge = provider.challenge(new AuthenticationRequest("POST", "/mcp", Map.of()));
 
         // then
         assertThat(challenge)
                 .withFailMessage(() -> "the plugin's challenge was not forwarded or not run with its context classloader: "
                         + challenge)
-                .isEqualTo("Bearer realm=\"kawa-plugin:greeting\"");
+                .isEqualTo("Bearer realm=\"kawa-plugin:greeting /mcp\"");
     }
 
     @Test
