@@ -8,6 +8,7 @@ import io.jonasg.kawa.http.clients.AuthClientService;
 import io.jonasg.kawa.http.governance.GovernanceService;
 import io.jonasg.kawa.http.modules.ModuleService;
 import io.jonasg.kawa.http.oauthclients.OAuthClientService;
+import io.jonasg.kawa.http.oauthclients.StoredOAuthClients;
 import io.jonasg.kawa.http.rbac.RbacGroupService;
 import io.jonasg.kawa.http.rbac.RbacRoleService;
 import io.jonasg.kawa.http.topics.TopicAdmin;
@@ -26,6 +27,7 @@ import java.util.function.Function;
 /// so close them only after every surface has stopped.
 ///
 /// @param adminUserAuthenticator checks admin user credentials for the authentication provider
+/// @param oauthClientDirectory   the stored OAuth clients, for the authentication provider
 public record AdminServices(
         TopicService topics,
         RbacRoleService roles,
@@ -35,7 +37,8 @@ public record AdminServices(
         AdminUserService adminUsers,
         AdminUserAuthenticator adminUserAuthenticator,
         ModuleService modules,
-        OAuthClientService oauthClients
+        OAuthClientService oauthClients,
+        StoredOAuthClients oauthClientDirectory
 ) implements AutoCloseable {
 
     /// Builds the services and seeds `bootstrapUser` into the admin users (see
@@ -64,7 +67,8 @@ public record AdminServices(
                 new AdminUserService(configRepository),
                 new AdminUserAuthenticator(configRepository),
                 new ModuleService(configRepository),
-                new OAuthClientService(configRepository));
+                new OAuthClientService(configRepository),
+                new StoredOAuthClients(configRepository));
     }
 
     @Override

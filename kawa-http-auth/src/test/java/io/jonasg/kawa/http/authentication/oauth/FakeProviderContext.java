@@ -2,6 +2,8 @@ package io.jonasg.kawa.http.authentication.oauth;
 
 import io.jonasg.kawa.plugin.auth.AdminUserDirectory;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
+import io.jonasg.kawa.plugin.auth.OAuthClient;
+import io.jonasg.kawa.plugin.auth.OAuthClientDirectory;
 import io.jonasg.kawa.plugin.auth.ProviderSettings;
 import io.jonasg.kawa.plugin.http.HttpEndpoint;
 
@@ -13,13 +15,15 @@ import java.util.Map;
 import java.util.Optional;
 
 /// An in-memory [AuthenticationProviderContext]: settings from a map, admin users with plaintext
-/// passwords (each user's subject is their username), and the registered public endpoints collected by `METHOD path`.
+/// passwords (each user's subject is their username), OAuth clients from [#oauthClients] keyed by id, and the
+/// registered public endpoints collected by `METHOD path`.
 final class FakeProviderContext implements AuthenticationProviderContext {
 
     private final Map<String, String> settings;
     private final Map<String, String> users;
     private final String publicUrl;
     final Map<String, HttpEndpoint> endpoints = new HashMap<>();
+    final Map<String, OAuthClient> oauthClients = new HashMap<>();
 
     FakeProviderContext(Map<String, String> settings, Map<String, String> users) {
         this(settings, users, "http://localhost:8080");
@@ -79,6 +83,11 @@ final class FakeProviderContext implements AuthenticationProviderContext {
                 return !users.isEmpty();
             }
         };
+    }
+
+    @Override
+    public OAuthClientDirectory oauthClients() {
+        return id -> Optional.ofNullable(oauthClients.get(id));
     }
 
     @Override

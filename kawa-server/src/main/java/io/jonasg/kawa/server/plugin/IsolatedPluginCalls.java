@@ -6,6 +6,7 @@ import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderFactory;
 import io.jonasg.kawa.plugin.auth.AuthenticationRequest;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
+import io.jonasg.kawa.plugin.auth.OAuthClientDirectory;
 import io.jonasg.kawa.plugin.auth.ProviderSettings;
 import io.jonasg.kawa.plugin.http.HttpEndpoint;
 
@@ -75,6 +76,11 @@ final class IsolatedPluginCalls {
             @Override
             public AdminUserDirectory adminUsers() {
                 return context.adminUsers();
+            }
+
+            @Override
+            public OAuthClientDirectory oauthClients() {
+                return context.oauthClients();
             }
 
             @Override

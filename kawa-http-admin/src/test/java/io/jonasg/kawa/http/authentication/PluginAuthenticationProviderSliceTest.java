@@ -108,6 +108,33 @@ class PluginAuthenticationProviderSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void letsTheProviderReadTheOAuthClientsManagedThroughTheApi() throws Exception {
+        // given
+        useApiKeyProvider();
+        startServer();
+        var apiKey = Map.of("X-Api-Key", "letmein");
+
+        // when
+        var beforePut = send("GET", "/test/oauth-clients/kawa-mcp-claude");
+        send("PUT", "/admin/oauth-clients/kawa-mcp-claude?consistency=applied", """
+                {"redirectUris": ["http://localhost:*/callback"], "audience": "mcp"}
+                """, apiKey);
+        var afterPut = send("GET", "/test/oauth-clients/kawa-mcp-claude");
+        send("DELETE", "/admin/oauth-clients/kawa-mcp-claude?consistency=applied", null, apiKey);
+        var afterDelete = send("GET", "/test/oauth-clients/kawa-mcp-claude");
+
+        // then
+        assertThat(beforePut).hasStatusCode(404);
+        assertThat(afterPut).hasStatusCode(200);
+        assertThatJson(afterPut.body())
+                .withFailMessage(() -> "the provider did not see the OAuth client stored through the API: " + afterPut.body())
+                .isEqualTo("""
+                        {"client":"kawa-mcp-claude true MCP [http://localhost:*/callback]"}
+                        """);
+        assertThat(afterDelete).hasStatusCode(404);
+    }
+
+    @Test
     void failsToStartForAnUnknownProvider() {
         // given
         auth = new AdminAuthConfig("oidc", null, Map.of());
@@ -135,7 +162,8 @@ class PluginAuthenticationProviderSliceTest extends AdminHttpSliceTestBase {
         auth = new AdminAuthConfig("test-api-key", null, Map.of("apiKey", "letmein"));
     }
 
-    /// A third-party plugin: admits requests carrying the configured `X-Api-Key` and adds a public endpoint.
+    /// A third-party plugin: admits requests carrying the configured `X-Api-Key` and adds public endpoints, one of
+    /// which shows the OAuth client `kawa-mcp-claude` as the provider reads it from its context.
     static final class ApiKeyPlugin implements KawaPlugin {
 
         @Override
@@ -153,6 +181,11 @@ class PluginAuthenticationProviderSliceTest extends AdminHttpSliceTestBase {
                             request -> HttpResponse.json(200, "{\"hello\":\"from the api-key plugin\"}"));
                     providerContext.publicEndpoint("GET", "/test/public-url",
                             request -> HttpResponse.json(200, "{\"publicUrl\":\"" + providerContext.publicUrl() + "\"}"));
+                    providerContext.publicEndpoint("GET", "/test/oauth-clients/kawa-mcp-claude",
+                            request -> providerContext.oauthClients().find("kawa-mcp-claude")
+                                    .map(client -> HttpResponse.json(200, "{\"client\":\"" + client.id() + " " + client.enabled()
+                                            + " " + client.audience() + " " + client.redirectUris() + "\"}"))
+                                    .orElseGet(() -> HttpResponse.json(404, "{}")));
                     return request -> request.header("x-api-key")
                             .filter(apiKey::equals)
                             .map(_ -> new KawaPrincipal("api-key-client"));
