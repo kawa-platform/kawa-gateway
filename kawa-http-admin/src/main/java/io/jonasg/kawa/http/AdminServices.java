@@ -7,6 +7,7 @@ import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.http.clients.AuthClientService;
 import io.jonasg.kawa.http.governance.GovernanceService;
 import io.jonasg.kawa.http.modules.ModuleService;
+import io.jonasg.kawa.http.oauthclients.OAuthClientService;
 import io.jonasg.kawa.http.rbac.RbacGroupService;
 import io.jonasg.kawa.http.rbac.RbacRoleService;
 import io.jonasg.kawa.http.topics.TopicAdmin;
@@ -33,7 +34,8 @@ public record AdminServices(
         GovernanceService governanceRules,
         AdminUserService adminUsers,
         AdminUserAuthenticator adminUserAuthenticator,
-        ModuleService modules
+        ModuleService modules,
+        OAuthClientService oauthClients
 ) implements AutoCloseable {
 
     /// Builds the services and seeds `bootstrapUser` into the admin users (see
@@ -61,7 +63,8 @@ public record AdminServices(
                 new GovernanceService(configRepository, governance),
                 new AdminUserService(configRepository),
                 new AdminUserAuthenticator(configRepository),
-                new ModuleService(configRepository));
+                new ModuleService(configRepository),
+                new OAuthClientService(configRepository));
     }
 
     @Override
