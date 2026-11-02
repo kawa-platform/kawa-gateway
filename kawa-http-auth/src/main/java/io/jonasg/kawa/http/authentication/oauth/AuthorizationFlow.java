@@ -18,7 +18,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /// another replica started:
 ///
 /// - a **login challenge** (`lc+jwt`, 5 minutes) carries the validated authorization request (client,
-///   redirect URI, PKCE challenge, state) from `/oauth/authorize` through the login UI to `/oauth/login`
+///   redirect URI, PKCE challenge, state, and the audience of the tokens to issue) from `/oauth/authorize`
+///   through the login UI to `/oauth/login`
 /// - an **authorization code** (`ac+jwt`, 60 seconds) carries the same plus the logged-in user to the
 ///   token endpoint
 ///
@@ -35,13 +36,16 @@ final class AuthorizationFlow {
     private static final String REDIRECT_URI = "redirect_uri";
     private static final String CODE_CHALLENGE = "code_challenge";
     private static final String STATE = "state";
+    private static final String TOKEN_AUDIENCE = "token_aud";
 
-    /// A validated authorization request waiting for the user to log in.
-    record PendingAuthorization(String clientId, URI redirectUri, String codeChallenge, @Nullable String state) {
+    /// A validated authorization request waiting for the user to log in; `audience` is the `aud` of the tokens
+    /// the client gets.
+    record PendingAuthorization(String clientId, URI redirectUri, String codeChallenge, @Nullable String state, String audience) {
     }
 
-    /// A redeemed authorization code: who logged in, for which client, redirect URI and PKCE challenge.
-    record AuthorizedCode(String subject, String clientId, URI redirectUri, String codeChallenge) {
+    /// A redeemed authorization code: who logged in, for which client, redirect URI, PKCE challenge and token
+    /// audience.
+    record AuthorizedCode(String subject, String clientId, URI redirectUri, String codeChallenge, String audience) {
     }
 
     private final TokenIssuer issuer;
@@ -54,9 +58,9 @@ final class AuthorizationFlow {
         this.issuer = issuer;
         this.clock = clock;
         this.challenges = new TokenVerifier(keys, issuerName, LOGIN_CHALLENGE_TYPE,
-                Set.of(CLIENT_ID, REDIRECT_URI, CODE_CHALLENGE, "exp", "jti"));
+                Set.of(CLIENT_ID, REDIRECT_URI, CODE_CHALLENGE, TOKEN_AUDIENCE, "exp", "jti"));
         this.codes = new TokenVerifier(keys, issuerName, CODE_TYPE,
-                Set.of("sub", CLIENT_ID, REDIRECT_URI, CODE_CHALLENGE, "exp", "jti"));
+                Set.of("sub", CLIENT_ID, REDIRECT_URI, CODE_CHALLENGE, TOKEN_AUDIENCE, "exp", "jti"));
     }
 
     /// The login challenge to hand to the login UI for `pending`.
@@ -69,7 +73,7 @@ final class AuthorizationFlow {
     Optional<PendingAuthorization> pending(String challenge) {
         return challenges.verify(challenge).map(claims -> new PendingAuthorization(
                 string(claims, CLIENT_ID), URI.create(string(claims, REDIRECT_URI)), string(claims, CODE_CHALLENGE),
-                stringOrNull(claims, STATE)));
+                stringOrNull(claims, STATE), string(claims, TOKEN_AUDIENCE)));
     }
 
     /// A single-use authorization code for `subject`, who completed the login for `pending`.
@@ -85,14 +89,15 @@ final class AuthorizationFlow {
         return codes.verify(code)
                 .filter(claims -> redeemed.putIfAbsent(claims.getJWTID(), claims.getExpirationTime().toInstant()) == null)
                 .map(claims -> new AuthorizedCode(claims.getSubject(), string(claims, CLIENT_ID),
-                        URI.create(string(claims, REDIRECT_URI)), string(claims, CODE_CHALLENGE)));
+                        URI.create(string(claims, REDIRECT_URI)), string(claims, CODE_CHALLENGE), string(claims, TOKEN_AUDIENCE)));
     }
 
     private static JWTClaimsSet.Builder withRequest(JWTClaimsSet.Builder claims, PendingAuthorization pending) {
         return claims.claim(CLIENT_ID, pending.clientId())
                 .claim(REDIRECT_URI, pending.redirectUri().toString())
                 .claim(CODE_CHALLENGE, pending.codeChallenge())
-                .claim(STATE, pending.state());
+                .claim(STATE, pending.state())
+                .claim(TOKEN_AUDIENCE, pending.audience());
     }
 
     private static String string(JWTClaimsSet claims, String name) {

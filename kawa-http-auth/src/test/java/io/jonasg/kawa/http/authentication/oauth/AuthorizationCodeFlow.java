@@ -17,7 +17,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /// Drives the authorization code flow with PKCE through a provider's registered endpoints, the way
-/// kawa studio and the browser do: authorize → login UI (challenge) → login → code → token.
+/// kawa studio and the browser do: authorize → login UI (challenge) → login → code → token. Acts as kawa studio
+/// unless another client and redirect URI are given.
 final class AuthorizationCodeFlow {
 
     static final String CLIENT_ID = "kawa-studio";
@@ -25,23 +26,31 @@ final class AuthorizationCodeFlow {
     static final String LOGIN_URL = "http://localhost:5173/admin/login";
 
     private final FakeProviderContext context;
+    private final String clientId;
+    private final String redirectUri;
     final CodeVerifier verifier = new CodeVerifier();
 
     AuthorizationCodeFlow(FakeProviderContext context) {
+        this(context, CLIENT_ID, REDIRECT_URI);
+    }
+
+    AuthorizationCodeFlow(FakeProviderContext context, String clientId, String redirectUri) {
         this.context = context;
+        this.clientId = clientId;
+        this.redirectUri = redirectUri;
     }
 
     /// The full flow: the token endpoint's response for `username` / `password`.
     HttpResponse signIn(String username, String password) {
-        return exchange(code(login(challenge(authorize(defaultAuthorization())), username, password)), REDIRECT_URI);
+        return exchange(code(login(challenge(authorize(defaultAuthorization())), username, password)), redirectUri);
     }
 
     /// `GET /oauth/authorize` with the default, valid parameters.
     Map<String, String> defaultAuthorization() {
         var params = new LinkedHashMap<String, String>();
         params.put("response_type", "code");
-        params.put("client_id", CLIENT_ID);
-        params.put("redirect_uri", REDIRECT_URI);
+        params.put("client_id", clientId);
+        params.put("redirect_uri", redirectUri);
         params.put("code_challenge", CodeChallenge.compute(CodeChallengeMethod.S256, verifier).getValue());
         params.put("code_challenge_method", "S256");
         params.put("state", "xyz");
@@ -74,7 +83,7 @@ final class AuthorizationCodeFlow {
     }
 
     HttpResponse exchange(String code, String redirectUri) {
-        return token("grant_type=authorization_code&client_id=" + CLIENT_ID
+        return token("grant_type=authorization_code&client_id=" + clientId
                 + "&code=" + URLEncoder.encode(code, StandardCharsets.UTF_8)
                 + "&redirect_uri=" + URLEncoder.encode(redirectUri, StandardCharsets.UTF_8)
                 + "&code_verifier=" + verifier.getValue());
