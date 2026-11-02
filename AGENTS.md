@@ -68,7 +68,7 @@ depend on production modules such as `kawa-config`, but never on a module that u
 
 - `kawa-config`: `BootstrapConfig` (the startup YAML, loaded by `ConfigLoader`, which rejects unknown keys and
   dynamic sections) and `DynamicConfig` (the config-topic snapshot: client auth, RBAC, virtual topics, governance,
-  admin users, modules; changed through the admin API), plus `ResourceConfig`/`RbacConfig` (plain Jackson; no
+  admin users, modules, OAuth clients; changed through the admin API), plus `ResourceConfig`/`RbacConfig` (plain Jackson; no
   custom `ResourceType` deserializer).
 - `kawa-core`: `GatewayContext`, interceptors.
 - `kawa-virtual-topic`: `VirtualTopicInterceptor` + per-API transforms; owns `VirtualTopicManager`
@@ -83,22 +83,35 @@ depend on production modules such as `kawa-config`, but never on a module that u
   stateless Streamable HTTP transport (`McpEndpoint`) is a `Router.Handler`, so `/mcp` shares the admin pipeline and
   authentication. It is switched by the runtime `mcp` module (`ModuleId.MCP`); while off, `/mcp` answers `404`. Tools
   call the services in `AdminServices` directly, one class per tool (`ListTopicsTool`), and answer with MCP-specific
-  views as `structuredContent` plus the same JSON as text; failures become tool errors via `ToolResults`. MCP clients
-  find OAuth on their own: the provider's 401 challenge (`AuthenticationProvider.challenge(AuthenticationRequest)`) on
+  views as `structuredContent` plus the same JSON as text; failures become tool errors via `ToolResults.guarded`, which
+  also logs each call once at info (user, OAuth client, tool, outcome). A token reaching `/mcp` is either an admin
+  token or an `mcp`-audience token of a stored OAuth client, which is accepted only there. MCP clients find OAuth on
+  their own: the provider's 401 challenge (`AuthenticationProvider.challenge(AuthenticationRequest)`) on
   `/mcp` points at `/.well-known/oauth-protected-resource/mcp` (resource `<publicUrl>/mcp`), which names the issuer.
   Both are built from `admin.publicUrl`, which the `oauth` provider requires when the admin port binds a wildcard
   address.
-- `kawa-plugin-api`: public SPI (`KawaPlugin`, `KawaPluginContext`, admin `AuthenticationProviderFactory` and the
-  minimal `HttpEndpoint` types) for plugins such as Kawa Pro. Must stay dependency-free and small; `kawa-server`'s
-  `PluginLoader` discovers implementations via `ServiceLoader` at startup: built-ins on kawa's classpath, external
-  plugins from the plugin directory (`--plugins`, `KAWA_PLUGIN_DIR`, `/opt/kawa/plugins`), each in its own
-  `PluginClassLoader` that only shares `io.jonasg.kawa.plugin.*` and `org.slf4j.*` with kawa. Anything else an
-  external plugin needs it must ship itself, and nothing in kawa's classpath is visible to it. Every new type a
-  plugin must exchange with kawa therefore belongs in `kawa-plugin-api`.
+- `kawa-plugin-api`: public SPI (`KawaPlugin`, `KawaPluginContext`, admin `AuthenticationProviderFactory`/
+  `AuthenticationProvider` with the path-aware `challenge(AuthenticationRequest)`, `AuthenticationProviderContext`
+  with `adminUsers()` and `oauthClients()` (`OAuthClientDirectory.find(id)` → `OAuthClient`), `KawaPrincipal(name,
+  clientId)`, and the minimal `HttpEndpoint` types) for plugins such as Kawa Pro. Must stay dependency-free and
+  small; `kawa-server`'s `PluginLoader` discovers implementations via `ServiceLoader` at startup: built-ins on
+  kawa's classpath, external plugins from the plugin directory (`--plugins`, `KAWA_PLUGIN_DIR`, `/opt/kawa/plugins`),
+  each in its own `PluginClassLoader` that only shares `io.jonasg.kawa.plugin.*` and `org.slf4j.*` with kawa.
+  Anything else an external plugin needs it must ship itself, and nothing in kawa's classpath is visible to it. Every
+  new type a plugin must exchange with kawa therefore belongs in `kawa-plugin-api`.
 - `kawa-http-auth`: kawa's built-in admin API authentication providers (`none`, `oauth` with Nimbus), shipped as a
   `KawaPlugin` (`BuiltInAuthenticationPlugin`). Depends only on `kawa-plugin-api` - never on `kawa-http-admin` or
   `kawa-config` - so the built-ins use exactly the contract a third-party provider gets. Only `kawa-server` depends on
-  it (and `kawa-http-admin` and `kawa-mcp` with `test` scope, for the slice tests).
+  it (and `kawa-http-admin` and `kawa-mcp` with `test` scope, for the slice tests). The `oauth` provider's OAuth
+  clients are `kawa-studio`, configured in its settings (exact redirect URIs, always resolved first), and the OAuth
+  clients stored in the config topic (`oauthClients`), managed through `/admin/oauth-clients`
+  (`io.jonasg.kawa.http.oauthclients`, which reserves the studio id) and read via
+  `AuthenticationProviderContext.oauthClients()` on every request. Their redirect URIs match exactly, except that an
+  `http` loopback URI may give `*` as its whole port (`http://localhost:*/callback`). Audience `admin` gets
+  `aud = <issuer>` (the whole admin API), `mcp` gets `aud = <publicUrl>/mcp` (only `POST /mcp`). Tokens carry
+  `client_id`, surfaced as `KawaPrincipal.clientId`; disabling or deleting a client, or changing its audience, revokes
+  its tokens on the next request. The 401 challenge is path-aware: `/mcp` has its own protected resource metadata
+  (`/.well-known/oauth-protected-resource/mcp`).
 - `kawa-server`: Netty server, broker clients, shading. Produces the runnable shaded jar
   (`mainClass=io.jonasg.kawa.server.GatewayLauncher`).
 - `kawa-integration-tests`: real-client + raw-socket wire tests against a broker via
