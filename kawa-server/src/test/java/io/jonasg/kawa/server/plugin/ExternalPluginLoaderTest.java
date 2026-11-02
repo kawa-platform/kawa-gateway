@@ -6,6 +6,8 @@ import io.jonasg.kawa.plugin.auth.AdminUserDirectory;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
 import io.jonasg.kawa.plugin.auth.AuthenticationRequest;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
+import io.jonasg.kawa.plugin.auth.OAuthClient;
+import io.jonasg.kawa.plugin.auth.OAuthClientDirectory;
 import io.jonasg.kawa.plugin.auth.ProviderSettings;
 import io.jonasg.kawa.plugin.http.HttpEndpoint;
 import org.junit.jupiter.api.Test;
@@ -14,7 +16,9 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -72,6 +76,39 @@ class ExternalPluginLoaderTest {
 
                         private static String contextClassLoader() {
                             return Thread.currentThread().getContextClassLoader().getName();
+                        }
+                    });
+                }
+            }
+            """;
+
+    /// Registers a provider named `oauth-clients` whose principal describes the OAuth client named by the
+    /// request's `x-client-id` header, as the plugin reads it from its context.
+    private static final String OAUTH_CLIENTS_PLUGIN = """
+            package fixture;
+
+            import io.jonasg.kawa.plugin.KawaPlugin;
+            import io.jonasg.kawa.plugin.KawaPluginContext;
+            import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
+            import io.jonasg.kawa.plugin.auth.AuthenticationProviderFactory;
+            import io.jonasg.kawa.plugin.auth.AuthenticationProvider;
+            import io.jonasg.kawa.plugin.auth.KawaPrincipal;
+
+            public final class OAuthClientsPlugin implements KawaPlugin {
+                @Override
+                public void register(KawaPluginContext context) {
+                    context.registerAuthenticationProvider(new AuthenticationProviderFactory() {
+                        @Override
+                        public String name() {
+                            return "oauth-clients";
+                        }
+
+                        @Override
+                        public AuthenticationProvider create(AuthenticationProviderContext providerContext) {
+                            return request -> request.header("x-client-id")
+                                    .flatMap(id -> providerContext.oauthClients().find(id))
+                                    .map(client -> new KawaPrincipal(client.id() + " " + client.enabled() + " "
+                                            + client.audience() + " " + client.redirectUris()));
                         }
                     });
                 }
@@ -177,6 +214,25 @@ class ExternalPluginLoaderTest {
     }
 
     @Test
+    void handsTheHostsOAuthClientsToAnIsolatedPlugin() throws IOException {
+        // given
+        PluginJars.build(plugins.resolve("oauth-clients").resolve("oauth-clients.jar"),
+                Map.of("fixture.OAuthClientsPlugin", OAUTH_CLIENTS_PLUGIN), Set.of(), "fixture.OAuthClientsPlugin");
+        var claude = new OAuthClient("kawa-mcp-claude", true, List.of("http://localhost:*/callback"), OAuthClient.Audience.MCP);
+        var provider = new PluginLoader(getClass().getClassLoader(), plugins).loadAll()
+                .authenticationProviders().require("oauth-clients")
+                .create(contextWithOAuthClients(id -> Optional.of(claude).filter(client -> client.id().equals(id))));
+
+        // when
+        var principal = provider.authenticate(new AuthenticationRequest("GET", "/topics", Map.of("x-client-id", List.of("kawa-mcp-claude"))));
+
+        // then
+        assertThat(principal.map(KawaPrincipal::name))
+                .withFailMessage(() -> "the isolated plugin did not get the host's OAuth clients: " + principal)
+                .hasValue("kawa-mcp-claude true MCP [http://localhost:*/callback]");
+    }
+
+    @Test
     void failsStartupNamingThePluginWhenADependencyIsMissing() throws IOException {
         // given: a plugin whose dependency com.acme.Missing was not shipped
         PluginJars.build(plugins.resolve("broken").resolve("broken.jar"), Map.of(
@@ -214,6 +270,13 @@ class ExternalPluginLoaderTest {
     }
 
     private static AuthenticationProviderContext noContext() {
+        return contextWithOAuthClients(_ -> {
+            throw new UnsupportedOperationException();
+        });
+    }
+
+    /// A context that only offers `oauthClients`; everything else throws.
+    private static AuthenticationProviderContext contextWithOAuthClients(OAuthClientDirectory oauthClients) {
         return new AuthenticationProviderContext() {
             @Override
             public ProviderSettings settings() {
@@ -223,6 +286,11 @@ class ExternalPluginLoaderTest {
             @Override
             public AdminUserDirectory adminUsers() {
                 throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public OAuthClientDirectory oauthClients() {
+                return oauthClients;
             }
 
             @Override

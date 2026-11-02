@@ -11,6 +11,10 @@ public interface AuthenticationProviderContext {
     /// kawa's local admin users, for providers that check usernames and passwords themselves.
     AdminUserDirectory adminUsers();
 
+    /// The OAuth clients managed through the admin API, for providers that run an authorization server.
+    /// Look clients up on every request instead of keeping them: see [OAuthClientDirectory].
+    OAuthClientDirectory oauthClients();
+
     /// The absolute URL clients reach the admin API at, without a trailing `/`: `admin.publicUrl`
     /// from the gateway config, or `http://<bind host>:<admin port>` when that is not set. Use it for
     /// URLs a provider publishes, such as a token issuer or a metadata document.

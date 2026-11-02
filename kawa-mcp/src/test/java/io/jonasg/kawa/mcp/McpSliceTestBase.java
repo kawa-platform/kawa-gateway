@@ -72,7 +72,7 @@ abstract class McpSliceTestBase {
                 new GovernancePolicy(new GovernanceConfig(null)), mock(TopicAdmin.class), null, _ -> null);
         services = topicService == null ? real : new AdminServices(topicService, real.roles(), real.groups(),
                 real.clients(), real.governanceRules(), real.adminUsers(), real.adminUserAuthenticator(), real.modules(),
-                real.oauthClients());
+                real.oauthClients(), real.oauthClientDirectory());
         var authenticationProviders = new AuthenticationProviderRegistry();
         new BuiltInAuthenticationPlugin().register(authenticationProviders::register);
         server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none()), services,
