@@ -6,6 +6,8 @@ import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
 import io.modelcontextprotocol.spec.McpSchema;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
@@ -13,6 +15,8 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.net.URLDecoder;
@@ -47,6 +51,16 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
     private static final String MCP_RESOURCE = PUBLIC_URL + "/mcp";
     private static final Pattern RESOURCE_METADATA = Pattern.compile("resource_metadata=\"([^\"]+)\"");
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    /// The `oauth` provider fetches client documents from public https hosts only; this system property lets the test serve one
+    /// from a loopback port. Set before the gateway starts, it is a JVM flag a deployment's config cannot set.
+    private static final String CIMD_LOOPBACK_PROPERTY = "kawa.test.clientIdMetadataLoopback";
+    private static final HttpServer CLIENT_DOCUMENTS = clientDocumentServer();
+    private static final String CIMD_CLIENT_ID = "http://127.0.0.1:" + CLIENT_DOCUMENTS.getAddress().getPort() + "/client.json";
+    private static final String CIMD_PRIVATE_CLIENT_ID = "https://10.255.255.1/client.json";
+
+    static {
+        System.setProperty(CIMD_LOOPBACK_PROPERTY, "true");
+    }
 
     @Override
     protected AdminConfig adminConfig() {
@@ -55,6 +69,18 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
                         "loginUrl", "http://localhost:5173/admin/login",
                         "redirectUris", REDIRECT_URI)),
                 PUBLIC_URL);
+    }
+
+    @AfterAll
+    static void stopClientDocuments() {
+        CLIENT_DOCUMENTS.stop(0);
+        System.clearProperty(CIMD_LOOPBACK_PROPERTY);
+    }
+
+    /// Leaves the `mcp-cimd` module on, as it is by default, whatever a test did to it.
+    @AfterEach
+    void switchClientIdMetadataDocumentsOn() throws Exception {
+        switchClientIdMetadataDocuments(true);
     }
 
     /// Removes the OAuth client a test created, so no test depends on another's leftovers.
@@ -129,6 +155,74 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
         assertThat(topicsResp.statusCode())
                 .withFailMessage(() -> "GET /topics with an MCP-audience token was not rejected: " + topicsResp.statusCode())
                 .isEqualTo(401);
+    }
+
+    @Test
+    void aClientIdentifiedByAMetadataDocumentSignsInAndCallsATool() throws Exception {
+        // given: nothing registers the client; CIMD is on by default and published in the discovery metadata
+        JsonNode serverMetadata = discoverAuthorizationServer();
+        assertThat(serverMetadata.get("client_id_metadata_document_supported").asBoolean())
+                .withFailMessage(() -> "the metadata does not advertise CIMD support: " + serverMetadata)
+                .isTrue();
+        String redirectUri = "http://localhost:" + freePort() + "/callback";
+        awaitAuthorizable(CIMD_CLIENT_ID, redirectUri);
+
+        // when: it signs in with its URL as client_id and the MCP endpoint as resource
+        JsonNode tokens = signIn("admin@kawa", "s3cret", CIMD_CLIENT_ID, redirectUri, MCP_RESOURCE,
+                serverMetadata.get("authorization_endpoint").asString(), serverMetadata.get("token_endpoint").asString());
+        String token = tokens.get("access_token").asString();
+
+        // then: the token is for the MCP endpoint and names the client
+        JsonNode claims = claims(token);
+        assertThat(claims.get("client_id").asString())
+                .withFailMessage(() -> "the token does not name the CIMD client: " + claims)
+                .isEqualTo(CIMD_CLIENT_ID);
+        McpSchema.CallToolResult result = listTopicsOverMcp(token);
+        assertThat(result.isError())
+                .withFailMessage(() -> "list_topics with the CIMD client's token failed: " + result.content())
+                .isFalse();
+
+        // and: the login UI can see who is asking
+        String challenge = queryParam(authorize(CIMD_CLIENT_ID, redirectUri, MCP_RESOURCE, "challenge-" + UUID.randomUUID())
+                .headers().firstValue("Location").orElseThrow(), "login_challenge");
+        JsonNode asking = getJson(PUBLIC_URL + "/oauth/login-challenge?login_challenge=" + encode(challenge));
+        assertThat(asking.get("clientName").asString()).withFailMessage(() -> "wrong client name: " + asking).isEqualTo("IT client");
+        assertThat(asking.get("registered").asBoolean()).withFailMessage(() -> "a CIMD client was shown as registered: " + asking).isFalse();
+        assertThat(asking.get("audience").asString()).isEqualTo("mcp");
+
+        // when: the admin switches CIMD off
+        switchClientIdMetadataDocuments(false);
+
+        // then: the token stops working, no new sign-in starts and the metadata stops advertising it
+        eventually(() -> {
+            assertThat(mcpToolsList(token).statusCode())
+                    .withFailMessage(() -> "a CIMD token still reached /mcp after CIMD was switched off")
+                    .isEqualTo(401);
+            assertThat(authorize(CIMD_CLIENT_ID, redirectUri, MCP_RESOURCE, "challenge-" + UUID.randomUUID()).statusCode())
+                    .withFailMessage(() -> "a CIMD sign-in started after CIMD was switched off")
+                    .isEqualTo(400);
+            assertThat(discoverAuthorizationServer().has("client_id_metadata_document_supported"))
+                    .withFailMessage(() -> "the metadata still advertises CIMD after it was switched off")
+                    .isFalse();
+        });
+
+        // and: switching it on again brings the client back
+        switchClientIdMetadataDocuments(true);
+        eventually(() -> assertThat(mcpToolsList(token).statusCode())
+                .withFailMessage(() -> "the CIMD token did not work again after CIMD was switched back on")
+                .isEqualTo(200));
+    }
+
+    @Test
+    void refusesAMetadataDocumentUrlOnAnAddressItMayNotFetchFrom() throws Exception {
+        // when: the URL's host is a private address (the test policy only fetches from loopback)
+        HttpResponse<String> response = authorize(CIMD_PRIVATE_CLIENT_ID, "http://localhost:" + freePort() + "/callback", null,
+                "challenge-" + UUID.randomUUID());
+
+        // then
+        assertThat(response.statusCode())
+                .withFailMessage(() -> "a client_id URL on a private address was not refused: " + response.statusCode() + " " + response.body())
+                .isEqualTo(400);
     }
 
     @Test
@@ -481,6 +575,41 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
                 .withFailMessage(() -> "GET " + url + " failed: " + response.body())
                 .isEqualTo(200);
         return JSON.readTree(response.body());
+    }
+
+    /// Switches the `mcp-cimd` module, waiting until the gateway applied it.
+    private void switchClientIdMetadataDocuments(boolean enabled) throws Exception {
+        HttpResponse<String> response = httpExec(reqBuilder("/modules/mcp-cimd?consistency=applied")
+                .header("Authorization", "Bearer " + login("admin@kawa", "s3cret"))
+                .header("Content-Type", "application/json")
+                .PUT(HttpRequest.BodyPublishers.ofString("{\"enabled\":" + enabled + "}"))
+                .build());
+        assertThat(response.statusCode())
+                .withFailMessage(() -> "PUT /modules/mcp-cimd was not accepted: " + response.body())
+                .isEqualTo(200);
+    }
+
+    /// Serves the metadata document of the CIMD client at `/client.json`.
+    private static HttpServer clientDocumentServer() {
+        try {
+            HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+            for (String path : new String[] {"/client.json"}) {
+                server.createContext(path, exchange -> {
+                    String clientId = "http://127.0.0.1:" + server.getAddress().getPort() + path;
+                    byte[] body = ("{\"client_id\": \"" + clientId + "\", \"client_name\": \"IT client\", "
+                            + "\"redirect_uris\": [\"http://localhost:*/callback\"], \"token_endpoint_auth_method\": \"none\"}")
+                            .getBytes(StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().add("Content-Type", "application/json");
+                    exchange.sendResponseHeaders(200, body.length);
+                    exchange.getResponseBody().write(body);
+                    exchange.close();
+                });
+            }
+            server.start();
+            return server;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private static int freePort() {

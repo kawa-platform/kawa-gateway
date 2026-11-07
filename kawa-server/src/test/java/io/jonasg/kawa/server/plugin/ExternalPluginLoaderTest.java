@@ -298,6 +298,11 @@ class ExternalPluginLoaderTest {
             }
 
             @Override
+            public boolean clientIdMetadataDocumentsEnabled() {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
             public String publicUrl() {
                 throw new UnsupportedOperationException();
             }

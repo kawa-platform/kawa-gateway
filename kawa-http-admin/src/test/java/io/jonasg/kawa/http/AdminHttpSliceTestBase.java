@@ -124,9 +124,20 @@ public abstract class AdminHttpSliceTestBase {
 
     /// Like [#enableOAuth()], with `bootstrapUser` instead (`null` for none).
     protected void enableOAuth(AdminAuthConfig.@Nullable BootstrapUser bootstrapUser) {
-        auth = new AdminAuthConfig("oauth", bootstrapUser, Map.of(
+        enableOAuth(bootstrapUser, Map.of());
+    }
+
+    /// Like [#enableOAuth()], with `extraSettings` added to the provider's settings.
+    protected void enableOAuthWith(Map<String, String> extraSettings) {
+        enableOAuth(new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), extraSettings);
+    }
+
+    private void enableOAuth(AdminAuthConfig.@Nullable BootstrapUser bootstrapUser, Map<String, String> extraSettings) {
+        var settings = new HashMap<String, Object>(Map.of(
                 "issuer", "kawa-test", "signingKey", TestSigningKeys.SEC1_P256,
                 "loginUrl", LOGIN_URL, "redirectUris", REDIRECT_URI));
+        settings.putAll(extraSettings);
+        auth = new AdminAuthConfig("oauth", bootstrapUser, settings);
     }
 
     /// A registry holding the providers the given plugins register, as the gateway's plugin loader
@@ -203,7 +214,7 @@ public abstract class AdminHttpSliceTestBase {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
     }
 
-    private static String encode(String value) {
+    protected static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 

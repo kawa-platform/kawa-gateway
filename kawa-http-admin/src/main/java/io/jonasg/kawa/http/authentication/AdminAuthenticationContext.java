@@ -8,14 +8,17 @@ import io.jonasg.kawa.plugin.auth.ProviderSettings;
 import io.jonasg.kawa.plugin.http.HttpEndpoint;
 import io.netty.handler.codec.http.HttpMethod;
 
+import java.util.function.BooleanSupplier;
+
 /// The [AuthenticationProviderContext] the admin server hands to the selected provider: its
-/// settings, kawa's admin users and OAuth clients, the admin API's public URL, and public endpoints registered straight
-/// into the [Router].
+/// settings, kawa's admin users and OAuth clients, whether client ID metadata documents are enabled, the admin API's
+/// public URL, and public endpoints registered straight into the [Router].
 public final class AdminAuthenticationContext implements AuthenticationProviderContext {
 
     private final ProviderSettings settings;
     private final AdminUserDirectory adminUsers;
     private final OAuthClientDirectory oauthClients;
+    private final BooleanSupplier clientIdMetadataDocuments;
     private final String publicUrl;
     private final Router router;
 
@@ -23,12 +26,14 @@ public final class AdminAuthenticationContext implements AuthenticationProviderC
             ProviderSettings settings,
             AdminUserDirectory adminUsers,
             OAuthClientDirectory oauthClients,
+            BooleanSupplier clientIdMetadataDocuments,
             String publicUrl,
             Router router
     ) {
         this.settings = settings;
         this.adminUsers = adminUsers;
         this.oauthClients = oauthClients;
+        this.clientIdMetadataDocuments = clientIdMetadataDocuments;
         this.publicUrl = publicUrl;
         this.router = router;
     }
@@ -46,6 +51,11 @@ public final class AdminAuthenticationContext implements AuthenticationProviderC
     @Override
     public OAuthClientDirectory oauthClients() {
         return oauthClients;
+    }
+
+    @Override
+    public boolean clientIdMetadataDocumentsEnabled() {
+        return clientIdMetadataDocuments.getAsBoolean();
     }
 
     @Override

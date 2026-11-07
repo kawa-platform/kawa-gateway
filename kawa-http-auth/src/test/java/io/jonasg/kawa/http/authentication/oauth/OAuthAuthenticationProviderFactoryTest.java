@@ -43,6 +43,7 @@ class OAuthAuthenticationProviderFactoryTest {
                 .withFailMessage(() -> "the oauth endpoints were not registered: " + context.endpoints.keySet())
                 .containsExactlyInAnyOrder(
                         "GET /oauth/authorize",
+                        "GET /oauth/login-challenge",
                         "POST /oauth/login",
                         "POST /oauth/token",
                         "GET /.well-known/jwks.json",
@@ -275,6 +276,153 @@ class OAuthAuthenticationProviderFactoryTest {
     }
 
     @Test
+    void loginContinuesAsTheSignedInUserWithoutAPassword() {
+        // given: alice is signed in to studio
+        var users = new HashMap<>(Map.of("admin", "s3cret", "alice", "alice-secret"));
+        var context = new FakeProviderContext(defaults(Map.of()), users);
+        var provider = factory.create(context);
+        String studioToken = jsonField(new AuthorizationCodeFlow(context).signIn("alice", "alice-secret"), "access_token");
+        var flow = new AuthorizationCodeFlow(context);
+        String challenge = AuthorizationCodeFlow.challenge(flow.authorize(flow.defaultAuthorization()));
+
+        // when
+        HttpResponse login = flow.loginContinuing(challenge, "Bearer " + studioToken);
+
+        // then
+        assertThat(login.status()).isEqualTo(200);
+        HttpResponse tokens = flow.exchange(AuthorizationCodeFlow.code(login), AuthorizationCodeFlow.REDIRECT_URI);
+        assertThat(provider.authenticate(bearer(jsonField(tokens, "access_token"))))
+                .withFailMessage(() -> "the code issued for a signed-in user did not yield a token for them")
+                .hasValueSatisfying(principal -> assertThat(principal.name()).isEqualTo("alice"));
+    }
+
+    @Test
+    void loginStillAcceptsAPasswordWhenATokenIsAlsoSent() {
+        // given
+        var context = context(Map.of());
+        factory.create(context);
+        var flow = new AuthorizationCodeFlow(context);
+        String challenge = AuthorizationCodeFlow.challenge(flow.authorize(flow.defaultAuthorization()));
+
+        // when
+        HttpResponse response = flow.login(challenge, "admin", "s3cret");
+
+        // then
+        assertThat(response.status()).isEqualTo(200);
+    }
+
+    @Test
+    void loginContinuingRefusesAMissingOrMalformedToken() {
+        // given
+        var context = context(Map.of());
+        factory.create(context);
+        var flow = new AuthorizationCodeFlow(context);
+        String challenge = AuthorizationCodeFlow.challenge(flow.authorize(flow.defaultAuthorization()));
+
+        // when
+        var none = flow.loginContinuing(challenge, null);
+        var garbage = flow.loginContinuing(challenge, "Bearer not-a-jwt");
+        var basic = flow.loginContinuing(challenge, "Basic YWRtaW46czNjcmV0");
+
+        // then
+        for (HttpResponse response : List.of(none, garbage, basic)) {
+            assertThat(response.status()).isEqualTo(400);
+            assertThatJson(body(response)).isObject().containsEntry("error", "invalid_credentials");
+        }
+    }
+
+    @Test
+    void loginContinuingRefusesATokenMeantForTheMcpEndpoint() {
+        // given: an MCP client that signed in as admin
+        var context = context(Map.of());
+        context.oauthClients.put("claude-code", new io.jonasg.kawa.plugin.auth.OAuthClient("claude-code", true,
+                List.of("http://localhost:7000/callback"), io.jonasg.kawa.plugin.auth.OAuthClient.Audience.MCP));
+        factory.create(context);
+        var mcp = new AuthorizationCodeFlow(context, "claude-code", "http://localhost:7000/callback");
+        String mcpToken = jsonField(mcp.signIn("admin", "s3cret"), "access_token");
+        var flow = new AuthorizationCodeFlow(context);
+        String challenge = AuthorizationCodeFlow.challenge(flow.authorize(flow.defaultAuthorization()));
+
+        // when
+        HttpResponse response = flow.loginContinuing(challenge, "Bearer " + mcpToken);
+
+        // then
+        assertThat(response.status()).isEqualTo(400);
+        assertThatJson(body(response)).isObject().containsEntry("error", "invalid_credentials");
+    }
+
+    @Test
+    void loginContinuingRefusesARefreshToken() {
+        // given
+        var context = context(Map.of());
+        factory.create(context);
+        String refreshToken = jsonField(new AuthorizationCodeFlow(context).signIn("admin", "s3cret"), "refresh_token");
+        var flow = new AuthorizationCodeFlow(context);
+        String challenge = AuthorizationCodeFlow.challenge(flow.authorize(flow.defaultAuthorization()));
+
+        // when
+        HttpResponse response = flow.loginContinuing(challenge, "Bearer " + refreshToken);
+
+        // then
+        assertThat(response.status()).isEqualTo(400);
+        assertThatJson(body(response)).isObject().containsEntry("error", "invalid_credentials");
+    }
+
+    @Test
+    void loginContinuingRefusesAnExpiredToken() {
+        // given: an access token issued 3 hours ago with a 15 minute lifetime, same signing key
+        var threeHoursAgo = Clock.fixed(Instant.now().minus(Duration.ofHours(3)), ZoneOffset.UTC);
+        String expired = new TokenIssuer(SigningKeys.from(TestSigningKeys.SEC1_P256), "kawa",
+                Duration.ofMinutes(15), Duration.ofHours(8), threeHoursAgo)
+                .newSession("admin", "admin", "kawa-studio", "kawa").getAccessToken().getValue();
+        var context = context(Map.of("signingKey", TestSigningKeys.SEC1_P256, "issuer", "kawa"));
+        factory.create(context);
+        var flow = new AuthorizationCodeFlow(context);
+        String challenge = AuthorizationCodeFlow.challenge(flow.authorize(flow.defaultAuthorization()));
+
+        // when
+        HttpResponse response = flow.loginContinuing(challenge, "Bearer " + expired);
+
+        // then
+        assertThat(response.status()).isEqualTo(400);
+        assertThatJson(body(response)).isObject().containsEntry("error", "invalid_credentials");
+    }
+
+    @Test
+    void loginContinuingRefusesAUserWhoWasRemovedSinceSigningIn() {
+        // given
+        var users = new HashMap<>(Map.of("admin", "s3cret", "alice", "alice-secret"));
+        var context = new FakeProviderContext(defaults(Map.of()), users);
+        factory.create(context);
+        String studioToken = jsonField(new AuthorizationCodeFlow(context).signIn("alice", "alice-secret"), "access_token");
+        users.remove("alice");
+        var flow = new AuthorizationCodeFlow(context);
+        String challenge = AuthorizationCodeFlow.challenge(flow.authorize(flow.defaultAuthorization()));
+
+        // when
+        HttpResponse response = flow.loginContinuing(challenge, "Bearer " + studioToken);
+
+        // then
+        assertThat(response.status()).isEqualTo(400);
+        assertThatJson(body(response)).isObject().containsEntry("error", "invalid_credentials");
+    }
+
+    @Test
+    void loginContinuingStillNeedsAValidChallenge() {
+        // given
+        var context = context(Map.of());
+        factory.create(context);
+        String studioToken = jsonField(new AuthorizationCodeFlow(context).signIn("admin", "s3cret"), "access_token");
+
+        // when
+        HttpResponse response = new AuthorizationCodeFlow(context).loginContinuing("not-a-challenge", "Bearer " + studioToken);
+
+        // then
+        assertThat(response.status()).isEqualTo(400);
+        assertThatJson(body(response)).isObject().containsEntry("error", "invalid_challenge");
+    }
+
+    @Test
     void loginRejectsAnExpiredChallenge() {
         // given: a challenge issued 10 minutes ago, with the same signing key
         var settings = Map.of("signingKey", TestSigningKeys.SEC1_P256);
@@ -476,6 +624,40 @@ class OAuthAuthenticationProviderFactoryTest {
                 .withFailMessage(() -> "the oauth provider started with the wildcard public URL " + publicUrl)
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("set admin.publicUrl");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"not a url", "https://client.example.com", "https://client.example.com/", "http://client.example.com/c.json",
+            "https://client.example.com/c.json#frag", "https://user@client.example.com/c.json", "https://client.example.com/a/../c.json"})
+    void rejectsAnInvalidClientIdMetadataDocumentUrl(String url) {
+        // given
+        var context = new FakeProviderContext(defaults(Map.of("clientIdMetadataDocuments", url)), Map.of("admin", "s3cret"));
+
+        // when / then
+        assertThatThrownBy(() -> factory.create(context))
+                .withFailMessage(() -> "the oauth provider started with the metadata document URL " + url)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("admin.auth.settings.clientIdMetadataDocuments");
+    }
+
+    @Test
+    void advertisesClientIdMetadataDocumentsOnlyWhileTheyAreEnabled() {
+        // given: enabled by default
+        var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"));
+        factory.create(context);
+
+        // when
+        String enabled = new String(metadata(context).body(), StandardCharsets.UTF_8);
+        context.clientIdMetadataDocuments = false;
+        String disabled = new String(metadata(context).body(), StandardCharsets.UTF_8);
+
+        // then
+        assertThatJson(enabled).withFailMessage(() -> "CIMD support was not advertised: " + enabled)
+                .isObject().containsEntry("client_id_metadata_document_supported", true);
+        assertThatJson(enabled).withFailMessage(() -> "'none' is not a supported token endpoint auth method: " + enabled)
+                .node("token_endpoint_auth_methods_supported").isArray().contains("none");
+        assertThatJson(disabled).withFailMessage(() -> "CIMD support was advertised while switched off: " + disabled)
+                .isObject().doesNotContainKey("client_id_metadata_document_supported");
     }
 
     @ParameterizedTest

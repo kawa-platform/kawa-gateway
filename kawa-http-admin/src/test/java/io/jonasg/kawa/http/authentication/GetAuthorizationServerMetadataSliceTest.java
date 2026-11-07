@@ -33,4 +33,43 @@ class GetAuthorizationServerMetadataSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body()).node("token_endpoint_auth_methods_supported").isArray()
                 .containsExactly("none", "client_secret_basic", "client_secret_post");
     }
+
+    @Test
+    void advertisesClientIdMetadataDocumentsByDefault() throws Exception {
+        // given
+        enableOAuth();
+        startServer();
+
+        // when
+        var response = send("GET", "/.well-known/oauth-authorization-server");
+
+        // then
+        assertThatJson(response.body())
+                .withFailMessage(() -> "CIMD support was not advertised: " + response.body())
+                .isObject().containsEntry("client_id_metadata_document_supported", true);
+    }
+
+    @Test
+    void followsTheMcpAndMcpCimdModulesOnEveryRequest() throws Exception {
+        // given
+        enableOAuth();
+        startServer();
+        var admin = bearer(login("admin@kawa", "s3cret"));
+
+        // when / then: switching mcp-cimd off, then back on
+        send("PUT", "/modules/mcp-cimd", "{\"enabled\":false}", admin);
+        assertThatJson(send("GET", "/.well-known/oauth-authorization-server").body())
+                .withFailMessage(() -> "CIMD support was advertised with mcp-cimd off")
+                .isObject().doesNotContainKey("client_id_metadata_document_supported");
+        send("PUT", "/modules/mcp-cimd", "{\"enabled\":true}", admin);
+        assertThatJson(send("GET", "/.well-known/oauth-authorization-server").body())
+                .withFailMessage(() -> "CIMD support did not come back with mcp-cimd on")
+                .isObject().containsEntry("client_id_metadata_document_supported", true);
+
+        // and: it is only in effect while the mcp module is on
+        send("PUT", "/modules/mcp", "{\"enabled\":false}", admin);
+        assertThatJson(send("GET", "/.well-known/oauth-authorization-server").body())
+                .withFailMessage(() -> "CIMD support was advertised with the mcp module off")
+                .isObject().doesNotContainKey("client_id_metadata_document_supported");
+    }
 }

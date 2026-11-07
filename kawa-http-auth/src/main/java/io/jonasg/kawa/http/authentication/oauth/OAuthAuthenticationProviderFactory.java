@@ -33,6 +33,14 @@ import java.util.stream.Collectors;
 /// - `operatorActsAs`: the principals the operator may act as through token exchange (RFC 8693), an exact
 ///   principal or a prefix ending in `*` with a `:` in it (defaults to `k8s:*`)
 ///
+/// - `clientIdMetadataDocuments`: an optional restriction on the clients that identify themselves with an OAuth
+///   Client ID Metadata Document: when set, only these exact `client_id` URLs (each `https` with a path) are accepted;
+///   when empty (the default), any `https` URL is. Whether such clients are accepted at all is the runtime
+///   `mcp-cimd` module, on by default and only in effect while the `mcp` module is on. kawa fetches a document
+///   without following redirects and only from a public address ([UrlPolicy]), and takes the client's redirect URIs
+///   from it. Such clients get `mcp` audience tokens only. Switching the module off, or removing a URL from the
+///   restriction, revokes the client's tokens; the setting itself is read at startup.
+///
 /// The UI is always the client `kawa-studio`.
 ///
 /// Besides kawa studio, the authorization server issues tokens to the OAuth clients managed through the admin
@@ -53,13 +61,25 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
     static final String MCP_PATH = "/mcp";
 
     private final Clock clock;
+    private final UrlPolicy urlPolicy;
 
+    /// The production provider: client ID metadata documents are fetched from public `https` hosts only. Integration
+    /// tests that serve a document from a local port set the system property [UrlPolicy#TEST_PROPERTY].
     public OAuthAuthenticationProviderFactory() {
-        this(Clock.systemUTC());
+        this(Clock.systemUTC(), Boolean.getBoolean(UrlPolicy.TEST_PROPERTY) ? UrlPolicy.LOOPBACK_FOR_TESTS : UrlPolicy.PUBLIC_HTTPS);
     }
 
     OAuthAuthenticationProviderFactory(Clock clock) {
+        this(clock, UrlPolicy.PUBLIC_HTTPS);
+    }
+
+    OAuthAuthenticationProviderFactory(UrlPolicy urlPolicy) {
+        this(Clock.systemUTC(), urlPolicy);
+    }
+
+    private OAuthAuthenticationProviderFactory(Clock clock, UrlPolicy urlPolicy) {
         this.clock = clock;
+        this.urlPolicy = urlPolicy;
     }
 
     @Override
@@ -87,20 +107,27 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
         }
         var operator = OperatorClient.from(settings.string("operatorSecret").orElse(null),
                 settings.string("operatorActsAs").orElse(OperatorClient.DEFAULT_ACTS_AS));
+        Set<String> metadataDocumentRestriction = settings.strings("clientIdMetadataDocuments").stream()
+                .map(this::metadataDocumentUrl)
+                .collect(Collectors.toUnmodifiableSet());
         String mcpAudience = context.publicUrl() + MCP_PATH;
         Set<String> audiences = Set.copyOf(List.of(issuer, mcpAudience));
-        var clients = new OAuthClients(TokenIssuer.STUDIO_CLIENT_ID, redirectUris, context.oauthClients(), issuer, mcpAudience);
+        var clients = new OAuthClients(TokenIssuer.STUDIO_CLIENT_ID, redirectUris, context.oauthClients(), issuer, mcpAudience,
+                context::clientIdMetadataDocumentsEnabled, metadataDocumentRestriction, new ClientIdMetadataDocuments(clock, urlPolicy));
         var keys = SigningKeys.from(settings.string("signingKey").orElse(null));
         var tokenIssuer = new TokenIssuer(keys, issuer, tokenTtl, sessionTtl, clock);
         var refreshTokens = new TokenVerifier(keys, issuer, audiences, TokenIssuer.REFRESH_TOKEN_TYPE);
         var flow = new AuthorizationFlow(keys, issuer, tokenIssuer, clock);
 
         context.publicEndpoint("GET", "/oauth/authorize", new AuthorizeEndpoint(flow, clients, loginUrl));
-        context.publicEndpoint("POST", "/oauth/login", new LoginEndpoint(flow, context.adminUsers()));
+        var adminAccessTokens = new TokenVerifier(keys, issuer, Set.of(issuer), TokenIssuer.ACCESS_TOKEN_TYPE);
+        context.publicEndpoint("POST", "/oauth/login", new LoginEndpoint(flow, context.adminUsers(), adminAccessTokens));
         context.publicEndpoint("POST", "/oauth/token", new TokenEndpoint(context.adminUsers(), tokenIssuer, refreshTokens, flow, clients,
-                operator, new TokenVerifier(keys, issuer, Set.of(issuer), TokenIssuer.ACCESS_TOKEN_TYPE)));
+                operator, adminAccessTokens));
         context.publicEndpoint("GET", "/.well-known/jwks.json", new JwksEndpoint(keys));
-        context.publicEndpoint("GET", "/.well-known/oauth-authorization-server", new AuthorizationServerMetadataEndpoint(issuer));
+        context.publicEndpoint("GET", "/.well-known/oauth-authorization-server",
+                new AuthorizationServerMetadataEndpoint(issuer, context::clientIdMetadataDocumentsEnabled));
+        context.publicEndpoint("GET", "/oauth/login-challenge", new LoginChallengeEndpoint(flow, mcpAudience));
         context.publicEndpoint("GET", ProtectedResourceMetadataEndpoint.PATH, new ProtectedResourceMetadataEndpoint(context.publicUrl(), issuer));
         context.publicEndpoint("GET", ProtectedResourceMetadataEndpoint.PATH + MCP_PATH, new ProtectedResourceMetadataEndpoint(mcpAudience, issuer));
         return new KawaTokenAuthenticationProvider(keys, issuer, audiences, clients, context.adminUsers(), operator, context.publicUrl());
@@ -135,6 +162,17 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
             // reported below
         }
         throw new IllegalArgumentException("admin.auth.settings." + setting + " must be an absolute URL: " + value);
+    }
+
+    private String metadataDocumentUrl(String value) {
+        String setting = "clientIdMetadataDocuments";
+        URI uri = absoluteUri(setting, value);
+        var refusal = urlPolicy.refusal(uri);
+        if (refusal.isPresent() || !uri.toString().equals(value)) {
+            throw new IllegalArgumentException("admin.auth.settings." + setting + " must be an https URL with a path, without fragment, "
+                    + "user info or dot segments: " + value + refusal.map(reason -> " (" + reason + ")").orElse(""));
+        }
+        return value;
     }
 
     private static Duration positive(String setting, Duration value) {

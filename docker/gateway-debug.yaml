@@ -1,0 +1,43 @@
+# Host-run twin of gateway.yaml for `make debug`: the gateway runs on the host (debuggable from IntelliJ) and reaches
+# Kafka through its published EXTERNAL listener. Keep in sync with gateway.yaml; only the bootstrap server differs.
+listeners:
+  - host: 0.0.0.0
+    port: 9092
+
+clusters:
+  default:
+    bootstrapServers:
+      - localhost:19092
+
+advertised:
+  nodeId: 1
+  host: localhost
+  port: 9092
+
+admin:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+  # Where clients reach the admin API (the port docker-compose publishes); oauth names it as the
+  # token issuer and in its metadata, so it must not be the 0.0.0.0 bind address.
+  publicUrl: http://localhost:8080
+  # Local demo login: admin / admin (override with KAWA_ADMIN_PASSWORD), through kawa studio on
+  # http://localhost:5173 (authorization code flow with PKCE; kawa studio hosts the login page).
+  # No signingKey is set, so tokens are signed with a key generated at startup and stop working
+  # after a restart: just log in again.
+  # bootstrapUser is created as a normal admin user on the first start, when there are no admin
+  # users yet; after that it is ignored, so changing the password here does nothing. Locked out?
+  # Start once with KAWA_ADMIN_RESET=true to re-enable it and reset its password to this one.
+  auth:
+    type: oauth
+    bootstrapUser:
+      username: admin@kawa
+      password: ${KAWA_ADMIN_PASSWORD:-admin}
+    settings:
+      loginUrl: http://localhost:5173/admin/login
+      redirectUris:
+        - http://localhost:5173/admin/auth/callback
+      operatorSecret: ${KAWA_OPERATOR_SECRET:-operator-secret}
+  cors:
+    allowedOrigins:
+      - http://localhost:5173

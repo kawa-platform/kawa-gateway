@@ -22,7 +22,8 @@ import java.util.stream.Collectors;
 /// serves no login page itself: a valid request is redirected to the external login UI (`loginUrl`,
 /// part of kawa studio) with a `login_challenge` that carries the request.
 ///
-/// The client is resolved through [OAuthClients]. An unknown or disabled client, or a redirect URI the client did
+/// The client is resolved through [OAuthClients]; its display name travels in the challenge so the login UI can say
+/// who is asking (see [LoginChallengeEndpoint]). An unknown or disabled client, or a redirect URI the client did
 /// not register, is answered with a `400` and never redirected (RFC 6749 §4.1.2.1); any other problem, such as a
 /// missing PKCE challenge or an RFC 8707 `resource` other than the client's audience, is reported back to the
 /// client's redirect URI.
@@ -60,7 +61,7 @@ final class AuthorizeEndpoint implements HttpEndpoint {
             return redirectError(redirectUri, OAuth2Error.UNSUPPORTED_RESPONSE_TYPE, authorization.getState());
         }
         if (authorization.getCodeChallenge() == null
-                || !CodeChallengeMethod.S256.equals(authorization.getCodeChallengeMethod())) {
+            || !CodeChallengeMethod.S256.equals(authorization.getCodeChallengeMethod())) {
             return redirectError(redirectUri, OAuth2Error.INVALID_REQUEST.setDescription("PKCE with S256 is required"),
                     authorization.getState());
         }
@@ -70,12 +71,20 @@ final class AuthorizeEndpoint implements HttpEndpoint {
             return redirectError(redirectUri, OAuth2Error.INVALID_TARGET.setDescription("the resource must be " + audience),
                     authorization.getState());
         }
-        String challenge = flow.challenge(new AuthorizationFlow.PendingAuthorization(
-                clientId, redirectUri, authorization.getCodeChallenge().getValue(),
-                authorization.getState() == null ? null : authorization.getState().getValue(), audience));
+        String challenge = flow.challenge(
+                new AuthorizationFlow.PendingAuthorization(
+                        clientId,
+                        client.get().name(),
+                        client.get().registered(),
+                        redirectUri,
+                        authorization.getCodeChallenge().getValue(),
+                        authorization.getState() == null ? null : authorization.getState().getValue(),
+                        audience
+                )
+        );
         String separator = loginUrl.contains("?") ? "&" : "?";
         return HttpResponse.redirect(loginUrl + separator + "login_challenge="
-                + URLEncoder.encode(challenge, StandardCharsets.UTF_8));
+                                     + URLEncoder.encode(challenge, StandardCharsets.UTF_8));
     }
 
     private boolean isRegistered(String requestedClientId, URI requestedRedirectUri) {

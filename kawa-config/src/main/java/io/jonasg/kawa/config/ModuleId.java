@@ -12,7 +12,10 @@ public enum ModuleId {
     @JsonProperty("rbac") RBAC("rbac"),
     @JsonProperty("governance") GOVERNANCE("governance"),
     /// The MCP server at `POST /mcp` on the admin port.
-    @JsonProperty("mcp") MCP("mcp");
+    @JsonProperty("mcp") MCP("mcp"),
+    /// Lets MCP clients identify themselves with an OAuth Client ID Metadata Document instead of being registered.
+    /// Only in effect while [#MCP] is enabled; enabled unless switched off.
+    @JsonProperty("mcp-cimd") MCP_CIMD("mcp-cimd");
 
     private final String id;
 
