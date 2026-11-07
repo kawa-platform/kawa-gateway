@@ -1,7 +1,6 @@
 services:
   kafka:
     image: apache/kafka-native:4.3.1
-    container_name: kawa-kafka
     ports:
       - "19092:19092"
     environment:
@@ -22,7 +21,6 @@ services:
 
   kafka-init:
     image: apache/kafka:4.3.1
-    container_name: kawa-kafka-init
     depends_on:
       - kafka
     entrypoint: [ "/bin/sh", "-c" ]
@@ -39,7 +37,6 @@ services:
 
   gateway:
     build: .
-    container_name: kawa-gateway
     depends_on:
       kafka:
         condition: service_started
