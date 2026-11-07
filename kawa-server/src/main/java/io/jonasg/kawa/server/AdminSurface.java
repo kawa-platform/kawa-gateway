@@ -5,7 +5,7 @@ import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.http.AdminHttpServer;
 import io.jonasg.kawa.http.AdminServices;
 import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
-import io.jonasg.kawa.http.topics.KafkaTopicAdmin;
+import io.jonasg.kawa.broker.KafkaTopicAdmin;
 import io.jonasg.kawa.mcp.KawaMcpServer;
 
 import java.util.Properties;

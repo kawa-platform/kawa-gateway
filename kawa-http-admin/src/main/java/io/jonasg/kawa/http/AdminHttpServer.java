@@ -39,7 +39,7 @@ import java.net.InetSocketAddress;
 /// Netty HTTP server exposing the gateway's admin/UI surface: `GET /topics` reads the
 /// [VirtualTopicManager][io.jonasg.kawa.virtualtopic.VirtualTopicManager] and
 /// [MetadataCache][io.jonasg.kawa.core.cluster.MetadataCache], `POST /topics` and `DELETE /topics/{name}`
-/// create/delete physical topics on the broker through the [TopicAdmin][io.jonasg.kawa.http.topics.TopicAdmin], and the
+/// create/delete physical topics on the broker through the [TopicAdmin][io.jonasg.kawa.broker.TopicAdmin], and the
 /// `/rbac/...`, `/auth/...`, `/governance` and `/modules` endpoints read and write the dynamic config
 /// through the [DynamicConfigRepository][io.jonasg.kawa.config.DynamicConfigRepository]. Config writes
 /// go to the config topic and are applied by the consumer.

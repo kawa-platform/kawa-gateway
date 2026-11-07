@@ -11,7 +11,7 @@ import io.jonasg.kawa.http.oauthclients.OAuthClientService;
 import io.jonasg.kawa.http.oauthclients.StoredOAuthClients;
 import io.jonasg.kawa.http.rbac.RbacGroupService;
 import io.jonasg.kawa.http.rbac.RbacRoleService;
-import io.jonasg.kawa.http.topics.TopicAdmin;
+import io.jonasg.kawa.broker.TopicAdmin;
 import io.jonasg.kawa.http.topics.TopicService;
 import io.jonasg.kawa.http.users.AdminUserAuthenticator;
 import io.jonasg.kawa.http.users.AdminUserService;

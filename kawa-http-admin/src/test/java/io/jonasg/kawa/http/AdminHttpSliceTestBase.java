@@ -14,6 +14,7 @@ import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
 import io.jonasg.kawa.http.authentication.builtin.BuiltInAuthenticationPlugin;
 import io.jonasg.kawa.plugin.KawaPlugin;
+import io.jonasg.kawa.test.FakeTopicAdmin;
 import io.jonasg.kawa.test.TestSigningKeys;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.jspecify.annotations.Nullable;

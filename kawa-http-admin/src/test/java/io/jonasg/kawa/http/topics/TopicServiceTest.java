@@ -15,10 +15,10 @@ import io.jonasg.kawa.core.cluster.TopicMetadata;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.governance.TopicDescriber.TopicState;
 import io.jonasg.kawa.http.FakeDynamicConfigRepository;
-import io.jonasg.kawa.http.FakeTopicAdmin;
 import io.jonasg.kawa.http.configchange.ConflictException;
 import io.jonasg.kawa.http.configchange.Consistency;
 import io.jonasg.kawa.http.configchange.ForbiddenException;
+import io.jonasg.kawa.test.FakeTopicAdmin;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.resource.ResourceType;
@@ -55,7 +55,7 @@ class TopicServiceTest {
         var listing = serviceWithVirtual.listTopics();
 
         // then
-        assertThat(listing.virtual()).extracting(TopicService.VirtualTopicEntry::name).containsExactly("orders");
+        assertThat(listing.virtual()).extracting(TopicService.TopicDescription.VirtualTopicEntry::name).containsExactly("orders");
         assertThat(listing.physical()).hasSize(1);
     }
 

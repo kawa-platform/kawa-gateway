@@ -1,4 +1,4 @@
-package io.jonasg.kawa.http.topics;
+package io.jonasg.kawa.broker;
 
 import org.junit.jupiter.api.Test;
 

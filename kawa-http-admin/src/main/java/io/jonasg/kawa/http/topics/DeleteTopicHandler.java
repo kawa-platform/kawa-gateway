@@ -7,7 +7,7 @@ import io.jonasg.kawa.http.configchange.NotFoundException;
 import io.jonasg.kawa.http.web.Router;
 
 /// Serves `DELETE /topics/{name}`: removes a virtual topic's config when `name` is a virtual
-/// topic, otherwise deletes the physical topic on the broker through the [TopicAdmin].
+/// topic, otherwise deletes the physical topic on the broker through the [TopicAdmin][io.jonasg.kawa.broker.TopicAdmin].
 /// A name that is both virtual and physical resolves to the virtual config removal.
 final class DeleteTopicHandler implements Router.Handler {
 

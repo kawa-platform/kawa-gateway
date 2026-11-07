@@ -11,7 +11,7 @@ Code is grouped by what the admin API manages. `io.jonasg.kawa.http` is the comp
 
 | Package          | Holds                                                                                |
 |------------------|--------------------------------------------------------------------------------------|
-| `topics`         | `/topics`: `TopicService`, `TopicAdmin`, `KafkaTopicAdmin`                           |
+| `topics`         | `/topics`: `TopicService` (the broker port, `TopicAdmin`, lives in `kawa-broker`)     |
 | `rbac`           | `/rbac/roles`, `/rbac/groups`: `RbacRoleService`, `RbacGroupService`                 |
 | `clients`        | `/auth/clients`: `AuthClientService`                                                 |
 | `governance`     | `/governance`: `GovernanceService`, `GovernanceConfigMapper`                         |
@@ -173,7 +173,7 @@ follow the existing patterns:
   ```
 
 - Keep HTTP slice tests separate from the pure plumbing tests such as
-  `RouterTest` and `KafkaTopicAdminTest`.
+  `RouterTest`.
 
 ## Style
 

@@ -30,7 +30,7 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
   in that module. Use `verify` and filter with `-Dit.test=ClassName` (not `-Dtest=`) to run a single IT.
 - The integration tests use **Testcontainers** (Kafka container) — Docker must be running; they are slow and
   network/docker dependent.
-- `kawa-http-admin` has two unit tiers: `RouterTest`/`KafkaTopicAdminTest` (pure plumbing/helper) and the HTTP slice
+- `kawa-http-admin` has two unit tiers: `RouterTest` (pure plumbing/helper) and the HTTP slice
   tests, one per handler (`PutGovernanceRuleHandler` → `PutGovernanceRuleSliceTest`), plus `ServerSliceTest`, all via
   `AdminHttpSliceTestBase`, that boot a real `AdminHttpServer` on an ephemeral port and assert
   the JSON wire format. Handlers, mappers and services are covered through the slice tests; separate unit tests for
@@ -61,10 +61,12 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
 
 The build dependency direction is: `kawa-config` → `kawa-core` and
 `kawa-protocol-kafka`; `kawa-virtual-topic` depends on core/config; `kawa-rbac` depends on
-core/config/virtual-topic; `kawa-governance` depends on core/config; `kawa-http-admin` depends on
-core/config/governance/virtual-topic; `kawa-mcp` depends on http-admin; `kawa-server` assembles the runtime modules; and
+core/config/virtual-topic; `kawa-governance` depends on core/config; `kawa-broker` depends on governance (the broker-facing
+topic port and its Kafka AdminClient implementation); `kawa-http-admin` depends on
+core/config/governance/broker/virtual-topic; `kawa-mcp` depends on http-admin; `kawa-server` assembles the runtime modules; and
 `kawa-integration-tests` depends on `kawa-server`. `kawa-test-support` is consumed with `test` scope only; it may
-depend on production modules such as `kawa-config`, but never on a module that uses it.
+depend on production modules such as `kawa-config` or `kawa-broker` (for `FakeTopicAdmin`), but never on a module that uses it.
+`kawa-broker`'s own tests must not use `kawa-test-support`, or the two would form a cycle.
 
 - `kawa-config`: `BootstrapConfig` (the startup YAML, loaded by `ConfigLoader`, which rejects unknown keys and
   dynamic sections) and `DynamicConfig` (the config-topic snapshot: client auth, RBAC, virtual topics, governance,
@@ -82,9 +84,10 @@ depend on production modules such as `kawa-config`, but never on a module that u
 - `kawa-mcp`: MCP server (official `io.modelcontextprotocol.sdk`) served at `POST /mcp` on the admin port. The
   stateless Streamable HTTP transport (`McpEndpoint`) is a `Router.Handler`, so `/mcp` shares the admin pipeline and
   authentication. It is switched by the runtime `mcp` module (`ModuleId.MCP`); while off, `/mcp` answers `404`. Tools
-  call the services in `AdminServices` directly, one class per tool (`ListTopicsTool`), and answer with MCP-specific
-  views as `structuredContent` plus the same JSON as text; failures become tool errors via `ToolResults.guarded`, which
-  also logs each call once at info (user, OAuth client, tool, outcome). A token reaching `/mcp` is either an admin
+  call the services in `AdminServices` directly, one package per tool (`listtopics/` holds `ListTopicsMcpTool` and its view;
+  types shared by tools, such as `FilterView`, stay in the parent package), and answer with MCP-specific
+  views as `structuredContent` plus the same JSON as text; the `McpTool` base class turns failures into tool errors and
+  logs each call once at info (user, OAuth client, tool, outcome). A token reaching `/mcp` is either an admin
   token or an `mcp`-audience token of a stored OAuth client, which is accepted only there. MCP clients find OAuth on
   their own: the provider's 401 challenge (`AuthenticationProvider.challenge(AuthenticationRequest)`) on
   `/mcp` points at `/.well-known/oauth-protected-resource/mcp` (resource `<publicUrl>/mcp`), which names the issuer.

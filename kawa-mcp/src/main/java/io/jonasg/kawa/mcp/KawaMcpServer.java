@@ -4,10 +4,11 @@ import io.jonasg.kawa.config.CorsConfig;
 import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.http.AdminServices;
 import io.jonasg.kawa.http.web.Router;
+import io.jonasg.kawa.mcp.describetopic.DescribeTopicMcpTool;
+import io.jonasg.kawa.mcp.listtopics.ListTopicsMcpTool;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
-import io.modelcontextprotocol.server.McpStatelessServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.server.McpStatelessSyncServer;
 import io.modelcontextprotocol.server.transport.DefaultServerTransportSecurityValidator;
 import io.modelcontextprotocol.server.transport.ServerTransportSecurityValidator;
@@ -23,7 +24,7 @@ import java.util.Objects;
 /// [ModuleId#MCP][io.jonasg.kawa.config.ModuleId#MCP] module is switched off, `/mcp` answers `404`.
 ///
 /// Tools call the [AdminServices] directly and answer with views shaped for an agent (see
-/// [ListTopicsTool]); a failure becomes a tool error (see [ToolResults]).
+/// [ListTopicsMcpTool]); a failure becomes a tool error (see [McpTool]).
 public final class KawaMcpServer implements AutoCloseable {
 
     static final String PATH = "/mcp";
@@ -38,7 +39,16 @@ public final class KawaMcpServer implements AutoCloseable {
     ///                 requests carrying an `Origin` header are refused
     public KawaMcpServer(Router router, AdminServices services, ModuleRegistry modules, @Nullable CorsConfig cors) {
         var mapper = McpJsonDefaults.getMapper();
-        this(router, modules, cors, mapper, List.of(new ListTopicsTool(services.topics(), mapper).specification()));
+        this(
+                router,
+                modules,
+                cors,
+                mapper,
+                List.of(
+                        new ListTopicsMcpTool(mapper, services.topics()),
+                        new DescribeTopicMcpTool(mapper, services.topics())
+                )
+        );
     }
 
     /// Serves `tools`, which write their JSON with `mapper`.
@@ -47,14 +57,14 @@ public final class KawaMcpServer implements AutoCloseable {
             ModuleRegistry modules,
             @Nullable CorsConfig cors,
             McpJsonMapper mapper,
-            List<SyncToolSpecification> tools
+            List<McpTool> tools
     ) {
         var endpoint = new McpEndpoint(modules, mapper, originValidator(cors));
         this.server = McpServer.sync(endpoint)
                 .serverInfo("kawa", version())
                 .jsonMapper(mapper)
                 .capabilities(McpSchema.ServerCapabilities.builder().tools(false).build())
-                .tools(tools)
+                .tools(tools.stream().map(McpTool::specification).toList())
                 .build();
         router.post(PATH, endpoint);
     }

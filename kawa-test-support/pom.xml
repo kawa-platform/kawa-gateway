@@ -33,5 +33,16 @@
             <groupId>org.jspecify</groupId>
             <artifactId>jspecify</artifactId>
         </dependency>
+        <!-- FakeTopicAdmin implements the broker port, so this module sees it too. -->
+        <dependency>
+            <groupId>io.jonasg</groupId>
+            <artifactId>kawa-broker</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jonasg</groupId>
+            <artifactId>kawa-governance</artifactId>
+            <version>${project.version}</version>
+        </dependency>
     </dependencies>
 </project>
