@@ -1,8 +1,8 @@
-package io.jonasg.kawa.http;
+package io.jonasg.kawa.test;
 
+import io.jonasg.kawa.broker.TopicAdmin;
 import io.jonasg.kawa.governance.TopicDescriber.TopicState;
 import io.jonasg.kawa.governance.TopicSpec;
-import io.jonasg.kawa.http.topics.TopicAdmin;
 
 import java.util.ArrayList;
 import java.util.Collection;

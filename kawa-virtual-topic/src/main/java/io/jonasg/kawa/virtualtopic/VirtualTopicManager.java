@@ -7,6 +7,7 @@ import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /// Maintains the virtual-to-physical virtual-topic map, along with each virtual topic's
@@ -18,23 +19,6 @@ import java.util.Optional;
 ///
 /// Topic names that are not virtualized map to themselves (identity) and carry no filter.
 public final class VirtualTopicManager {
-
-    private record Entry(
-            String virtual,
-            String physical,
-            VirtualTopicFilterConfig filter,
-            boolean exposePhysicalTopic,
-            PayloadFormatConfig valueFormat
-    ) {
-    }
-
-    /// Immutable snapshot of all three lookup maps. Published as a unit so a reload can never
-    /// be observed half-applied.
-    private record Snapshot(
-            Map<String, Entry> byVirtual,
-            Map<String, Entry> byPhysical,
-            Map<String, String> virtualToPhysical) {
-    }
 
     private volatile Snapshot snapshot;
 
@@ -48,13 +32,13 @@ public final class VirtualTopicManager {
     /// `volatile` reference, so readers see either the previous or the new mapping, never a
     /// partially-applied one.
     public void reload(Map<String, VirtualTopicConfig> virtualTopics) {
-        Map<String, Entry> virtual = new LinkedHashMap<>();
-        Map<String, Entry> physical = new LinkedHashMap<>();
+        Map<String, VirtualTopic> virtual = new LinkedHashMap<>();
+        Map<String, VirtualTopic> physical = new LinkedHashMap<>();
         Map<String, String> names = new LinkedHashMap<>();
         virtualTopics.forEach((v, config) -> {
-            Entry entry = new Entry(v, config.topic(), config.filter(), config.exposePhysicalTopic(), config.valueFormat());
-            virtual.put(v, entry);
-            physical.put(config.topic(), entry);
+            VirtualTopic virtualTopic = new VirtualTopic(v, config.topic(), config.filter(), config.exposePhysicalTopic(), config.valueFormat());
+            virtual.put(v, virtualTopic);
+            physical.put(config.topic(), virtualTopic);
             names.put(v, config.topic());
         });
         this.snapshot = new Snapshot(
@@ -63,16 +47,23 @@ public final class VirtualTopicManager {
                 Collections.unmodifiableMap(names));
     }
 
+    public Optional<VirtualTopic> findByName(String name) {
+        return this.snapshot.byVirtual.values()
+                .stream()
+                .filter(virtualTopic -> Objects.equals(name, virtualTopic.name))
+                .findFirst();
+    }
+
     /// Maps a client-visible name to the physical topic name the broker must see.
     public String toPhysical(String virtual) {
-        Entry entry = snapshot.byVirtual().get(virtual);
-        return entry == null ? virtual : entry.physical();
+        VirtualTopic virtualTopic = snapshot.byVirtual().get(virtual);
+        return virtualTopic == null ? virtual : virtualTopic.physical();
     }
 
     /// Maps a physical topic name back to the client-visible (virtual) name.
     public String toVirtual(String physical) {
-        Entry entry = snapshot.byPhysical().get(physical);
-        return entry == null ? physical : entry.virtual();
+        VirtualTopic virtualTopic = snapshot.byPhysical().get(physical);
+        return virtualTopic == null ? physical : virtualTopic.name();
     }
 
     public boolean hasVirtualTopic(String physical) {
@@ -92,23 +83,23 @@ public final class VirtualTopicManager {
     /// physical name, or [Optional#empty] if the topic isn't virtualized or has no
     /// filter configured.
     public Optional<VirtualTopicFilterConfig> filterFor(String virtualOrPhysical) {
-        return entryFor(virtualOrPhysical).map(Entry::filter);
+        return entryFor(virtualOrPhysical).map(VirtualTopic::filter);
     }
 
     /// The configured value encoding for a virtual topic, looked up by either its virtual or
     /// physical name, or [Optional#empty] if the topic isn't virtualized or has no format
     /// configured (values are then treated as raw strings).
     public Optional<PayloadFormatConfig> valueFormatFor(String virtualOrPhysical) {
-        return entryFor(virtualOrPhysical).map(Entry::valueFormat);
+        return entryFor(virtualOrPhysical).map(VirtualTopic::valueFormat);
     }
 
-    private Optional<Entry> entryFor(String virtualOrPhysical) {
+    private Optional<VirtualTopic> entryFor(String virtualOrPhysical) {
         Snapshot snap = snapshot;
-        Entry entry = snap.byVirtual().get(virtualOrPhysical);
-        if (entry == null) {
-            entry = snap.byPhysical().get(virtualOrPhysical);
+        VirtualTopic virtualTopic = snap.byVirtual().get(virtualOrPhysical);
+        if (virtualTopic == null) {
+            virtualTopic = snap.byPhysical().get(virtualOrPhysical);
         }
-        return Optional.ofNullable(entry);
+        return Optional.ofNullable(virtualTopic);
     }
 
     /// Whether this virtual topic's physical name should still be listed alongside its virtual
@@ -116,10 +107,28 @@ public final class VirtualTopicManager {
     /// for non-virtualized topics and for virtual topics that don't opt in.
     public boolean exposesPhysicalTopic(String virtualOrPhysical) {
         Snapshot snap = snapshot;
-        Entry entry = snap.byVirtual().get(virtualOrPhysical);
-        if (entry == null) {
-            entry = snap.byPhysical().get(virtualOrPhysical);
+        VirtualTopic virtualTopic = snap.byVirtual().get(virtualOrPhysical);
+        if (virtualTopic == null) {
+            virtualTopic = snap.byPhysical().get(virtualOrPhysical);
         }
-        return entry != null && entry.exposePhysicalTopic();
+        return virtualTopic != null && virtualTopic.exposePhysicalTopic();
+    }
+
+    public record VirtualTopic(
+            String name,
+            String physical,
+            VirtualTopicFilterConfig filter,
+            boolean exposePhysicalTopic,
+            PayloadFormatConfig valueFormat
+    ) {
+    }
+
+    /// Immutable snapshot of all three lookup maps. Published as a unit so a reload can never
+    /// be observed half-applied.
+    private record Snapshot(
+            Map<String, VirtualTopic> byVirtual,
+            Map<String, VirtualTopic> byPhysical,
+            Map<String, String> virtualToPhysical) {
+
     }
 }

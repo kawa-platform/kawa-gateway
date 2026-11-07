@@ -1,9 +1,9 @@
-package io.jonasg.kawa.http.topics;
+package io.jonasg.kawa.broker;
 
 import io.jonasg.kawa.governance.TopicDescriber;
 import io.jonasg.kawa.governance.TopicSpec;
 
-/// Broker topic operations for the admin HTTP surface. Implementations talk to the real
+/// Broker topic operations for the admin API. Implementations talk to the real
 /// cluster; [KafkaTopicAdmin] uses Kafka's AdminClient. Describing ([TopicDescriber]) reads a
 /// topic's current state for governance.
 public interface TopicAdmin extends TopicDescriber, AutoCloseable {

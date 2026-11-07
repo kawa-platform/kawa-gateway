@@ -48,7 +48,7 @@ class McpModuleSliceTest extends McpSliceTestBase {
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
             var toolsResp = rpc("tools/list", "{}");
             assertThat(toolsResp).hasStatusCode(200);
-            assertThatJson(toolsResp.body()).inPath("result.tools[*].name").isArray().containsExactly("list_topics");
+            assertThatJson(toolsResp.body()).inPath("result.tools[*].name").isArray().containsExactly("list_topics", "describe_topic");
         });
     }
 }

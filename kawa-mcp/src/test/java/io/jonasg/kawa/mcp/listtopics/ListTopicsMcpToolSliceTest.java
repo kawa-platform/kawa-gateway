@@ -1,4 +1,4 @@
-package io.jonasg.kawa.mcp;
+package io.jonasg.kawa.mcp.listtopics;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -8,10 +8,11 @@ import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.http.topics.TopicService;
+import io.jonasg.kawa.mcp.McpSliceTestBase;
+import io.jonasg.kawa.mcp.McpTool;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.net.http.HttpResponse;
 import java.util.Map;
@@ -22,8 +23,8 @@ import static net.javacrumbs.jsonunit.assertj.JsonAssertions.json;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-/// Slice tests for [ListTopicsTool]: real JSON-RPC requests to `POST /mcp` on a booted admin server.
-class ListTopicsToolSliceTest extends McpSliceTestBase {
+/// Slice tests for [ListTopicsMcpTool]: real JSON-RPC requests to `POST /mcp` on a booted admin server.
+class ListTopicsMcpToolSliceTest extends McpSliceTestBase {
 
     @Test
     void advertisesListTopicsWithItsOutputSchema() throws Exception {
@@ -35,9 +36,55 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
 
         // then
         assertThat(toolsResp).hasStatusCode(200);
-        assertThatJson(toolsResp.body()).inPath("result.tools[*].name").isArray().containsExactly("list_topics");
-        assertThatJson(toolsResp.body()).inPath("result.tools[0].outputSchema").isEqualTo(json(
-                new JsonMapper().writeValueAsString(TopicsView.SCHEMA)));
+        assertThatJson(toolsResp.body()).inPath("result.tools[*].name").isArray().contains("list_topics");
+        assertThatJson(toolsResp.body()).inPath("result.tools[?(@.name=='list_topics')].outputSchema")
+                .isEqualTo(json("""
+                        [{
+                          "type": "object",
+                          "properties": {
+                            "virtualTopics": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "name": {"type": "string"},
+                                  "physicalTopic": {"type": "string"},
+                                  "partitions": {"type": "integer"},
+                                  "replicationFactor": {"type": "integer"},
+                                  "filter": {
+                                    "type": "object",
+                                    "properties": {
+                                      "type": {"type": "string"},
+                                      "description": {"type": "string"}
+                                    },
+                                    "required": ["type", "description"],
+                                    "additionalProperties": false
+                                  },
+                                  "valueFormat": {"type": "string", "enum": ["json", "avro", "raw"]},
+                                  "exposesPhysicalTopic": {"type": "boolean"}
+                                },
+                                "required": ["name", "physicalTopic", "partitions", "replicationFactor", "valueFormat", "exposesPhysicalTopic"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "physicalTopics": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "name": {"type": "string"},
+                                  "partitions": {"type": "integer"},
+                                  "replicationFactor": {"type": "integer"}
+                                },
+                                "required": ["name", "partitions", "replicationFactor"],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": ["virtualTopics", "physicalTopics"],
+                          "additionalProperties": false
+                        }]
+                        """));
     }
 
     @Test
@@ -185,12 +232,12 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var listTopicsResp = listTopics("a".repeat(ListTopicsTool.MAX_NAME_PATTERN_LENGTH + 1));
+        var listTopicsResp = listTopics("a".repeat(ListTopicsMcpTool.MAX_NAME_PATTERN_LENGTH + 1));
 
         // then
         assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(true);
         assertThatJson(listTopicsResp.body()).inPath("result.content[0].text")
-                .isEqualTo("name must be at most " + ListTopicsTool.MAX_NAME_PATTERN_LENGTH + " characters");
+                .isEqualTo("name must be at most " + ListTopicsMcpTool.MAX_NAME_PATTERN_LENGTH + " characters");
     }
 
     @Test
@@ -203,7 +250,7 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var listTopicsResp = listTopicsWith("{\"type\":\"virtual\"}");
+        var listTopicsResp = callToolWithArgs("list_topics", "{\"type\":\"virtual\"}");
 
         // then
         assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(false);
@@ -222,7 +269,7 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var listTopicsResp = listTopicsWith("{\"type\":\"physical\"}");
+        var listTopicsResp = callToolWithArgs("list_topics", "{\"type\":\"physical\"}");
 
         // then
         assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(false);
@@ -241,7 +288,7 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var listTopicsResp = listTopicsWith("{\"type\":\"physical\",\"name\":\"ders\"}");
+        var listTopicsResp = callToolWithArgs("list_topics", "{\"type\":\"physical\",\"name\":\"ders\"}");
 
         // then
         assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.virtualTopics").isEqualTo("[]");
@@ -255,7 +302,7 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var listTopicsResp = listTopicsWith("{\"type\":\"both\"}");
+        var listTopicsResp = callToolWithArgs("list_topics", "{\"type\":\"both\"}");
 
         // then
         assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(true);
@@ -276,14 +323,14 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
         // then
         assertThat(listTopicsResp).hasStatusCode(200);
         assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(true);
-        assertThatJson(listTopicsResp.body()).inPath("result.content[0].text").isEqualTo(ToolResults.INTERNAL_ERROR);
+        assertThatJson(listTopicsResp.body()).inPath("result.content[0].text").isEqualTo(McpTool.INTERNAL_ERROR);
     }
 
     @Test
     void logsOneLineWithCallerAndToolButNotTheArguments() throws Exception {
         // given
         startServer();
-        var logger = (Logger) LoggerFactory.getLogger(ToolResults.class);
+        var logger = (Logger) LoggerFactory.getLogger(McpTool.class);
         var logs = new ListAppender<ILoggingEvent>();
         logs.start();
         logger.addAppender(logs);
@@ -308,16 +355,6 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
 
     /// Calls `list_topics` with the `name` argument. The name must not contain quotes or backslashes.
     private HttpResponse<String> listTopics(String name) throws Exception {
-        return listTopicsWith("{\"name\":\"" + name + "\"}");
-    }
-
-    /// Calls `list_topics` with the JSON object `arguments`.
-    private HttpResponse<String> listTopicsWith(String arguments) throws Exception {
-        return rpc("tools/call", "{\"name\":\"list_topics\",\"arguments\":" + arguments + "}");
-    }
-
-    private static String structuredContent(String body) {
-        var mapper = new JsonMapper();
-        return mapper.writeValueAsString(mapper.readTree(body).get("result").get("structuredContent"));
+        return callToolWithArgs("list_topics", "{\"name\":\"" + name + "\"}");
     }
 }

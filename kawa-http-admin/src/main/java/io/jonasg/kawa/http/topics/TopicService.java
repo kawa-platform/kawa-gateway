@@ -1,5 +1,6 @@
 package io.jonasg.kawa.http.topics;
 
+import io.jonasg.kawa.broker.TopicAdmin;
 import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.ManagedBy;
@@ -45,26 +46,26 @@ public final class TopicService implements AutoCloseable {
     private static final String SERVICE = "kawa";
     private static final int DESCRIBE_TIMEOUT_SECONDS = 10;
 
-    private final VirtualTopicManager virtualTopics;
+    private final VirtualTopicManager virtualTopicManager;
     private final MetadataCache cache;
-    private final DynamicConfigRepository repository;
+    private final DynamicConfigRepository dynamicConfigRepository;
     private final TopicAdmin topicAdmin;
-    private final GovernancePolicy governance;
-    private final ConsistencyAwareUpdater updater;
+    private final GovernancePolicy governancePolicy;
+    private final ConsistencyAwareUpdater consistencyAwareUpdater;
 
     public TopicService(
-            VirtualTopicManager virtualTopics,
+            VirtualTopicManager virtualTopicManager,
             MetadataCache cache,
-            DynamicConfigRepository repository,
+            DynamicConfigRepository dynamicConfigRepository,
             TopicAdmin topicAdmin,
-            GovernancePolicy governance
+            GovernancePolicy governancePolicy
     ) {
-        this.virtualTopics = virtualTopics;
+        this.virtualTopicManager = virtualTopicManager;
         this.cache = cache;
-        this.repository = repository;
+        this.dynamicConfigRepository = dynamicConfigRepository;
         this.topicAdmin = topicAdmin;
-        this.governance = governance;
-        this.updater = new ConsistencyAwareUpdater(repository);
+        this.governancePolicy = governancePolicy;
+        this.consistencyAwareUpdater = new ConsistencyAwareUpdater(dynamicConfigRepository);
     }
 
     @Override
@@ -75,19 +76,60 @@ public final class TopicService implements AutoCloseable {
     /// The virtual topics the [VirtualTopicManager] serves and the physical topics in the broker
     /// metadata cache.
     public TopicListing listTopics() {
-        Map<String, VirtualTopicConfig> configured = repository.getActiveConfigOrEmpty().virtualTopics();
-        List<VirtualTopicEntry> virtual = new ArrayList<>();
-        for (Map.Entry<String, String> entry : virtualTopics.virtualTopics().entrySet()) {
+        Map<String, VirtualTopicConfig> configured = dynamicConfigRepository.getActiveConfigOrEmpty().virtualTopics();
+        List<TopicDescription.VirtualTopicEntry> virtual = new ArrayList<>();
+        for (Map.Entry<String, String> entry : virtualTopicManager.virtualTopics().entrySet()) {
             String name = entry.getKey();
-            virtual.add(new VirtualTopicEntry(
+            virtual.add(new TopicDescription.VirtualTopicEntry(
                     name,
                     entry.getValue(),
-                    virtualTopics.filterFor(name).orElse(null),
-                    virtualTopics.exposesPhysicalTopic(name),
-                    virtualTopics.valueFormatFor(name).orElse(null),
+                    virtualTopicManager.filterFor(name).orElse(null),
+                    virtualTopicManager.exposesPhysicalTopic(name),
+                    virtualTopicManager.valueFormatFor(name).orElse(null),
                     managedBy(configured.get(name))));
         }
         return new TopicListing(virtual, List.copyOf(cache.topics()));
+    }
+
+    public TopicDescription describeTopic(String name) {
+        try {
+            var maybeVirtualTopic = this.virtualTopicManager.findByName(name);
+            if (maybeVirtualTopic.isPresent()) {
+                var virtualTopic = maybeVirtualTopic.get();
+                String physical = virtualTopic.physical();
+                var names = physical.equals(name) ? List.of(name) : List.of(physical, name);
+                Map<String, TopicState> topics = this.topicAdmin.describe(names).toCompletableFuture().get();
+                var state = topics.get(physical);
+                return new TopicDescription(
+                        name,
+                        virtualTopic,
+                        physical,
+                        state == null ? 0 : state.partitions(),
+                        state == null ? 0 : state.replicationFactor(),
+                        state == null ? Map.of() : state.configs(),
+                        !physical.equals(name) && topics.containsKey(name)
+                );
+            }
+
+            var res = this.topicAdmin.describe(List.of(name));
+            Map<String, TopicState> topics = res.toCompletableFuture().get();
+            if (topics.containsKey(name)) {
+                var state = topics.get(name);
+                return new TopicDescription(
+                        name,
+                        null,
+                        name,
+                        state.partitions(),
+                        state.replicationFactor(),
+                        state.configs(),
+                        false
+                );
+            }
+
+            throw new TopicNotFoundException("Unable to describe an non existing topic: %s".formatted(name));
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     VirtualTopicConfig upsertVirtualTopic(KawaPrincipal caller, String name, TopicRequest request, Consistency consistency) {
@@ -101,7 +143,7 @@ public final class TopicService implements AutoCloseable {
         if (request.topic() == null || request.topic().isBlank()) {
             throw new IllegalArgumentException("virtual topic requires a physical 'topic'");
         }
-        var operation = repository.getActiveConfigOrEmpty().virtualTopics().containsKey(name) ? Operation.ALTER : Operation.CREATE;
+        var operation = dynamicConfigRepository.getActiveConfigOrEmpty().virtualTopics().containsKey(name) ? Operation.ALTER : Operation.CREATE;
         admit(name, GovernanceRequest.virtualTopic(principal, SERVICE, operation, name, request.topic()));
         var value = new VirtualTopicConfig(
                 request.topic(),
@@ -109,7 +151,7 @@ public final class TopicService implements AutoCloseable {
                 request.exposePhysicalTopic() != null && request.exposePhysicalTopic(),
                 request.valueFormat(),
                 Ownership.stamp(caller));
-        updater.update(consistency, config -> {
+        consistencyAwareUpdater.update(consistency, config -> {
             requireTopicOwner(config, name, caller);
             return config.upsertVirtualTopic(name, value);
         });
@@ -118,7 +160,7 @@ public final class TopicService implements AutoCloseable {
 
     VirtualTopicConfig updateVirtualTopic(KawaPrincipal caller, String name, VirtualTopicConfigPatch patch, Consistency consistency) {
         String principal = principalName(caller);
-        DynamicConfig base = repository.getActiveConfigOrEmpty();
+        DynamicConfig base = dynamicConfigRepository.getActiveConfigOrEmpty();
         VirtualTopicConfig current = base.virtualTopics().get(name);
         if (current == null) {
             if (cache.topics().stream().anyMatch(topic -> topic.name().equals(name))) {
@@ -146,7 +188,7 @@ public final class TopicService implements AutoCloseable {
                 patch.exposePhysicalTopic() == null ? current.exposePhysicalTopic() : patch.exposePhysicalTopic(),
                 patch.valueFormat(),
                 Ownership.stamp(caller));
-        updater.update(consistency, config -> {
+        consistencyAwareUpdater.update(consistency, config -> {
             requireTopicOwner(config, name, caller);
             return replace(config, name, newName, updated);
         });
@@ -155,11 +197,11 @@ public final class TopicService implements AutoCloseable {
 
     void deleteTopic(KawaPrincipal caller, String name, Consistency consistency) {
         String principal = principalName(caller);
-        DynamicConfig base = repository.getActiveConfigOrEmpty();
+        DynamicConfig base = dynamicConfigRepository.getActiveConfigOrEmpty();
         VirtualTopicConfig virtual = base.virtualTopics().get(name);
         if (virtual != null) {
             admit(name, GovernanceRequest.virtualTopic(principal, SERVICE, Operation.DELETE, name, virtual.topic()));
-            updater.update(consistency, config -> {
+            consistencyAwareUpdater.update(consistency, config -> {
                 requireTopicOwner(config, name, caller);
                 return config.removeVirtualTopic(name);
             });
@@ -169,7 +211,7 @@ public final class TopicService implements AutoCloseable {
         if (!physicalExists) {
             throw new NotFoundException("topic '" + name + "' not found");
         }
-        if (governance.hasPhysicalTopicRules(Operation.DELETE)) {
+        if (governancePolicy.hasPhysicalTopicRules(Operation.DELETE)) {
             TopicState current = currentState(name);
             if (current == null) {
                 throw new NotFoundException("topic '" + name + "' not found");
@@ -187,14 +229,14 @@ public final class TopicService implements AutoCloseable {
     /// Clears the virtual topic's owner. Only the owner may release it; an unmanaged virtual topic
     /// is left as is.
     void releaseVirtualTopic(KawaPrincipal caller, String name, Consistency consistency) {
-        VirtualTopicConfig current = repository.getActiveConfigOrEmpty().virtualTopics().get(name);
+        VirtualTopicConfig current = dynamicConfigRepository.getActiveConfigOrEmpty().virtualTopics().get(name);
         if (current == null) {
             throw new NotFoundException("topic '" + name + "' not found");
         }
         if (current.managedBy() == null) {
             return;
         }
-        updater.update(consistency, config -> {
+        consistencyAwareUpdater.update(consistency, config -> {
             VirtualTopicConfig topic = config.virtualTopics().get(name);
             if (topic == null) {
                 throw new NotFoundException("topic '" + name + "' not found");
@@ -239,13 +281,13 @@ public final class TopicService implements AutoCloseable {
             throw new IllegalStateException("interrupted reading topic '" + name + "'", e);
         } catch (ExecutionException | TimeoutException e) {
             throw new IllegalStateException("governance could not read the current state of topic '" + name + "': "
-                    + (e.getCause() == null ? e.getMessage() : e.getCause().getMessage()), e);
+                                            + (e.getCause() == null ? e.getMessage() : e.getCause().getMessage()), e);
         }
     }
 
     /// Refuses the request with `403` and every violation when governance does not allow it.
     private void admit(String name, GovernanceRequest request) {
-        List<Violation> violations = governance.evaluate(request);
+        List<Violation> violations = governancePolicy.evaluate(request);
         if (!violations.isEmpty()) {
             String detail = violations.stream()
                     .map(Violation::describe)
@@ -302,23 +344,45 @@ public final class TopicService implements AutoCloseable {
     ///
     /// @param virtual  the virtual topics
     /// @param physical the topics the broker metadata cache knows
-    public record TopicListing(List<VirtualTopicEntry> virtual, List<TopicMetadata> physical) {
+    public record TopicListing(List<TopicDescription.VirtualTopicEntry> virtual, List<TopicMetadata> physical) {
     }
 
-    /// One virtual topic as known by the [VirtualTopicManager].
+    /// One topic as the admin API describes it.
     ///
-    /// @param name                the virtual topic's name
-    /// @param physicalTopic       the broker topic it maps to
-    /// @param filter              the consume filter, or `null` when every record is served
-    /// @param exposePhysicalTopic whether the physical topic is also served under its own name
-    /// @param valueFormat         how record values are encoded, or `null` when they are not decoded
-    public record VirtualTopicEntry(
+    /// @param name                 the topic name that was asked for
+    /// @param virtualTopic         the virtual topic of that name, or `null` when the name is a physical topic
+    /// @param physicalTopic        the broker topic that holds the records: the virtual topic's target, or the
+    ///                             topic itself
+    /// @param partitions           its partition count, `0` when the broker does not know it
+    /// @param replicationFactor    its replica count per partition, `0` when unknown
+    /// @param configs              the configs set on the topic itself
+    /// @param shadowsPhysicalTopic whether a physical topic with the requested name also exists on the broker,
+    ///                             hidden from clients by the virtual topic of that name
+    public record TopicDescription(
             String name,
+            VirtualTopicManager.@Nullable VirtualTopic virtualTopic,
             String physicalTopic,
-            @Nullable VirtualTopicFilterConfig filter,
-            boolean exposePhysicalTopic,
-            @Nullable PayloadFormatConfig valueFormat,
-            @Nullable ManagedBy managedBy
+            int partitions,
+            int replicationFactor,
+            Map<String, String> configs,
+            boolean shadowsPhysicalTopic
     ) {
+
+        /// One virtual topic as known by the [VirtualTopicManager].
+        ///
+        /// @param name                the virtual topic's name
+        /// @param physicalTopic       the broker topic it maps to
+        /// @param filter              the consume filter, or `null` when every record is served
+        /// @param exposePhysicalTopic whether the physical topic is also served under its own name
+        /// @param valueFormat         how record values are encoded, or `null` when they are not decoded
+        public record VirtualTopicEntry(
+                String name,
+                String physicalTopic,
+                @Nullable VirtualTopicFilterConfig filter,
+                boolean exposePhysicalTopic,
+                @Nullable PayloadFormatConfig valueFormat,
+                @Nullable ManagedBy managedBy
+        ) {
+        }
     }
 }

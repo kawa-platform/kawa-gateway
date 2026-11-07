@@ -16,11 +16,12 @@ import io.jonasg.kawa.http.AdminHttpServer;
 import io.jonasg.kawa.http.AdminServices;
 import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
 import io.jonasg.kawa.http.authentication.builtin.BuiltInAuthenticationPlugin;
-import io.jonasg.kawa.http.topics.TopicAdmin;
 import io.jonasg.kawa.http.topics.TopicService;
+import io.jonasg.kawa.test.FakeTopicAdmin;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -33,13 +34,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.UnaryOperator;
 
-import static org.mockito.Mockito.mock;
-
 /// Shared setup for the MCP slice tests: boots a real [AdminHttpServer] with the [KawaMcpServer] on an
 /// ephemeral port, wired to in-memory state, and sends real JSON-RPC requests to `POST /mcp` through
 /// the full Netty pipeline. Modelled on kawa-http-admin's `AdminHttpSliceTestBase`, which kawa-mcp
 /// cannot share: it lives in that module's test sources.
-abstract class McpSliceTestBase {
+public abstract class McpSliceTestBase {
 
     protected VirtualTopicManager virtualTopics = new VirtualTopicManager(Map.of());
     protected MetadataCache cache = new MetadataCache();
@@ -47,6 +46,8 @@ abstract class McpSliceTestBase {
     protected ModuleRegistry modules = new ModuleRegistry();
     /// Replaces the real topic service when set, e.g. with a mock that fails.
     protected @Nullable TopicService topicService;
+    /// The broker the topic service talks to: topics in here exist on the broker, as `states`.
+    protected FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
 
     private final HttpClient client = HttpClient.newHttpClient();
     private @Nullable AdminServices services;
@@ -69,7 +70,7 @@ abstract class McpSliceTestBase {
     /// Boots the server with the current state. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
         var real = AdminServices.create(virtualTopics, cache, new InMemoryConfigRepository(modules),
-                new GovernancePolicy(new GovernanceConfig(null)), mock(TopicAdmin.class), null, _ -> null);
+                new GovernancePolicy(new GovernanceConfig(null)), topicAdmin, null, _ -> null);
         services = topicService == null ? real : new AdminServices(topicService, real.roles(), real.groups(),
                 real.clients(), real.governanceRules(), real.adminUsers(), real.adminUserAuthenticator(), real.modules(),
                 real.oauthClients(), real.oauthClientDirectory());
@@ -106,6 +107,11 @@ abstract class McpSliceTestBase {
         return rpc("tools/call", "{\"name\":\"" + name + "\",\"arguments\":{}}");
     }
 
+    /// Calls the tool `name` with arguments.
+    protected HttpResponse<String> callToolWithArgs(String name, String args) throws Exception {
+        return rpc("tools/call", "{\"name\":\"" + name + "\",\"arguments\":%s}".formatted(args));
+    }
+
     /// A metadata cache holding the given topics, mirroring a broker snapshot.
     protected static MetadataCache cacheWith(TopicMetadata... topics) {
         var cache = new MetadataCache();
@@ -124,6 +130,11 @@ abstract class McpSliceTestBase {
             partitionList.add(PartitionMetadata.of(i, 1, Collections.nCopies(replicas, 1), List.of(1), List.of()));
         }
         return TopicMetadata.of(name, partitionList);
+    }
+
+    public String structuredContent(String body) {
+        var mapper = new JsonMapper();
+        return mapper.writeValueAsString(mapper.readTree(body).get("result").get("structuredContent"));
     }
 
     /// Holds the config in memory; a write applies at once and reloads the modules from it.

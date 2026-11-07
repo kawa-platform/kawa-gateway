@@ -1,4 +1,4 @@
-package io.jonasg.kawa.http.topics;
+package io.jonasg.kawa.broker;
 
 import io.jonasg.kawa.governance.TopicDescriber.TopicState;
 import io.jonasg.kawa.governance.TopicSpec;

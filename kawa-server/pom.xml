@@ -51,6 +51,11 @@
         </dependency>
         <dependency>
             <groupId>io.jonasg</groupId>
+            <artifactId>kawa-broker</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jonasg</groupId>
             <artifactId>kawa-http-admin</artifactId>
             <version>${project.version}</version>
         </dependency>
