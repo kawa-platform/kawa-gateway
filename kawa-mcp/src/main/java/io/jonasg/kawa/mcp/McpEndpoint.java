@@ -62,7 +62,7 @@ final class McpEndpoint implements Router.Handler, McpStatelessServerTransport {
     }
 
     @Override
-    @SuppressWarnings("ConstantConditions") // mcpHandler is set by McpServer.sync(...).build()
+    @SuppressWarnings("ConstantConditions")
     public Router.Response<?> handle(Router.Request request) {
         if (!modules.isEnabled(ModuleId.MCP)) {
             return Router.Response.notFound("not found");
