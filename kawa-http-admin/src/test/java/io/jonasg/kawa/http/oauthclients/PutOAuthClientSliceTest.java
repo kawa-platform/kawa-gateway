@@ -115,6 +115,29 @@ class PutOAuthClientSliceTest extends AdminHttpSliceTestBase {
                 .isEmpty();
     }
 
+    @Test
+    void refusesTheReservedKawaOperatorClient() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putClientResp = send("PUT", "/admin/oauth-clients/kawa-operator", """
+                {
+                  "redirectUris": ["https://operator.example.com/callback"],
+                  "audience": "admin"
+                }
+                """);
+
+        // then
+        assertThat(putClientResp).hasStatusCode(409);
+        assertThatJson(putClientResp.body()).isEqualTo("""
+                {"error": "OAuth client id 'kawa-operator' is reserved for the kawa operator, which is configured with admin.auth.settings.operatorSecret"}
+                """);
+        assertThat(repository.getActiveConfigOrEmpty().oauthClients())
+                .withFailMessage(() -> "the reserved client was stored: " + repository.getActiveConfigOrEmpty().oauthClients())
+                .isEmpty();
+    }
+
     @ParameterizedTest(name = "{0}")
     @CsvSource(delimiter = '|', textBlock = """
             invalid id | Kawa_MCP | {"redirectUris":["http://localhost:*/callback"],"audience":"mcp"} | OAuth client id must match

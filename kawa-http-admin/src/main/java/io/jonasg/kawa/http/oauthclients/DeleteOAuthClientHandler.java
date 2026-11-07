@@ -5,7 +5,7 @@ import io.jonasg.kawa.http.configchange.Consistency;
 import io.jonasg.kawa.http.configchange.NotFoundException;
 import io.jonasg.kawa.http.web.Router;
 
-/// Serves `DELETE /admin/oauth-clients/{id}`. An unknown id is a `404`; the reserved id `kawa-studio` is a `409`.
+/// Serves `DELETE /admin/oauth-clients/{id}`. An unknown id is a `404`; a reserved id (`kawa-studio`, `kawa-operator`) is a `409`.
 final class DeleteOAuthClientHandler implements Router.Handler {
 
     private final OAuthClientService service;
