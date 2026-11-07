@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.http.HttpResponse;
 import java.util.Map;
 
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
@@ -95,6 +96,174 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
     }
 
     @Test
+    void nameMatchesAnywhereInTheVirtualAndPhysicalTopicNames() throws Exception {
+        // given
+        virtualTopics = new VirtualTopicManager(Map.of(
+                "orders", new VirtualTopicConfig("orders-v2"),
+                "payments", new VirtualTopicConfig("payments-v1")));
+        cache = cacheWith(topic("orders-v2", 1, 1), topic("payments-v1", 1, 1));
+        startServer();
+
+        // when
+        var listTopicsResp = listTopics("ders");
+
+        // then
+        assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(false);
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.virtualTopics[*].name")
+                .isArray().containsExactly("orders");
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.physicalTopics[*].name")
+                .isArray().containsExactly("orders-v2");
+    }
+
+    @Test
+    void namePatternMatchesPhysicalTopicsByTheirPhysicalName() throws Exception {
+        // given
+        virtualTopics = new VirtualTopicManager(Map.of(
+                "orders", new VirtualTopicConfig("orders-v2"),
+                "payments", new VirtualTopicConfig("payments-v1")));
+        cache = cacheWith(topic("orders-v2", 1, 1), topic("payments-v1", 1, 1));
+        startServer();
+
+        // when
+        var listTopicsResp = listTopics("^payments-v[0-9]$");
+
+        // then
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.virtualTopics").isEqualTo("[]");
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.physicalTopics[*].name")
+                .isArray().containsExactly("payments-v1");
+    }
+
+    @Test
+    void blankNameListsEveryTopic() throws Exception {
+        // given
+        virtualTopics = new VirtualTopicManager(Map.of(
+                "orders", new VirtualTopicConfig("orders-v2"),
+                "payments", new VirtualTopicConfig("payments-v1")));
+        startServer();
+
+        // when
+        var listTopicsResp = listTopics("   ");
+
+        // then
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.virtualTopics[*].name")
+                .isArray().containsExactlyInAnyOrder("orders", "payments");
+    }
+
+    @Test
+    void aNameMatchingNothingReturnsEmptyListsWithoutAToolError() throws Exception {
+        // given
+        virtualTopics = new VirtualTopicManager(Map.of("orders", new VirtualTopicConfig("orders-v2")));
+        cache = cacheWith(topic("orders-v2", 1, 1));
+        startServer();
+
+        // when
+        var listTopicsResp = listTopics("nomatch");
+
+        // then
+        assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(false);
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent")
+                .isEqualTo("{\"virtualTopics\":[],\"physicalTopics\":[]}");
+    }
+
+    @Test
+    void anInvalidRegularExpressionBecomesAToolError() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var listTopicsResp = listTopics("(");
+
+        // then
+        assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(true);
+        assertThatJson(listTopicsResp.body()).inPath("result.content[0].text")
+                .isEqualTo("name is not a valid regular expression: Unclosed group");
+    }
+
+    @Test
+    void aPatternLongerThanTheLimitBecomesAToolError() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var listTopicsResp = listTopics("a".repeat(ListTopicsTool.MAX_NAME_PATTERN_LENGTH + 1));
+
+        // then
+        assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(true);
+        assertThatJson(listTopicsResp.body()).inPath("result.content[0].text")
+                .isEqualTo("name must be at most " + ListTopicsTool.MAX_NAME_PATTERN_LENGTH + " characters");
+    }
+
+    @Test
+    void typeVirtualListsOnlyTheVirtualTopics() throws Exception {
+        // given
+        virtualTopics = new VirtualTopicManager(Map.of(
+                "orders", new VirtualTopicConfig("orders-v2"),
+                "payments", new VirtualTopicConfig("payments-v1")));
+        cache = cacheWith(topic("orders-v2", 1, 1), topic("payments-v1", 1, 1));
+        startServer();
+
+        // when
+        var listTopicsResp = listTopicsWith("{\"type\":\"virtual\"}");
+
+        // then
+        assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(false);
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.virtualTopics[*].name")
+                .isArray().containsExactlyInAnyOrder("orders", "payments");
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.physicalTopics").isEqualTo("[]");
+    }
+
+    @Test
+    void typePhysicalListsOnlyTheBrokerTopics() throws Exception {
+        // given
+        virtualTopics = new VirtualTopicManager(Map.of(
+                "orders", new VirtualTopicConfig("orders-v2"),
+                "payments", new VirtualTopicConfig("payments-v1")));
+        cache = cacheWith(topic("orders-v2", 1, 1), topic("payments-v1", 1, 1));
+        startServer();
+
+        // when
+        var listTopicsResp = listTopicsWith("{\"type\":\"physical\"}");
+
+        // then
+        assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(false);
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.virtualTopics").isEqualTo("[]");
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.physicalTopics[*].name")
+                .isArray().containsExactly("orders-v2", "payments-v1");
+    }
+
+    @Test
+    void typeAndNameFilterInsideTheChosenLayer() throws Exception {
+        // given
+        virtualTopics = new VirtualTopicManager(Map.of(
+                "orders", new VirtualTopicConfig("orders-v2"),
+                "payments", new VirtualTopicConfig("payments-v1")));
+        cache = cacheWith(topic("orders-v2", 1, 1), topic("payments-v1", 1, 1));
+        startServer();
+
+        // when
+        var listTopicsResp = listTopicsWith("{\"type\":\"physical\",\"name\":\"ders\"}");
+
+        // then
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.virtualTopics").isEqualTo("[]");
+        assertThatJson(listTopicsResp.body()).inPath("result.structuredContent.physicalTopics[*].name")
+                .isArray().containsExactly("orders-v2");
+    }
+
+    @Test
+    void anUnknownTypeBecomesAToolError() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var listTopicsResp = listTopicsWith("{\"type\":\"both\"}");
+
+        // then
+        assertThatJson(listTopicsResp.body()).inPath("result.isError").isEqualTo(true);
+        assertThatJson(listTopicsResp.body()).inPath("result.content[0].text")
+                .isEqualTo("type must be 'virtual' or 'physical'");
+    }
+
+    @Test
     void topicServiceFailureBecomesAGenericToolError() throws Exception {
         // given
         topicService = mock(TopicService.class);
@@ -135,6 +304,16 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
         assertThat(lines)
                 .withFailMessage(() -> "the tool arguments were logged: " + lines)
                 .noneMatch(line -> line.contains("s3cr3t-value"));
+    }
+
+    /// Calls `list_topics` with the `name` argument. The name must not contain quotes or backslashes.
+    private HttpResponse<String> listTopics(String name) throws Exception {
+        return listTopicsWith("{\"name\":\"" + name + "\"}");
+    }
+
+    /// Calls `list_topics` with the JSON object `arguments`.
+    private HttpResponse<String> listTopicsWith(String arguments) throws Exception {
+        return rpc("tools/call", "{\"name\":\"list_topics\",\"arguments\":" + arguments + "}");
     }
 
     private static String structuredContent(String body) {
