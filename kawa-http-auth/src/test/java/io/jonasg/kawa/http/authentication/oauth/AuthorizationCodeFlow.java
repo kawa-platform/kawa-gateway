@@ -75,6 +75,18 @@ final class AuthorizationCodeFlow {
                 Map.of("content-type", List.of("application/json")), json.getBytes(StandardCharsets.UTF_8)));
     }
 
+    /// `POST /oauth/login` with only the challenge, as a user already signed in; `authorization` is the whole
+    /// `Authorization` header value, or null for none.
+    HttpResponse loginContinuing(String challenge, String authorization) {
+        var headers = new LinkedHashMap<String, List<String>>();
+        headers.put("content-type", List.of("application/json"));
+        if (authorization != null) {
+            headers.put("authorization", List.of(authorization));
+        }
+        return endpoint("POST /oauth/login").handle(new HttpRequest("POST", "/oauth/login", Map.of(), headers,
+                ("{\"login_challenge\":\"" + challenge + "\"}").getBytes(StandardCharsets.UTF_8)));
+    }
+
     /// The authorization code from the login response's `redirect_to`.
     static String code(HttpResponse loginResponse) {
         String body = new String(loginResponse.body(), StandardCharsets.UTF_8);

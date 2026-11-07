@@ -29,6 +29,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
                 [
                   {"id":"governance","enabled":true},
                   {"id":"mcp","enabled":true},
+                  {"id":"mcp-cimd","enabled":true},
                   {"id":"rbac","enabled":true},
                   {"id":"virtual-topics","enabled":true}
                 ]
@@ -51,6 +52,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
                 [
                   {"id":"governance","enabled":false},
                   {"id":"mcp","enabled":true},
+                  {"id":"mcp-cimd","enabled":true},
                   {"id":"rbac","enabled":true},
                   {"id":"virtual-topics","enabled":true}
                 ]
@@ -124,6 +126,27 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThat(repository.getActiveConfigOrEmpty().modules().get("virtual-topics"))
                 .withFailMessage(() -> "module 'virtual-topics' was not stored: " + repository.getActiveConfigOrEmpty().modules())
                 .isEqualTo(new ModuleConfig(ModuleId.VIRTUAL_TOPICS, false));
+    }
+
+    @Test
+    void switchesClientIdMetadataDocumentsOffAndOnThroughTheMcpCimdModule() throws Exception {
+        // given: on by default
+        startServer();
+        var initially = send("GET", "/modules/mcp-cimd");
+
+        // when
+        var off = send("PUT", "/modules/mcp-cimd", """
+                {"enabled":false}
+                """);
+
+        // then
+        assertThatJson(initially.body()).isEqualTo("""
+                {"id":"mcp-cimd","enabled":true}
+                """);
+        assertThat(off).hasStatusCode(200);
+        assertThat(repository.getActiveConfigOrEmpty().modules().get("mcp-cimd"))
+                .withFailMessage(() -> "module 'mcp-cimd' was not stored: " + repository.getActiveConfigOrEmpty().modules())
+                .isEqualTo(new ModuleConfig(ModuleId.MCP_CIMD, false));
     }
 
     @Test

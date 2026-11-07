@@ -1,3 +1,4 @@
+# Host-run twins for `make debug` / `make debug-noauth`: gateway-debug.yaml, gateway-debug-noauth.yaml. Keep all in sync.
 listeners:
   - host: 0.0.0.0
     port: 9092

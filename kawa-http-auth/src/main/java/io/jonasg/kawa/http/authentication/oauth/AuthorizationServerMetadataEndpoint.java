@@ -12,19 +12,24 @@ import io.jonasg.kawa.plugin.http.HttpResponse;
 
 import java.net.URI;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /// `GET /.well-known/oauth-authorization-server`: RFC 8414 metadata describing kawa's built-in
 /// authorization server (issuer, authorization and token endpoints, JWKS location, the authorization
 /// code flow with PKCE S256, the refresh token grant, and the client credentials and token exchange
-/// grants for service clients). Endpoint URLs
+/// grants for service clients), and, while client ID metadata documents are enabled, `client_id_metadata_document_supported`
+/// (OAuth Client ID Metadata Documents), decided on every request. Endpoint URLs
 /// are derived from the request's `Host` header (and `X-Forwarded-Proto`, when kawa sits behind a
 /// TLS-terminating proxy).
 final class AuthorizationServerMetadataEndpoint implements HttpEndpoint {
 
     private final String issuer;
+    private final BooleanSupplier clientIdMetadataDocuments;
 
-    AuthorizationServerMetadataEndpoint(String issuer) {
+    /// @param clientIdMetadataDocuments whether clients may identify themselves with a metadata document right now
+    AuthorizationServerMetadataEndpoint(String issuer, BooleanSupplier clientIdMetadataDocuments) {
         this.issuer = issuer;
+        this.clientIdMetadataDocuments = clientIdMetadataDocuments;
     }
 
     @Override
@@ -42,6 +47,9 @@ final class AuthorizationServerMetadataEndpoint implements HttpEndpoint {
                 ClientAuthenticationMethod.NONE,
                 ClientAuthenticationMethod.CLIENT_SECRET_BASIC,
                 ClientAuthenticationMethod.CLIENT_SECRET_POST));
+        if (clientIdMetadataDocuments.getAsBoolean()) {
+            metadata.setCustomParameter("client_id_metadata_document_supported", true);
+        }
         return HttpResponse.json(200, metadata.toJSONObject().toJSONString());
     }
 }

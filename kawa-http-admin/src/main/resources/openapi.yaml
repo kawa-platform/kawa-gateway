@@ -766,6 +766,12 @@ paths:
         `admin.auth.type: oauth`. kawa serves no login page: a valid request is redirected to the
         external login UI (`admin.auth.settings.loginUrl`) with a `login_challenge`. An unknown
         client or redirect URI is answered with `400`; other errors are redirected to the client.
+        The `client_id` is a registered OAuth client's id, or an `https` URL while the `mcp-cimd`
+        module is on (it is by default, and needs the `mcp` module): kawa then fetches the OAuth Client
+        ID Metadata Document published there (public hosts only, no redirects followed) and takes the
+        redirect URIs from it. When `admin.auth.settings.clientIdMetadataDocuments` is set, only those
+        exact URLs are accepted. Such clients get `mcp` audience tokens only, and lose them as soon as
+        the module is switched off.
       security: []
       parameters:
         - {name: response_type, in: query, required: true, schema: {type: string, enum: [code]}}
@@ -790,6 +796,13 @@ paths:
         Called by the external login UI. Verifies the user's credentials for the pending
         authorization request in `login_challenge` and returns where to send the browser: the
         client's redirect URI with a single-use authorization code.
+
+        Either `username` and `password` are given, or, for a user already signed in to the
+        login UI ("continue as"), only `login_challenge` together with that user's admin access
+        token as `Authorization: Bearer <token>`. The token must be a valid, unexpired access token
+        for the admin API (never one issued for `/mcp`, nor a refresh token) of an admin user who
+        still exists and is enabled. Without valid credentials of either kind the answer is
+        `invalid_credentials`.
       security: []
       requestBody:
         required: true
@@ -797,7 +810,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [login_challenge, username, password]
+              required: [login_challenge]
               properties:
                 login_challenge:
                   type: string
@@ -820,6 +833,51 @@ paths:
         '400':
           description: |
             `invalid_request`, `invalid_challenge` (expired: start again) or `invalid_credentials`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenError'
+  /oauth/login-challenge:
+    get:
+      summary: Who is asking, for a login challenge
+      description: |
+        Called by the external login UI before it asks for credentials, to show the user which client
+        is requesting access. kawa verifies the signed `login_challenge` and describes the
+        authorization request it carries; the UI never decodes the challenge itself. Responses carry
+        `Cache-Control: no-store`.
+      security: []
+      parameters:
+        - {name: login_challenge, in: query, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: The client behind the challenge
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [clientId, clientName, redirectHost, audience, registered]
+                properties:
+                  clientId:
+                    type: string
+                  clientName:
+                    type: string
+                    description: |
+                      The client's display name: the `client_name` of its metadata document (plain text,
+                      control characters removed, at most 100 characters), else its `clientId`.
+                  redirectHost:
+                    type: string
+                    description: The host the browser returns to after the login.
+                  audience:
+                    type: string
+                    enum: [mcp, admin]
+                    description: What the client's tokens are accepted for.
+                  registered:
+                    type: boolean
+                    description: |
+                      Whether an admin registered the client (or it is kawa studio). `false` for a client
+                      that identifies itself with a metadata document.
+        '400':
+          description: '`invalid_challenge`: missing, expired or tampered with'
           content:
             application/json:
               schema:
@@ -960,7 +1018,8 @@ paths:
       description: |
         RFC 8414 metadata: issuer, token endpoint, JWKS location and supported grants. Only exists
         with `admin.auth.type: oauth`. Endpoint URLs are derived from the `Host` and
-        `X-Forwarded-Proto` request headers.
+        `X-Forwarded-Proto` request headers. `client_id_metadata_document_supported: true` is present
+        while the `mcp` and `mcp-cimd` modules are both on, decided on every request.
       security: []
       responses:
         '200':
@@ -1291,7 +1350,7 @@ components:
       description: The module's stable id.
       schema:
         type: string
-        enum: [virtual-topics, rbac, governance, mcp]
+        enum: [virtual-topics, rbac, governance, mcp, mcp-cimd]
     OAuthClientId:
       name: id
       in: path
@@ -1413,7 +1472,7 @@ components:
       properties:
         id:
           type: string
-          enum: [virtual-topics, rbac, governance, mcp]
+          enum: [virtual-topics, rbac, governance, mcp, mcp-cimd]
         enabled:
           type: boolean
     ModuleRequest:

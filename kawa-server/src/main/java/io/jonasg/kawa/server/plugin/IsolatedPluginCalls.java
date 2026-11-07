@@ -84,6 +84,11 @@ final class IsolatedPluginCalls {
             }
 
             @Override
+            public boolean clientIdMetadataDocumentsEnabled() {
+                return context.clientIdMetadataDocumentsEnabled();
+            }
+
+            @Override
             public String publicUrl() {
                 return context.publicUrl();
             }

@@ -1,0 +1,28 @@
+# Host-run twin of gateway.yaml for `make debug-noauth`: the gateway runs on the host (debuggable from IntelliJ) and reaches
+# Kafka through its published EXTERNAL listener. Keep in sync with gateway.yaml; only the bootstrap server and the admin auth differ.
+listeners:
+  - host: 0.0.0.0
+    port: 9092
+
+clusters:
+  default:
+    bootstrapServers:
+      - localhost:19092
+
+advertised:
+  nodeId: 1
+  host: localhost
+  port: 9092
+
+admin:
+  enabled: true
+  host: 0.0.0.0
+  port: 8080
+  publicUrl: http://localhost:8080
+  # Open admin API (no login), so `curl` works without a token. This is the one deliberate difference from
+  # gateway.yaml, which uses oauth.
+  auth:
+    type: none
+  cors:
+    allowedOrigins:
+      - http://localhost:5173

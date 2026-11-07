@@ -35,6 +35,14 @@ final class FakeProviderContext implements AuthenticationProviderContext {
         this.publicUrl = publicUrl;
     }
 
+    /// Whether client ID metadata documents are enabled; a test flips it to mimic the admin switching the module.
+    volatile boolean clientIdMetadataDocuments = true;
+
+    @Override
+    public boolean clientIdMetadataDocumentsEnabled() {
+        return clientIdMetadataDocuments;
+    }
+
     @Override
     public String publicUrl() {
         return publicUrl;

@@ -15,6 +15,12 @@ public interface AuthenticationProviderContext {
     /// Look clients up on every request instead of keeping them: see [OAuthClientDirectory].
     OAuthClientDirectory oauthClients();
 
+    /// Whether the operator currently lets clients identify themselves with an OAuth Client ID Metadata Document
+    /// (a `client_id` that is an `https` URL) instead of being registered through [#oauthClients]. Switched at
+    /// runtime, so ask on every request instead of keeping the answer: once it turns `false`, a provider that
+    /// runs an authorization server should refuse new sign-ins of such clients and stop accepting their tokens.
+    boolean clientIdMetadataDocumentsEnabled();
+
     /// The absolute URL clients reach the admin API at, without a trailing `/`: `admin.publicUrl`
     /// from the gateway config, or `http://<bind host>:<admin port>` when that is not set. Use it for
     /// URLs a provider publishes, such as a token issuer or a metadata document.

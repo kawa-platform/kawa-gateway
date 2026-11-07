@@ -110,8 +110,28 @@ depend on production modules such as `kawa-config`, but never on a module that u
   `http` loopback URI may give `*` as its whole port (`http://localhost:*/callback`). Audience `admin` gets
   `aud = <issuer>` (the whole admin API), `mcp` gets `aud = <publicUrl>/mcp` (only `POST /mcp`). Tokens carry
   `client_id`, surfaced as `KawaPrincipal.clientId`; disabling or deleting a client, or changing its audience, revokes
-  its tokens on the next request. The 401 challenge is path-aware: `/mcp` has its own protected resource metadata
+  its tokens on the next request. `POST /oauth/login` takes either username + password or, for "continue as" in studio,
+  just the `login_challenge` with `Authorization: Bearer <admin access token>` (`LoginEndpoint` verifies it with the admin
+  access-token `TokenVerifier`: never an `mcp`-audience or refresh token; the user must still exist and be enabled).
+  The 401 challenge is path-aware: `/mcp` has its own protected resource metadata
   (`/.well-known/oauth-protected-resource/mcp`).
+  Clients may also identify themselves with an OAuth Client ID Metadata Document (CIMD): a `client_id` that is an
+  `https` URL (a managed id never contains `:`). CIMD is switched at runtime by the `mcp-cimd` module (`ModuleId.MCP_CIMD`,
+  on unless switched off) and only counts while `mcp` is on: `AuthenticationProviderContext.clientIdMetadataDocumentsEnabled()`
+  (backed by `ModuleService`, read from the active config) is asked on every request by `OAuthClients.find` (authorize,
+  code redemption), `clientOf` (every request, refresh) and the metadata endpoint, so switching it off stops new sign-ins,
+  revokes CIMD tokens and drops `client_id_metadata_document_supported` on the next request. The provider setting
+  `clientIdMetadataDocuments` (startup-only) is an optional restriction: empty = any URL, otherwise only those exact URLs.
+  `UrlPolicy` is the SSRF guard: `https` only and every resolved address must be public (loopback, private, link-local,
+  CGNAT, multicast, reserved, cloud metadata, IPv4-mapped IPv6 are refused); the unpinned DNS-rebinding window is
+  documented on `ClientIdMetadataDocuments`. Its test-only loopback variant is selected only by the system property
+  `kawa.test.clientIdMetadataLoopback` (integration tests), never by a setting. `ClientIdMetadataDocuments` never follows
+  redirects, bounds time (5 s), size (64 KB) and cache (256 entries; 5 min, failures 30 s) and accepts a document only
+  if its `client_id` is the URL, `redirect_uris` are valid and `token_endpoint_auth_method` is absent or `none`. CIMD
+  clients are `mcp` audience only. For consent, the login challenge carries the client's display name (the document's
+  `client_name`, sanitized and capped, else the id) and whether it is registered; the public
+  `GET /oauth/login-challenge?login_challenge=…` verifies the challenge and returns `{clientId, clientName, redirectHost,
+  audience, registered}` for the login UI.
 - `kawa-server`: Netty server, broker clients, shading. Produces the runnable shaded jar
   (`mainClass=io.jonasg.kawa.server.GatewayLauncher`).
 - `kawa-integration-tests`: real-client + raw-socket wire tests against a broker via

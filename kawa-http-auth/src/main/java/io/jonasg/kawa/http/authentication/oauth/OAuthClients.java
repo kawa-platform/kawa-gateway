@@ -6,15 +6,26 @@ import io.jonasg.kawa.plugin.auth.OAuthClientDirectory;
 import org.jspecify.annotations.Nullable;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.text.ParseException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /// The OAuth clients the authorization server issues tokens to: kawa studio, configured in the provider's
-/// settings, and the clients managed through the admin API.
+/// settings, the clients managed through the admin API, and the clients whose `client_id` is a URL, which publish
+/// their redirect URIs in a [ClientIdMetadataDocuments].
 ///
-/// kawa studio is always resolved first, so a managed client with the same id is never used. Managed clients are
+/// kawa studio is always resolved first, so a managed client with the same id is never used. A managed id never
+/// contains a `:`, so an id that does is a URL: it names a metadata document client, which is for the MCP endpoint
+/// only. Such clients exist only while the `enabled` switch is on, asked on every call, and, when the optional
+/// restriction is not empty, only for the URLs in it. Their document is read by [#find], which only the
+/// authorization and token redemption use. [#clientOf] runs on every request and never leaves the process: it
+/// trusts the switch, the restriction and the `mcp` audience, so switching the feature off or removing a URL from
+/// the restriction revokes the client's tokens.
+///
+/// Managed clients are
 /// looked up on every call, so a change through the admin API applies to the next request; a disabled client is
 /// treated as unknown. The same holds for the tokens already issued ([#clientOf]): disabling or deleting a client,
 /// or changing its audience, revokes them.
@@ -23,9 +34,12 @@ final class OAuthClients {
     /// A client the authorization server knows.
     ///
     /// @param id           the `client_id`
+    /// @param name         what to call the client on the login page: its metadata document's `client_name`, else its id
+    /// @param registered   whether an admin registered the client (or it is kawa studio), as opposed to it
+    ///                     identifying itself with a metadata document
     /// @param audience     the `aud` of the client's tokens
     /// @param redirectUris where the client may be redirected to
-    record Client(String id, String audience, List<RegisteredRedirectUri> redirectUris) {
+    record Client(String id, String name, boolean registered, String audience, List<RegisteredRedirectUri> redirectUris) {
 
         /// Whether the client may be redirected to `requested`.
         boolean allowsRedirect(@Nullable URI requested) {
@@ -37,14 +51,25 @@ final class OAuthClients {
     private final OAuthClientDirectory managed;
     private final String adminAudience;
     private final String mcpAudience;
+    private final BooleanSupplier metadataDocumentsEnabled;
+    private final Set<String> metadataDocumentRestriction;
+    private final ClientIdMetadataDocuments documents;
 
-    /// @param adminAudience the `aud` of tokens valid on the whole admin API: the issuer
-    /// @param mcpAudience   the `aud` of tokens for the MCP endpoint
-    OAuthClients(String studioId, Set<URI> studioRedirectUris, OAuthClientDirectory managed, String adminAudience, String mcpAudience) {
-        this.studio = new Client(studioId, adminAudience, studioRedirectUris.stream().map(RegisteredRedirectUri::exact).toList());
+    /// @param adminAudience              the `aud` of tokens valid on the whole admin API: the issuer
+    /// @param mcpAudience                the `aud` of tokens for the MCP endpoint
+    /// @param metadataDocumentsEnabled   whether clients may identify themselves with a metadata document; asked on
+    ///                                   every call
+    /// @param metadataDocumentRestriction when not empty, the only `client_id` URLs that may
+    OAuthClients(String studioId, Set<URI> studioRedirectUris, OAuthClientDirectory managed, String adminAudience, String mcpAudience,
+            BooleanSupplier metadataDocumentsEnabled, Set<String> metadataDocumentRestriction, ClientIdMetadataDocuments documents) {
+        this.studio = new Client(studioId, studioId, true, adminAudience,
+                studioRedirectUris.stream().map(RegisteredRedirectUri::exact).toList());
         this.managed = managed;
         this.adminAudience = adminAudience;
         this.mcpAudience = mcpAudience;
+        this.metadataDocumentsEnabled = metadataDocumentsEnabled;
+        this.metadataDocumentRestriction = metadataDocumentRestriction;
+        this.documents = documents;
     }
 
     /// The client with this id, unless it is unknown or disabled.
@@ -55,19 +80,28 @@ final class OAuthClients {
         if (studio.id().equals(id)) {
             return Optional.of(studio);
         }
+        if (isUrl(id)) {
+            return metadataDocumentClient(id);
+        }
         return managed.find(id).filter(OAuthClient::enabled).map(this::client);
     }
 
     /// The client a session token (access or refresh token) was issued to, while its tokens are still valid: the
     /// client named by the token's `client_id` (kawa studio for a token issued before tokens named their client) is
     /// known and enabled, and its tokens still carry the token's `aud`. Empty once the client was disabled, deleted
-    /// or given another audience.
+    /// or given another audience. A metadata document client has no redirect URIs here: its document is not
+    /// read.
     Optional<Client> clientOf(JWTClaimsSet token) {
         String clientId;
         try {
             clientId = token.getStringClaim(TokenIssuer.CLIENT_ID_CLAIM);
         } catch (ParseException e) {
             return Optional.empty();
+        }
+        if (clientId != null && isUrl(clientId)) {
+            return Optional.of(clientId).filter(this::metadataDocumentsAllow)
+                    .map(id -> new Client(id, id, false, mcpAudience, List.of()))
+                    .filter(client -> token.getAudience().equals(List.of(client.audience())));
         }
         return find(clientId == null ? studio.id() : clientId)
                 .filter(client -> token.getAudience().equals(List.of(client.audience())));
@@ -85,12 +119,37 @@ final class OAuthClients {
                 || resources.stream().allMatch(resource -> resource.toString().equals(audience));
     }
 
+    /// Whether the `enabled` switch is on and the restriction, if any, lists `id`. Asked per call, never kept.
+    private boolean metadataDocumentsAllow(String id) {
+        return metadataDocumentsEnabled.getAsBoolean()
+                && (metadataDocumentRestriction.isEmpty() || metadataDocumentRestriction.contains(id));
+    }
+
+    private Optional<Client> metadataDocumentClient(String id) {
+        if (!metadataDocumentsAllow(id)) {
+            return Optional.empty();
+        }
+        URI url;
+        try {
+            url = new URI(id);
+        } catch (URISyntaxException e) {
+            return Optional.empty();
+        }
+        return documents.fetch(url).map(document ->
+                new Client(id, document.clientName() == null ? id : document.clientName(), false, mcpAudience, document.redirectUris()));
+    }
+
+    /// A `client_id` with a `:` is a URL: no managed client has one.
+    private static boolean isUrl(String clientId) {
+        return clientId.contains(":");
+    }
+
     private Client client(OAuthClient client) {
         String audience = switch (client.audience()) {
             case ADMIN -> adminAudience;
             case MCP -> mcpAudience;
         };
-        return new Client(client.id(), audience,
+        return new Client(client.id(), client.id(), true, audience,
                 client.redirectUris().stream().flatMap(uri -> RegisteredRedirectUri.parse(uri).stream()).toList());
     }
 }

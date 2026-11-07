@@ -33,6 +33,14 @@ public final class ModuleService {
         return ModuleConfig.stateOf(id, repository.getActiveConfigOrEmpty().modules());
     }
 
+    /// Whether clients may identify themselves with OAuth Client ID Metadata Documents right now: the MCP server
+    /// and [ModuleId#MCP_CIMD] are both enabled. Read from the active config on every call, for the `oauth`
+    /// provider to ask per request.
+    public boolean clientIdMetadataDocumentsEnabled() {
+        var modules = repository.getActiveConfigOrEmpty().modules();
+        return ModuleConfig.stateOf(ModuleId.MCP, modules).enabled() && ModuleConfig.stateOf(ModuleId.MCP_CIMD, modules).enabled();
+    }
+
     /// Adds or replaces a module.
     ModuleConfig upsertModule(ModuleConfig module, Consistency consistency) {
         updater.update(consistency, config -> config.upsertModule(module));
