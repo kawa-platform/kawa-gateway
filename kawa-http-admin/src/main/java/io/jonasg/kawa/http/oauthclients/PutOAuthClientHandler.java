@@ -6,7 +6,7 @@ import io.jonasg.kawa.http.web.Router;
 import tools.jackson.databind.json.JsonMapper;
 
 /// Serves `PUT /admin/oauth-clients/{id}`: adds or replaces an OAuth client. The id comes from the path. An invalid
-/// body is a `400`; the reserved id `kawa-studio` is a `409`.
+/// body is a `400`; a reserved id (`kawa-studio`, `kawa-operator`) is a `409`.
 final class PutOAuthClientHandler implements Router.Handler {
 
     private final OAuthClientService service;
