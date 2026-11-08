@@ -55,7 +55,7 @@
         <avro.version>1.12.2</avro.version>
         <openapi-generator.version>7.26.0</openapi-generator.version>
         <jspecify.version>1.0.1</jspecify.version>
-        <mcp-sdk.version>2.0.1</mcp-sdk.version>
+        <mcp-sdk.version>2.1.0</mcp-sdk.version>
         <nimbus-oauth2-oidc-sdk.version>11.38.2</nimbus-oauth2-oidc-sdk.version>
 
         <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
