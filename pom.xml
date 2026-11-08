@@ -47,7 +47,7 @@
         <assertj.version>3.27.7</assertj.version>
         <mockito.version>5.23.0</mockito.version>
         <!-- Mockito 5.23.0 ships Byte Buddy 1.17.7, which cannot instrument Java 26 classes. -->
-        <bytebuddy.version>1.18.11</bytebuddy.version>
+        <bytebuddy.version>1.18.17</bytebuddy.version>
         <kassert.version>0.1.0</kassert.version>
         <testcontainers.version>1.21.4</testcontainers.version>
         <awaitility.version>4.3.0</awaitility.version>
