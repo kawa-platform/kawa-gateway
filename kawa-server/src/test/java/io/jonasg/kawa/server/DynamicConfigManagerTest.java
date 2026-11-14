@@ -5,6 +5,8 @@ import io.jonasg.kawa.config.AuthConfig;
 import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.ConfigTopicWriter;
 import io.jonasg.kawa.config.ConfigWriteFencedException;
+import io.jonasg.kawa.config.CelTransformationConfig;
+import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
@@ -113,6 +115,30 @@ class DynamicConfigManagerTest {
                 .setAuthBytes("\u0000alice\u0000secret".getBytes(StandardCharsets.UTF_8)));
         assertThat(authenticate).isInstanceOf(AuthenticationResult.Success.class);
         assertThat(manager.getActiveConfig()).isSameAs(config);
+    }
+
+    @Test
+    void refusesASnapshotWithAnInvalidTransformationBeforeApplyingAnything() {
+        // given
+        var virtualTopics = new VirtualTopicManager(Map.of());
+        var authorizer = new RbacAuthorizer(new RbacConfig(Map.of(), Map.of()));
+        var manager = new DynamicConfigManager("localhost:9092", "__kawa",
+                virtualTopics, authorizer, new SaslAuthenticator(), emptyGovernance());
+        var invalid = new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(),
+                List.of(new CelTransformationConfig("{\"id\": value.id")), null);
+        var broken = config(Map.of("orders", invalid), rbacAllowingReadOnOrders(), plainAuth(), null);
+
+        // when / then
+        assertThatThrownBy(() -> manager.apply(broken))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("virtual topic 'orders'")
+                .hasMessageContaining("transformation #1 (cel)");
+        assertThat(authorizer.isAuthorized("alice", ResourceType.TOPIC, "orders", AclOperation.READ))
+                .withFailMessage(() -> "The RBAC part of a refused snapshot was applied")
+                .isFalse();
+        assertThat(virtualTopics.toPhysical("orders"))
+                .withFailMessage(() -> "The virtual topic of a refused snapshot was applied")
+                .isEqualTo("orders");
     }
 
     @Test

@@ -20,10 +20,11 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = DropFieldsTransformationConfig.class, name = "dropFields"),
         @JsonSubTypes.Type(value = RenameFieldTransformationConfig.class, name = "renameField"),
+        @JsonSubTypes.Type(value = DefaultFieldTransformationConfig.class, name = "defaultField"),
         @JsonSubTypes.Type(value = CelTransformationConfig.class, name = "cel"),
         @JsonSubTypes.Type(value = ConvertTransformationConfig.class, name = "convert")
 })
 public sealed interface TransformationConfig
-        permits DropFieldsTransformationConfig, RenameFieldTransformationConfig, CelTransformationConfig,
-        ConvertTransformationConfig {
+        permits DropFieldsTransformationConfig, RenameFieldTransformationConfig, DefaultFieldTransformationConfig,
+        CelTransformationConfig, ConvertTransformationConfig {
 }

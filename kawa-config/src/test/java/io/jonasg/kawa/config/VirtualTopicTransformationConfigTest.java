@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -177,6 +178,46 @@ class VirtualTopicTransformationConfigTest {
         assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new XmlFormatConfig(), steps, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("XML requires a 'root'");
+    }
+
+    @Test
+    void readsADefaultFieldWithAnyJsonValue() throws Exception {
+        // when
+        var virtualTopic = mapper.readValue("""
+                {"virtualTopics": {"orders.virtual": {
+                  "topic": "orders.raw",
+                  "valueFormat": {"type": "json"},
+                  "transformations": [
+                    {"type": "defaultField", "field": "currency", "value": "EUR"},
+                    {"type": "defaultField", "field": "shipping.address", "value": {"country": "BE", "lines": [1, 2]}}
+                  ]
+                }}}
+                """, DynamicConfig.class).virtualTopics().get("orders.virtual");
+
+        // then
+        assertThat(virtualTopic.transformations())
+                .withFailMessage(() -> "The defaultField steps were not read: " + virtualTopic.transformations())
+                .containsExactly(
+                        new DefaultFieldTransformationConfig("currency", "EUR"),
+                        new DefaultFieldTransformationConfig("shipping.address", Map.of("country", "BE", "lines", List.of(1, 2))));
+    }
+
+    @Test
+    void refusesInvalidFieldPaths() {
+        for (String path : List.of("", "a..b", ".a", "a.")) {
+            assertThatThrownBy(() -> new DropFieldsTransformationConfig(List.of(path)))
+                    .withFailMessage(() -> "The field path '" + path + "' was accepted")
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    void refusesARenameIntoItsOwnPath() {
+        assertThatThrownBy(() -> new RenameFieldTransformationConfig("customer", "customer.name"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("one contains the other");
+        assertThatThrownBy(() -> new RenameFieldTransformationConfig("id", "id"))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

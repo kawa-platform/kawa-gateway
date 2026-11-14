@@ -190,6 +190,8 @@ public final class DynamicConfigManager implements DynamicConfigRepository, Auto
     }
 
     private void applyConsumers(DynamicConfig config) {
+        // validated before anything is applied: an invalid transformation refuses the whole snapshot
+        VirtualTopicManager.validate(config.virtualTopics());
         authorizer.reload(config.rbac()); // risky first: can throw on unknown role
         governance.reload(config.governance()); // risky: can throw on invalid CEL expression
         virtualTopics.reload(config.virtualTopics());
