@@ -167,13 +167,15 @@ public final class TopicService implements AutoCloseable {
         if (request.topic() == null || request.topic().isBlank()) {
             throw new IllegalArgumentException("virtual topic requires a physical 'topic'");
         }
-        var operation = dynamicConfigRepository.getActiveConfigOrEmpty().virtualTopics().containsKey(name) ? Operation.ALTER : Operation.CREATE;
+        VirtualTopicConfig current = dynamicConfigRepository.getActiveConfigOrEmpty().virtualTopics().get(name);
+        var operation = current != null ? Operation.ALTER : Operation.CREATE;
         admit(name, GovernanceRequest.virtualTopic(principal, SERVICE, operation, name, request.topic()));
         var value = new VirtualTopicConfig(
                 request.topic(),
                 request.filter(),
                 request.exposePhysicalTopic() != null && request.exposePhysicalTopic(),
                 request.valueFormat(),
+                current == null ? List.of() : current.transformations(),
                 Ownership.stamp(caller));
         consistencyAwareUpdater.update(consistency, config -> {
             requireTopicOwner(config, name, caller);
@@ -211,6 +213,7 @@ public final class TopicService implements AutoCloseable {
                 patch.filter(),
                 patch.exposePhysicalTopic() == null ? current.exposePhysicalTopic() : patch.exposePhysicalTopic(),
                 patch.valueFormat(),
+                current.transformations(),
                 Ownership.stamp(caller));
         consistencyAwareUpdater.update(consistency, config -> {
             requireTopicOwner(config, name, caller);

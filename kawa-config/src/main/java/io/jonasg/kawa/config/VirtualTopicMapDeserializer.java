@@ -6,7 +6,9 @@ import tools.jackson.databind.DeserializationContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ValueDeserializer;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /// Deserializes the `virtualTopics` configuration section.
@@ -19,6 +21,14 @@ import java.util.Map;
 ///   customers:
 ///     topic: crm.customers
 ///     exposePhysicalTopic: true
+///   orders.virtual:
+///     topic: orders.raw
+///     valueFormat: {type: avro}
+///     transformations:
+///       - type: dropFields
+///         fields: [internal_risk_score]
+///       - type: convert
+///         format: {type: json}
 /// ```
 public final class VirtualTopicMapDeserializer extends ValueDeserializer<Map<String, VirtualTopicConfig>> {
 
@@ -62,8 +72,13 @@ public final class VirtualTopicMapDeserializer extends ValueDeserializer<Map<Str
         VirtualTopicFilterConfig filter = parseFilter(virtualTopic, object.get("filter"), context);
         boolean exposePhysicalTopic = parseExposePhysicalTopic(virtualTopic, object.get("exposePhysicalTopic"));
         PayloadFormatConfig valueFormat = parseValueFormat(virtualTopic, object.get("valueFormat"), context);
+        List<TransformationConfig> transformations = parseTransformations(virtualTopic, object.get("transformations"), context);
         ManagedBy managedBy = parseManagedBy(virtualTopic, object.get("managedBy"), context);
-        return new VirtualTopicConfig(topicNode.stringValue(), filter, exposePhysicalTopic, valueFormat, managedBy);
+        try {
+            return new VirtualTopicConfig(topicNode.stringValue(), filter, exposePhysicalTopic, valueFormat, transformations, managedBy);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid virtual topic mapping for topic '" + virtualTopic + "': " + e.getMessage(), e);
+        }
     }
 
     private static boolean parseExposePhysicalTopic(
@@ -126,6 +141,33 @@ public final class VirtualTopicMapDeserializer extends ValueDeserializer<Map<Str
             throw new IllegalArgumentException(
                     "Invalid valueFormat for virtual topic '" + virtualTopic + "': " + e.getMessage(), e);
         }
+    }
+
+    /// Delegates each `transformations` entry to Jackson's polymorphic `type`-based dispatch
+    /// ([TransformationConfig]'s `@JsonTypeInfo`/`@JsonSubTypes`); absent or `null` means none.
+    private static List<TransformationConfig> parseTransformations(
+            String virtualTopic,
+            JsonNode node,
+            DeserializationContext context
+    ) {
+        if (node == null || node.isNull()) {
+            return List.of();
+        }
+        if (!node.isArray()) {
+            throw new IllegalArgumentException(
+                    "Invalid transformations for virtual topic '" + virtualTopic
+                    + "': expected a list of objects with a required 'type' key");
+        }
+        List<TransformationConfig> transformations = new ArrayList<>();
+        for (JsonNode step : node) {
+            try {
+                transformations.add(context.readTreeAsValue(step, TransformationConfig.class));
+            } catch (RuntimeException e) {
+                throw new IllegalArgumentException(
+                        "Invalid transformation for virtual topic '" + virtualTopic + "': " + e.getMessage(), e);
+            }
+        }
+        return transformations;
     }
 
     /// Reads the optional `managedBy` owner; absent (snapshots written before ownership existed)
