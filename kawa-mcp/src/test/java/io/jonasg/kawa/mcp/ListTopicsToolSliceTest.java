@@ -35,9 +35,9 @@ class ListTopicsToolSliceTest extends McpSliceTestBase {
 
         // then
         assertThat(toolsResp).hasStatusCode(200);
-        assertThatJson(toolsResp.body()).inPath("result.tools[*].name").isArray().containsExactly("list_topics");
-        assertThatJson(toolsResp.body()).inPath("result.tools[0].outputSchema").isEqualTo(json(
-                new JsonMapper().writeValueAsString(TopicsView.SCHEMA)));
+        assertThatJson(toolsResp.body()).inPath("result.tools[*].name").isArray().contains("list_topics");
+        assertThatJson(toolsResp.body()).inPath("result.tools[?(@.name == 'list_topics')].outputSchema")
+                .isArray().containsExactly(json(new JsonMapper().writeValueAsString(TopicsView.SCHEMA)));
     }
 
     @Test

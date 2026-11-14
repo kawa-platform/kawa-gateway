@@ -1,6 +1,12 @@
 package io.jonasg.kawa.mcp;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.jonasg.kawa.config.CelFilterConfig;
+import io.jonasg.kawa.config.HeaderContainsFilterConfig;
+import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
+import io.jonasg.kawa.config.HeaderMatchesFilterConfig;
+import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
+import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -88,5 +94,22 @@ record TopicsView(List<VirtualTopicView> virtualTopics, List<PhysicalTopicView> 
                         "description", Map.of("type", "string")),
                 "required", List.of("type", "description"),
                 "additionalProperties", false);
+
+        /// The view of `filter`, or `null` when there is none.
+        static @Nullable FilterView of(@Nullable VirtualTopicFilterConfig filter) {
+            return switch (filter) {
+                case null -> null;
+                case HeaderEqualsFilterConfig f -> new FilterView("headerEquals", header(f.header(), "equals", f.value()));
+                case HeaderContainsFilterConfig f -> new FilterView("headerContains", header(f.header(), "contains", f.value()));
+                case HeaderStartsWithFilterConfig f ->
+                        new FilterView("headerStartsWith", header(f.header(), "starts with", f.value()));
+                case HeaderMatchesFilterConfig f -> new FilterView("headerMatches", header(f.header(), "matches", f.value()));
+                case CelFilterConfig f -> new FilterView("cel", f.expression());
+            };
+        }
+
+        private static String header(String header, String operator, String value) {
+            return "header '" + header + "' " + operator + " '" + value + "'";
+        }
     }
 }

@@ -78,11 +78,16 @@ depend on production modules such as `kawa-config`, but never on a module that u
   **on by default** and **default-deny**. It may be explicitly disabled, and doing so removes authorization
   entirely (fail-open: no interceptor, every Kafka request admitted) - see epic #45.
 - `kawa-http-admin`: admin HTTP surface (e.g. `GET /topics`) exposing gateway state to a UI; reads
-  `VirtualTopicManager`/`MetadataCache`, never talks to the broker.
+  `VirtualTopicManager`/`MetadataCache`. It reaches the broker only through `TopicAdmin` (topic create/delete/describe,
+  and the read-only consumer group, committed offset and end offset calls behind `ConsumerGroupService`). Consumer group
+  offsets are physical: lag is reported per physical topic, with the virtual topics backed by it, and is an upper bound
+  when one of them filters.
 - `kawa-mcp`: MCP server (official `io.modelcontextprotocol.sdk`) served at `POST /mcp` on the admin port. The
   stateless Streamable HTTP transport (`McpEndpoint`) is a `Router.Handler`, so `/mcp` shares the admin pipeline and
   authentication. It is switched by the runtime `mcp` module (`ModuleId.MCP`); while off, `/mcp` answers `404`. Tools
-  call the services in `AdminServices` directly, one class per tool (`ListTopicsTool`), and answer with MCP-specific
+  call the services in `AdminServices` directly, one class per tool (`ListTopicsTool`, `ListConsumerGroupsTool`,
+  `DescribeConsumerGroupTool`), each annotated `ToolResults.READ_ONLY`: `KawaMcpServer` refuses a tool that is not
+  read-only at startup and `ReadOnlyToolsSliceTest` pins the tool list, so a tool that writes is a deliberate decision. They answer with MCP-specific
   views as `structuredContent` plus the same JSON as text; failures become tool errors via `ToolResults.guarded`, which
   also logs each call once at info (user, OAuth client, tool, outcome). A token reaching `/mcp` is either an admin
   token or an `mcp`-audience token of a stored OAuth client, which is accepted only there. MCP clients find OAuth on
