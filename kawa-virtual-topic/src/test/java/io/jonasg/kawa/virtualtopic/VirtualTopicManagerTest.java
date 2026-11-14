@@ -1,7 +1,11 @@
 package io.jonasg.kawa.virtualtopic;
 
+import io.jonasg.kawa.config.CelTransformationConfig;
+import io.jonasg.kawa.config.DropFieldsTransformationConfig;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
+import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
+import io.jonasg.kawa.virtualtopic.mapping.ValueMapping;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -185,5 +189,35 @@ class VirtualTopicManagerTest {
                 .withFailMessage(() -> "Physical topic 'orders-v2' did not map to both 'orders-eu' and 'orders-us' but to %s"
                         .formatted(virtual))
                 .containsExactlyInAnyOrder("orders-eu", "orders-us");
+    }
+
+    @Test
+    void compilesTheTransformationsOfAVirtualTopic() {
+        // given
+        var manager = new VirtualTopicManager(Map.of("orders", new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(),
+                List.of(new DropFieldsTransformationConfig(List.of("secret"))), null)));
+
+        // then
+        assertThat(manager.findByName("orders").orElseThrow().mapping())
+                .withFailMessage(() -> "The virtual topic's transformations were not compiled")
+                .isNotSameAs(ValueMapping.IDENTITY);
+        assertThat(virtualTopics.findByName("orders").orElseThrow().mapping())
+                .withFailMessage(() -> "A virtual topic without transformations did not get the identity mapping")
+                .isSameAs(ValueMapping.IDENTITY);
+    }
+
+    @Test
+    void keepsThePreviousSnapshotWhenATransformationDoesNotCompile() {
+        // given
+        var invalid = new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(),
+                List.of(new CelTransformationConfig("value.")), null);
+
+        // when / then
+        assertThatThrownBy(() -> virtualTopics.reload(Map.of("orders", invalid)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Invalid transformations for virtual topic 'orders'");
+        assertThat(virtualTopics.toPhysical("orders"))
+                .withFailMessage(() -> "A failed reload replaced the previous snapshot")
+                .isEqualTo("orders-v2");
     }
 }

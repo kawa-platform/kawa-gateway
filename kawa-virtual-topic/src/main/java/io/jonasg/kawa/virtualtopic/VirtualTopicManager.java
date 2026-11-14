@@ -3,6 +3,8 @@ package io.jonasg.kawa.virtualtopic;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
+import io.jonasg.kawa.virtualtopic.mapping.ValueMapping;
+import io.jonasg.kawa.virtualtopic.mapping.ValueMappings;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -36,12 +38,16 @@ public final class VirtualTopicManager {
     /// Safe to call concurrently with readers: the new snapshot is assigned to a single
     /// `volatile` reference, so readers see either the previous or the new mapping, never a
     /// partially-applied one.
+    ///
+    /// Each virtual topic's transformations are compiled first; an invalid one throws (see
+    /// [#validate]) and leaves the previous snapshot in place.
     public void reload(Map<String, VirtualTopicConfig> virtualTopics) {
         Map<String, VirtualTopic> virtual = new LinkedHashMap<>();
         Map<String, List<VirtualTopic>> physical = new LinkedHashMap<>();
         Map<String, String> names = new LinkedHashMap<>();
         virtualTopics.forEach((v, config) -> {
-            VirtualTopic virtualTopic = new VirtualTopic(v, config.topic(), config.filter(), config.exposePhysicalTopic(), config.valueFormat());
+            VirtualTopic virtualTopic = new VirtualTopic(v, config.topic(), config.filter(), config.exposePhysicalTopic(),
+                    config.valueFormat(), mapping(v, config));
             virtual.put(v, virtualTopic);
             physical.computeIfAbsent(config.topic(), _ -> new ArrayList<>()).add(virtualTopic);
             names.put(v, config.topic());
@@ -51,6 +57,22 @@ public final class VirtualTopicManager {
                 Collections.unmodifiableMap(virtual),
                 Collections.unmodifiableMap(physical),
                 Collections.unmodifiableMap(names));
+    }
+
+    /// Compiles the transformations of every virtual topic without applying anything, so a
+    /// configuration can be refused before any part of it takes effect.
+    ///
+    /// @throws IllegalArgumentException naming the virtual topic and step that is invalid
+    public static void validate(Map<String, VirtualTopicConfig> virtualTopics) {
+        virtualTopics.forEach(VirtualTopicManager::mapping);
+    }
+
+    private static ValueMapping mapping(String virtualTopic, VirtualTopicConfig config) {
+        try {
+            return ValueMappings.compile(config.transformations());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid transformations for virtual topic '" + virtualTopic + "': " + e.getMessage(), e);
+        }
     }
 
     public Optional<VirtualTopic> findByName(String name) {
@@ -127,12 +149,14 @@ public final class VirtualTopicManager {
         return Optional.ofNullable(snapshot.byVirtual().get(virtual));
     }
 
+    /// @param mapping the compiled transformations, [ValueMapping#IDENTITY] when there are none
     public record VirtualTopic(
             String name,
             String physical,
             VirtualTopicFilterConfig filter,
             boolean exposePhysicalTopic,
-            PayloadFormatConfig valueFormat
+            PayloadFormatConfig valueFormat,
+            ValueMapping mapping
     ) {
     }
 
