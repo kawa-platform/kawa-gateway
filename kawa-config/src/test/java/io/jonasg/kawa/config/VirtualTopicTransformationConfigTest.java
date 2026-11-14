@@ -154,6 +154,32 @@ class VirtualTopicTransformationConfigTest {
     }
 
     @Test
+    void roundTripsAnXmlOutputThroughTheConfigTopic() throws Exception {
+        // given
+        var virtualTopic = new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(),
+                List.of(new ConvertTransformationConfig(new XmlFormatConfig(DecodeErrorPolicy.SKIP, "order"))),
+                null);
+        var config = DynamicConfig.empty().upsertVirtualTopic("orders.xml", virtualTopic);
+
+        // when
+        String json = mapper.writeValueAsString(config);
+
+        // then
+        assertThat(mapper.readValue(json, DynamicConfig.class).virtualTopics().get("orders.xml"))
+                .withFailMessage(() -> "The XML format did not survive the config-topic round trip: " + json)
+                .isEqualTo(virtualTopic);
+    }
+
+    @Test
+    void refusesAnXmlOutputWithoutARoot() {
+        var steps = List.<TransformationConfig>of(new DropFieldsTransformationConfig(List.of("secret")));
+
+        assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new XmlFormatConfig(), steps, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("XML requires a 'root'");
+    }
+
+    @Test
     void refusesAnUnknownTransformationType() {
         assertThatThrownBy(() -> mapper.readValue("""
                 {"virtualTopics": {"orders.virtual": {

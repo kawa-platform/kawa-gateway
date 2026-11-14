@@ -7,7 +7,6 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -42,7 +41,7 @@ public final class JsonPayloadDecoder implements PayloadDecoder {
 
     private static Object toValue(JsonNode node) {
         if (node.isObject()) {
-            Map<String, Object> object = new JsonObject();
+            Map<String, Object> object = new NullDefaultingMap();
             for (Map.Entry<String, JsonNode> property : node.properties()) {
                 object.put(property.getKey(), toValue(property.getValue()));
             }
@@ -68,14 +67,5 @@ public final class JsonPayloadDecoder implements PayloadDecoder {
             return node.doubleValue();
         }
         return NullValue.NULL_VALUE;
-    }
-
-    /// A JSON object whose absent fields read as `null` rather than raising a CEL error.
-    static final class JsonObject extends LinkedHashMap<String, Object> {
-
-        @Override
-        public Object get(Object key) {
-            return containsKey(key) ? super.get(key) : NullValue.NULL_VALUE;
-        }
     }
 }

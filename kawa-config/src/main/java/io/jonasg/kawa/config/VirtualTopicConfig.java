@@ -16,7 +16,8 @@ import java.util.List;
 /// @param transformations     steps applied in order to the record value on fetch; empty (the
 ///                            default) passes the value through unchanged. Requires `valueFormat`,
 ///                            and a [ConvertTransformationConfig] may only be the last step. An Avro
-///                            output format must name the [AvroFormatConfig#subject] to encode with
+///                            output format must name the [AvroFormatConfig#subject] to encode with,
+///                            an XML one its [XmlFormatConfig#root]
 /// @param managedBy           the owner of this entry, or `null` when it is unmanaged
 public record VirtualTopicConfig(
         String topic,
@@ -37,9 +38,15 @@ public record VirtualTopicConfig(
                 throw new IllegalArgumentException("a 'convert' transformation must be the last step");
             }
         }
-        if (!transformations.isEmpty() && outputFormat(valueFormat, transformations) instanceof AvroFormatConfig avro
-                && avro.subject() == null) {
-            throw new IllegalArgumentException("encoding transformed values as Avro requires a 'subject'");
+        if (!transformations.isEmpty()) {
+            switch (outputFormat(valueFormat, transformations)) {
+                case AvroFormatConfig avro when avro.subject() == null ->
+                        throw new IllegalArgumentException("encoding transformed values as Avro requires a 'subject'");
+                case XmlFormatConfig xml when xml.root() == null ->
+                        throw new IllegalArgumentException("encoding transformed values as XML requires a 'root'");
+                default -> {
+                }
+            }
         }
     }
 

@@ -9,6 +9,7 @@ import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
+import io.jonasg.kawa.config.XmlFormatConfig;
 import org.jspecify.annotations.Nullable;
 
 /// How a virtual topic's consume filter and value format are shown to an agent. Shared by the `list_topics`
@@ -37,6 +38,7 @@ public final class VirtualTopicViews {
             case null -> "raw";
             case JsonFormatConfig _ -> "json";
             case AvroFormatConfig _ -> "avro";
+            case XmlFormatConfig _ -> "xml";
         };
     }
 
