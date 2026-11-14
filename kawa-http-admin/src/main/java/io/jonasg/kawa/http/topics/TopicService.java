@@ -6,6 +6,7 @@ import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Operation;
 import io.jonasg.kawa.config.PayloadFormatConfig;
+import io.jonasg.kawa.config.TransformationConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import io.jonasg.kawa.core.cluster.MetadataCache;
@@ -24,6 +25,7 @@ import io.jonasg.kawa.http.configchange.NotFoundException;
 import io.jonasg.kawa.http.configchange.Ownership;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.mapping.ValueMappings;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -101,6 +103,7 @@ public final class TopicService implements AutoCloseable {
                     virtualTopicManager.filterFor(name).orElse(null),
                     virtualTopicManager.exposesPhysicalTopic(name),
                     virtualTopicManager.valueFormatFor(name).orElse(null),
+                    configured.containsKey(name) ? configured.get(name).transformations() : List.of(),
                     managedBy(configured.get(name))));
         }
         return new TopicListing(virtual, List.copyOf(cache.topics()));
@@ -169,14 +172,15 @@ public final class TopicService implements AutoCloseable {
         }
         VirtualTopicConfig current = dynamicConfigRepository.getActiveConfigOrEmpty().virtualTopics().get(name);
         var operation = current != null ? Operation.ALTER : Operation.CREATE;
-        admit(name, GovernanceRequest.virtualTopic(principal, SERVICE, operation, name, request.topic()));
-        var value = new VirtualTopicConfig(
+        var value = virtualTopic(
+                name,
                 request.topic(),
                 request.filter(),
                 request.exposePhysicalTopic() != null && request.exposePhysicalTopic(),
                 request.valueFormat(),
-                current == null ? List.of() : current.transformations(),
+                request.transformations() == null ? List.of() : TopicTransformations.parse(request.transformations()),
                 Ownership.stamp(caller));
+        admit(name, GovernanceRequest.virtualTopic(principal, SERVICE, operation, name, request.topic()));
         consistencyAwareUpdater.update(consistency, config -> {
             requireTopicOwner(config, name, caller);
             return config.upsertVirtualTopic(name, value);
@@ -207,19 +211,42 @@ public final class TopicService implements AutoCloseable {
         if (topic == null || topic.isBlank()) {
             throw new IllegalArgumentException("virtual topic requires a physical 'topic'");
         }
-        admit(newName, GovernanceRequest.virtualTopic(principal, SERVICE, Operation.ALTER, newName, topic));
-        var updated = new VirtualTopicConfig(
+        var updated = virtualTopic(
+                newName,
                 topic,
                 patch.filter(),
                 patch.exposePhysicalTopic() == null ? current.exposePhysicalTopic() : patch.exposePhysicalTopic(),
                 patch.valueFormat(),
-                current.transformations(),
+                patch.transformations() == null ? current.transformations() : TopicTransformations.parse(patch.transformations()),
                 Ownership.stamp(caller));
+        admit(newName, GovernanceRequest.virtualTopic(principal, SERVICE, Operation.ALTER, newName, topic));
         consistencyAwareUpdater.update(consistency, config -> {
             requireTopicOwner(config, name, caller);
             return replace(config, name, newName, updated);
         });
         return updated;
+    }
+
+    /// Builds the virtual topic config and compiles its transformations, so an invalid step is a
+    /// `400` before anything is written. Step errors start with `transformations[N]`.
+    private static VirtualTopicConfig virtualTopic(
+            String name,
+            String topic,
+            @Nullable VirtualTopicFilterConfig filter,
+            boolean exposePhysicalTopic,
+            @Nullable PayloadFormatConfig valueFormat,
+            List<TransformationConfig> transformations,
+            @Nullable ManagedBy managedBy
+    ) {
+        TopicTransformations.requireConvertLast(transformations);
+        VirtualTopicConfig config;
+        try {
+            config = new VirtualTopicConfig(topic, filter, exposePhysicalTopic, valueFormat, transformations, managedBy);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("virtual topic '" + name + "': " + e.getMessage(), e);
+        }
+        ValueMappings.compile(transformations);
+        return config;
     }
 
     void deleteTopic(KawaPrincipal caller, String name, Consistency consistency) {
@@ -443,12 +470,14 @@ public final class TopicService implements AutoCloseable {
         /// @param filter              the consume filter, or `null` when every record is served
         /// @param exposePhysicalTopic whether the physical topic is also served under its own name
         /// @param valueFormat         how record values are encoded, or `null` when they are not decoded
+        /// @param transformations     the value transformation steps, empty when there are none
         public record VirtualTopicEntry(
                 String name,
                 String physicalTopic,
                 @Nullable VirtualTopicFilterConfig filter,
                 boolean exposePhysicalTopic,
                 @Nullable PayloadFormatConfig valueFormat,
+                List<TransformationConfig> transformations,
                 @Nullable ManagedBy managedBy
         ) {
         }

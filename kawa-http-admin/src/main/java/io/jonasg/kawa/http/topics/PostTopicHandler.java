@@ -37,6 +37,7 @@ final class PostTopicHandler implements Router.Handler {
                             value.filter(),
                             value.exposePhysicalTopic(),
                             value.valueFormat(),
+                            value.transformations(),
                             value.managedBy()));
                 }
                 case "physical" -> {

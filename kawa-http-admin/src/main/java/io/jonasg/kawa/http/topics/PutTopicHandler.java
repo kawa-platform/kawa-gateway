@@ -33,6 +33,7 @@ final class PutTopicHandler implements Router.Handler {
                     value.filter(),
                     value.exposePhysicalTopic(),
                     value.valueFormat(),
+                    value.transformations(),
                     value.managedBy()));
         } catch (ConflictException e) {
             return Router.Response.conflict(e.getMessage());

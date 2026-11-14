@@ -3,7 +3,11 @@ package io.jonasg.kawa.http.topics;
 import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AvroFormatConfig;
 import io.jonasg.kawa.config.CelFilterConfig;
+import io.jonasg.kawa.config.CelTransformationConfig;
+import io.jonasg.kawa.config.ConvertTransformationConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
+import io.jonasg.kawa.config.DefaultFieldTransformationConfig;
+import io.jonasg.kawa.config.DropFieldsTransformationConfig;
 import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
@@ -15,7 +19,10 @@ import io.jonasg.kawa.config.HeaderMatchesFilterConfig;
 import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.ManagedBy;
+import io.jonasg.kawa.config.RenameFieldTransformationConfig;
+import io.jonasg.kawa.config.TransformationConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
+import io.jonasg.kawa.config.XmlFormatConfig;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.governance.TopicSpec;
 import io.jonasg.kawa.http.AdminHttpSliceTestBase;
@@ -78,6 +85,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "filter": null,
                             "physicalTopic": "orders-v2",
                             "valueFormat": null,
+                            "transformations": [],
                             "managedBy": null
                           },
                           {
@@ -89,6 +97,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "physicalTopic": null,
                             "exposePhysicalTopic": null,
                             "valueFormat": null,
+                            "transformations": null,
                             "managedBy": null
                           },
                           {
@@ -103,6 +112,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             },
                             "physicalTopic": "crm.customers",
                             "valueFormat": null,
+                            "transformations": [],
                             "managedBy": null
                           },
                           {
@@ -114,6 +124,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "physicalTopic": null,
                             "exposePhysicalTopic": null,
                             "valueFormat": null,
+                            "transformations": null,
                             "managedBy": null
                           },
                           {
@@ -125,6 +136,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             "physicalTopic": null,
                             "exposePhysicalTopic": null,
                             "valueFormat": null,
+                            "transformations": null,
                             "managedBy": null
                           }
                         ]
@@ -171,6 +183,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   },
                   "physicalTopic": "audit-v1",
                   "valueFormat": null,
+                  "transformations": [],
                   "managedBy": null
                 },
                 {
@@ -182,6 +195,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   "physicalTopic": null,
                   "exposePhysicalTopic": null,
                   "valueFormat": null,
+                  "transformations": null,
                   "managedBy": null
                 }]
                 """);
@@ -221,6 +235,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             },
                             "physicalTopic": "contains-v1",
                             "valueFormat": null,
+                            "transformations": [],
                             "managedBy": null
                           },
                           {
@@ -235,6 +250,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             },
                             "physicalTopic": "starts-v1",
                             "valueFormat": null,
+                            "transformations": [],
                             "managedBy": null
                           },
                           {
@@ -249,6 +265,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                             },
                             "physicalTopic": "matches-v1",
                             "valueFormat": null,
+                            "transformations": [],
                             "managedBy": null
                           },
                           {
@@ -260,6 +277,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                           "physicalTopic": null,
                           "exposePhysicalTopic": null,
                           "valueFormat": null,
+                          "transformations": null,
                           "managedBy": null
                           },
                           {
@@ -271,6 +289,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                           "physicalTopic": null,
                           "exposePhysicalTopic": null,
                           "valueFormat": null,
+                          "transformations": null,
                           "managedBy": null
                           },
                           {
@@ -282,6 +301,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                           "physicalTopic": null,
                           "exposePhysicalTopic": null,
                           "valueFormat": null,
+                          "transformations": null,
                           "managedBy": null
                           }
                         ]
@@ -310,6 +330,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   "filter": null,
                   "physicalTopic": "orders-v2",
                   "valueFormat": null,
+                  "transformations": [],
                   "managedBy": null
                 }]
                 """);
@@ -744,6 +765,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   },
                   "exposePhysicalTopic": false,
                   "valueFormat": null,
+                  "transformations": [],
                   "managedBy": null
                 }
                 """);
@@ -973,7 +995,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
-    void listsTopicsWithExactlyTheNineTopicPropertyNames() throws Exception {
+    void listsTopicsWithExactlyTheTenTopicPropertyNames() throws Exception {
         // given
         virtualTopics = new VirtualTopicManager(Map.of(
                 "orders", new VirtualTopicConfig("orders-v2"),
@@ -992,7 +1014,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThat(topicsResp.statusCode()).isEqualTo(200);
         assertThat(topicsResp).containsExactlyTopLevelPropertyNames(
                 "type", "name", "partitions", "replicationFactor", "filter", "physicalTopic",
-                "exposePhysicalTopic", "valueFormat", "managedBy");
+                "exposePhysicalTopic", "valueFormat", "transformations", "managedBy");
     }
 
     @Test
@@ -1005,7 +1027,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(postResp.statusCode()).isEqualTo(201);
-        assertThat(postResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat", "managedBy");
+        assertThat(postResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat", "transformations", "managedBy");
     }
 
     @Test
@@ -1042,7 +1064,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(putResp.statusCode()).isEqualTo(200);
-        assertThat(putResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat", "managedBy");
+        assertThat(putResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat", "transformations", "managedBy");
     }
 
     @Test
@@ -1057,7 +1079,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(patchResp.statusCode()).isEqualTo(200);
-        assertThat(patchResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat", "managedBy");
+        assertThat(patchResp).containsExactlyTopLevelPropertyNames("topic", "filter", "exposePhysicalTopic", "valueFormat", "transformations", "managedBy");
     }
 
     private static GovernanceRuleConfig minReplicationRule(GovernanceRuleConfig.Exemption... exemptions) {
@@ -1336,4 +1358,187 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
             });
         }
     }
+
+    @Test
+    void createsVirtualTopicWithTransformations() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var createTopicResp = send("POST", "/topics", """
+                {
+                  "type": "virtual",
+                  "name": "orders.public",
+                  "topic": "orders",
+                  "valueFormat": {"type": "avro"},
+                  "transformations": [
+                    {"type": "dropFields", "fields": ["internal_risk_score", "lines.internal_cost"]},
+                    {"type": "renameField", "from": "customer.name", "to": "customerName"},
+                    {"type": "defaultField", "field": "currency", "value": "EUR"},
+                    {"type": "cel", "expression": "{\\"id\\": value.order_id}"},
+                    {"type": "convert", "format": {"type": "xml", "root": "order"}}
+                  ]
+                }
+                """);
+
+        // then
+        assertThat(createTopicResp).hasStatusCode(201);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders.public").transformations())
+                .withFailMessage(() -> "The transformations were not persisted in order")
+                .containsExactly(
+                        new DropFieldsTransformationConfig(List.of("internal_risk_score", "lines.internal_cost")),
+                        new RenameFieldTransformationConfig("customer.name", "customerName"),
+                        new DefaultFieldTransformationConfig("currency", "EUR"),
+                        new CelTransformationConfig("{\"id\": value.order_id}"),
+                        new ConvertTransformationConfig(new XmlFormatConfig(DecodeErrorPolicy.SKIP, "order")));
+        assertThatJson(createTopicResp.body()).inPath("transformations").isEqualTo("""
+                [
+                  {"type": "dropFields", "fields": ["internal_risk_score", "lines.internal_cost"]},
+                  {"type": "renameField", "from": "customer.name", "to": "customerName"},
+                  {"type": "defaultField", "field": "currency", "value": "EUR"},
+                  {"type": "cel", "expression": "{\\"id\\": value.order_id}"},
+                  {"type": "convert", "format": {"type": "xml", "onDecodeError": "skip", "root": "order"}}
+                ]
+                """);
+    }
+
+    @Test
+    void listsTheTransformationsAndFullValueFormatOfVirtualTopics() throws Exception {
+        // given
+        var withSteps = new VirtualTopicConfig("orders", null, false, new AvroFormatConfig(DecodeErrorPolicy.SKIP, "orders-value", 3),
+                List.of(new DropFieldsTransformationConfig(List.of("secret"))), null);
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders.public", withSteps));
+        virtualTopics = new VirtualTopicManager(Map.of("orders.public", withSteps));
+        startServer();
+
+        // when
+        var topicsResp = send("GET", "/topics");
+
+        // then
+        assertThat(topicsResp).hasStatusCode(200);
+        assertThatJson(topicsResp.body()).inPath("[0].valueFormat").isEqualTo("""
+                {"type": "avro", "onDecodeError": "skip", "subject": "orders-value", "version": 3}
+                """);
+        assertThatJson(topicsResp.body()).inPath("[0].transformations").isEqualTo("""
+                [{"type": "dropFields", "fields": ["secret"]}]
+                """);
+    }
+
+    @Test
+    void putWithoutTransformationsRemovesThem() throws Exception {
+        // given
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders.public",
+                new VirtualTopicConfig("orders", null, false, new JsonFormatConfig(),
+                        List.of(new DropFieldsTransformationConfig(List.of("secret"))), null)));
+        startServer();
+
+        // when
+        var putTopicResp = send("PUT", "/topics/orders.public", """
+                {"type": "virtual", "name": "orders.public", "topic": "orders", "valueFormat": {"type": "json"}}
+                """);
+
+        // then
+        assertThat(putTopicResp).hasStatusCode(200);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders.public").transformations())
+                .withFailMessage(() -> "A PUT without transformations did not replace the steps with none")
+                .isEmpty();
+    }
+
+    @Test
+    void patchKeepsTransformationsWhenOmittedAndRemovesThemWhenEmpty() throws Exception {
+        // given
+        var steps = List.<TransformationConfig>of(new DropFieldsTransformationConfig(List.of("secret")));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders.public",
+                new VirtualTopicConfig("orders", null, false, new JsonFormatConfig(), steps, null)));
+        startServer();
+
+        // when
+        var keepResp = send("PATCH", "/topics/orders.public", """
+                {"exposePhysicalTopic": true, "valueFormat": {"type": "json"}}
+                """);
+        var kept = repository.getActiveConfig().virtualTopics().get("orders.public").transformations();
+        var replaceResp = send("PATCH", "/topics/orders.public", """
+                {"valueFormat": {"type": "json"}, "transformations": [{"type": "renameField", "from": "a", "to": "b"}]}
+                """);
+        var replaced = repository.getActiveConfig().virtualTopics().get("orders.public").transformations();
+        var removeResp = send("PATCH", "/topics/orders.public", """
+                {"valueFormat": {"type": "json"}, "transformations": []}
+                """);
+
+        // then
+        assertThat(keepResp).hasStatusCode(200);
+        assertThat(kept)
+                .withFailMessage(() -> "A PATCH without transformations did not keep the steps: " + kept)
+                .isEqualTo(steps);
+        assertThat(replaceResp).hasStatusCode(200);
+        assertThat(replaced)
+                .withFailMessage(() -> "A PATCH with a list did not replace the steps: " + replaced)
+                .containsExactly(new RenameFieldTransformationConfig("a", "b"));
+        assertThat(removeResp).hasStatusCode(200);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders.public").transformations())
+                .withFailMessage(() -> "A PATCH with [] did not remove the steps")
+                .isEmpty();
+    }
+
+    @Test
+    void refusesAPatchThatDropsTheValueFormatTheStepsNeed() throws Exception {
+        // given
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders.public",
+                new VirtualTopicConfig("orders", null, false, new JsonFormatConfig(),
+                        List.of(new DropFieldsTransformationConfig(List.of("secret"))), null)));
+        startServer();
+
+        // when
+        var patchTopicResp = send("PATCH", "/topics/orders.public", """
+                {"exposePhysicalTopic": true}
+                """);
+
+        // then
+        assertThat(patchTopicResp).hasStatusCode(400);
+        assertThatJson(patchTopicResp.body()).isEqualTo("""
+                {"error": "virtual topic 'orders.public': transformations require a 'valueFormat' to decode the record value"}
+                """);
+    }
+
+    @Test
+    void refusesInvalidTransformationsNamingTheStep() throws Exception {
+        // given
+        startServer();
+        Map<String, String> cases = Map.of(
+                "[{\"type\": \"dropFields\", \"fields\": [\"a\"]}, {\"type\": \"cel\", \"expression\": \"{\\\"id\\\": value.id\"}]",
+                "transformations[1] (cel): Invalid CEL expression",
+                "[{\"type\": \"uppercase\"}]",
+                "transformations[0]: unsupported type 'uppercase'",
+                "[{\"fields\": [\"a\"]}]",
+                "transformations[0]: 'type' is required",
+                "[{\"type\": \"dropFields\", \"fields\": []}]",
+                "transformations[0] (dropFields): dropFields transformation requires at least one field",
+                "[{\"type\": \"renameField\", \"from\": \"a..b\", \"to\": \"c\"}]",
+                "transformations[0] (renameField): field path 'a..b' has an empty segment",
+                "[{\"type\": \"convert\", \"format\": {\"type\": \"json\"}}, {\"type\": \"dropFields\", \"fields\": [\"a\"]}]",
+                "transformations[0] (convert): must be the last step",
+                "[{\"type\": \"convert\", \"format\": {\"type\": \"avro\"}}]",
+                "virtual topic 'orders.public': encoding transformed values as Avro requires a 'subject'");
+
+        for (var invalid : cases.entrySet()) {
+            String transformations = invalid.getKey();
+            String error = invalid.getValue();
+
+            // when
+            var createTopicResp = send("POST", "/topics", """
+                    {"type": "virtual", "name": "orders.public", "topic": "orders", "valueFormat": {"type": "json"},
+                     "transformations": %s}
+                    """.formatted(transformations));
+
+            // then
+            assertThat(createTopicResp).hasStatusCode(400);
+            assertThatJson(createTopicResp.body()).inPath("error").asString()
+                    .withFailMessage(() -> "Steps " + transformations + " were not refused with '" + error + "' but " + createTopicResp.body())
+                    .startsWith(error);
+        }
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "A refused virtual topic was persisted")
+                .doesNotContainKey("orders.public");
+    }
+
 }

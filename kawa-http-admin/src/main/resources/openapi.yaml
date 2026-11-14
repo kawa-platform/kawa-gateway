@@ -150,8 +150,10 @@ paths:
       summary: Update a virtual topic config
       description: |
         Partially updates the virtual topic identified by `name`. Omitted fields retain their
-        current values; an omitted or null `filter` produces no filter. The optional `name`
-        field atomically renames the virtual topic and must not collide with an existing topic.
+        current values; an omitted or null `filter` produces no filter, and likewise `valueFormat`.
+        An omitted or null `transformations` keeps the current steps, `[]` removes them. The
+        optional `name` field atomically renames the virtual topic and must not collide with an
+        existing topic.
         Governance judges the result on `ALTER`, under the new name (`403` when refused).
       parameters:
         - $ref: '#/components/parameters/TopicName'
@@ -1659,6 +1661,12 @@ components:
             - $ref: '#/components/schemas/PayloadFormat'
           nullable: true
           description: Encoding of record values, or null if none (raw strings).
+        transformations:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/Transformation'
+          description: Virtual topics only; the value transformation steps, empty when none. Null for physical topics.
         managedBy:
           allOf:
             - $ref: '#/components/schemas/ManagedBy'
@@ -1721,11 +1729,19 @@ components:
           allOf:
             - $ref: '#/components/schemas/PayloadFormat'
           description: Virtual topics only; optional encoding of record values, letting CEL filters read the decoded value.
+        transformations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transformation'
+          description: |
+            Virtual topics only; optional value transformation steps, applied in order to each record value on fetch.
+            Omitted or null means none (a PUT replaces the whole virtual topic). Requires `valueFormat`.
     VirtualTopicConfigView:
       type: object
       required:
         - topic
         - exposePhysicalTopic
+        - transformations
       properties:
         topic:
           type: string
@@ -1745,6 +1761,11 @@ components:
             - $ref: '#/components/schemas/ManagedBy'
           nullable: true
           description: The entry's owner, or null when it is unmanaged. Set by the gateway, never by a request body.
+        transformations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transformation'
+          description: The value transformation steps, empty when none.
     VirtualTopicConfigPatch:
       type: object
       properties:
@@ -1767,13 +1788,23 @@ components:
             - $ref: '#/components/schemas/PayloadFormat'
           nullable: true
           description: Optional value format; omitted or null means raw values. Replaced together with filter.
+        transformations:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/Transformation'
+          description: Optional value transformation steps; omitted or null keeps the current steps, `[]` removes them, a list replaces them.
     PayloadFormat:
       oneOf:
         - $ref: '#/components/schemas/JsonFormat'
+        - $ref: '#/components/schemas/AvroFormat'
+        - $ref: '#/components/schemas/XmlFormat'
       discriminator:
         propertyName: type
         mapping:
           json: '#/components/schemas/JsonFormat'
+          avro: '#/components/schemas/AvroFormat'
+          xml: '#/components/schemas/XmlFormat'
     JsonFormat:
       type: object
       required:
@@ -1791,6 +1822,160 @@ components:
             - fail
           default: skip
           description: What to do with a record whose value is not valid JSON - drop it, deliver it, or fail the fetch.
+    AvroFormat:
+      type: object
+      required:
+        - type
+      description: |
+        Avro in the schema registry wire format (magic byte, schema id, Avro binary). Decoding uses the writer schema
+        named in each record; the cluster must have a schemaRegistry. When transformed values are encoded as Avro
+        (this format is the output of `transformations`), `subject` names the schema to write with.
+      properties:
+        type:
+          type: string
+          enum:
+            - avro
+        onDecodeError:
+          type: string
+          enum:
+            - skip
+            - include
+            - fail
+          default: skip
+        subject:
+          type: string
+          description: Registry subject of the schema transformed values are encoded with. Required when this format is a transformation output.
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Subject version to encode with; omitted means the latest. Requires `subject`.
+    XmlFormat:
+      type: object
+      required:
+        - type
+      description: |
+        XML. The value tree is the root element's content: child elements as fields, attributes as `@name` fields,
+        text next to attributes as `#text`, repeated elements as arrays, every scalar a string.
+      properties:
+        type:
+          type: string
+          enum:
+            - xml
+        onDecodeError:
+          type: string
+          enum:
+            - skip
+            - include
+            - fail
+          default: skip
+        root:
+          type: string
+          description: Root element name. Required when this format is a transformation output; when set, decoding refuses another root.
+    Transformation:
+      description: |
+        One value transformation step. Steps run in order on the decoded record value, on fetch only; keys and headers
+        are never changed. Fields are addressed by dotted paths (`customer.name`); a list on a path applies the step to
+        every element. Rules (violations answer `400`):
+        - a virtual topic with steps needs a `valueFormat`
+        - `convert` may only be the last step
+        - the output format (the `convert` step's, else `valueFormat`) needs `subject` when Avro and `root` when XML
+        - paths are non-blank without empty segments (`a..b`, `.a`, `a.` are refused)
+        - a `cel` expression must compile
+
+        A `400` about one step has an `error` starting with `transformations[N]`, N being the step's 0-based index
+        (`transformations[2] (cel): Invalid CEL expression ...`).
+      oneOf:
+        - $ref: '#/components/schemas/DropFieldsTransformation'
+        - $ref: '#/components/schemas/RenameFieldTransformation'
+        - $ref: '#/components/schemas/DefaultFieldTransformation'
+        - $ref: '#/components/schemas/CelTransformation'
+        - $ref: '#/components/schemas/ConvertTransformation'
+      discriminator:
+        propertyName: type
+        mapping:
+          dropFields: '#/components/schemas/DropFieldsTransformation'
+          renameField: '#/components/schemas/RenameFieldTransformation'
+          defaultField: '#/components/schemas/DefaultFieldTransformation'
+          cel: '#/components/schemas/CelTransformation'
+          convert: '#/components/schemas/ConvertTransformation'
+    DropFieldsTransformation:
+      type: object
+      required:
+        - type
+        - fields
+      properties:
+        type:
+          type: string
+          enum:
+            - dropFields
+        fields:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Dotted paths of the fields to remove; a path the value does not have is ignored.
+    RenameFieldTransformation:
+      type: object
+      required:
+        - type
+        - from
+        - to
+      description: |
+        Moves a field, keeping its value. Within one object it keeps its position; across levels it flattens
+        (`customer.name` to `customerName`) or nests (`city` to `address.city`). `from` and `to` must differ and neither
+        may be a dotted prefix of the other.
+      properties:
+        type:
+          type: string
+          enum:
+            - renameField
+        from:
+          type: string
+        to:
+          type: string
+    DefaultFieldTransformation:
+      type: object
+      required:
+        - type
+        - field
+      properties:
+        type:
+          type: string
+          enum:
+            - defaultField
+        field:
+          type: string
+          description: Dotted path of the field, set when absent or null; missing parent objects are created.
+        value:
+          description: The default, any JSON value.
+    CelTransformation:
+      type: object
+      required:
+        - type
+        - expression
+      properties:
+        type:
+          type: string
+          enum:
+            - cel
+        expression:
+          type: string
+          description: |
+            CEL expression whose result replaces the value, with the `key`, `value`, `headers` and `timestamp` bindings and
+            the standard macros (`map`, `filter`, `exists`), e.g. `{"id": value.order_id, "skus": value.lines.map(l, l.sku)}`.
+    ConvertTransformation:
+      type: object
+      required:
+        - type
+        - format
+      properties:
+        type:
+          type: string
+          enum:
+            - convert
+        format:
+          $ref: '#/components/schemas/PayloadFormat'
     VirtualTopicFilter:
       oneOf:
         - $ref: '#/components/schemas/HeaderEqualsFilter'

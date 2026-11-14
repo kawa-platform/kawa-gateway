@@ -2,7 +2,10 @@ package io.jonasg.kawa.http.topics;
 
 import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.PayloadFormatConfig;
+import io.jonasg.kawa.config.TransformationConfig;
 import org.jspecify.annotations.Nullable;
+
+import java.util.List;
 
 /// A single topic entry in the admin `/topics` response.
 ///
@@ -14,6 +17,7 @@ import org.jspecify.annotations.Nullable;
 /// @param physicalTopic       the broker-side topic name, only present when `type` is `"virtual"`
 /// @param exposePhysicalTopic whether a virtual topic's physical topic is also served directly; `null` for physical topics, where it does not apply
 /// @param valueFormat         encoding of record values, or `null` if none (raw strings)
+/// @param transformations     a virtual topic's value transformation steps (empty when none), `null` for physical topics
 /// @param managedBy           the owner of a virtual topic, or `null` when it is unmanaged and for physical topics
 record TopicView(
         String type,
@@ -24,6 +28,7 @@ record TopicView(
         @Nullable String physicalTopic,
         @Nullable Boolean exposePhysicalTopic,
         @Nullable PayloadFormatConfig valueFormat,
+        @Nullable List<TransformationConfig> transformations,
         @Nullable ManagedBy managedBy
 ) {
 }

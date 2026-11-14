@@ -103,7 +103,7 @@ class ValueMappingsTest {
     void refusesARenameOutOfAList() {
         assertThatThrownBy(() -> map(ORDER, new RenameFieldTransformationConfig("lines.sku", "skus")))
                 .isInstanceOf(PayloadMappingException.class)
-                .hasMessageContaining("transformation #1 (renameField)")
+                .hasMessageContaining("transformations[0] (renameField)")
                 .hasMessageContaining("'lines' is a list");
     }
 
@@ -171,7 +171,7 @@ class ValueMappingsTest {
     void reportsACelEvaluationErrorForTheRecord() {
         assertThatThrownBy(() -> map(ORDER, new CelTransformationConfig("{\"x\": value.lines[5]}")))
                 .isInstanceOf(PayloadMappingException.class)
-                .hasMessageContaining("transformation #1 (cel)");
+                .hasMessageContaining("transformations[0] (cel)");
     }
 
     @Test
@@ -180,7 +180,7 @@ class ValueMappingsTest {
                 new DropFieldsTransformationConfig(List.of("a")),
                 new CelTransformationConfig("{\"id\": value.id"))))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("transformation #2 (cel)");
+                .hasMessageContaining("transformations[1] (cel)");
     }
 
     @Test
