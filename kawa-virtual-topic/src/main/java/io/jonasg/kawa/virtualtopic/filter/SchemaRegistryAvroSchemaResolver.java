@@ -10,6 +10,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -17,12 +18,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
 
-/// Resolves Avro schemas from a Confluent-compatible schema registry with
-/// `GET {url}/schemas/ids/{id}`.
+/// Resolves Avro schemas from a Confluent-compatible schema registry: by id with
+/// `GET {url}/schemas/ids/{id}`, and by subject with `GET {url}/subjects/{subject}/versions/{version}`.
 ///
-/// Every call goes to the registry; wrap it in a [CachingAvroSchemaResolver]. Schemas that use
-/// schema references are rejected for now.
-public final class SchemaRegistryAvroSchemaResolver implements AvroSchemaResolver {
+/// Every call goes to the registry; wrap it in a [CachingAvroSchemaResolver] or
+/// [CachingAvroSubjectResolver]. Schemas that use schema references are rejected for now.
+public final class SchemaRegistryAvroSchemaResolver implements AvroSchemaResolver, AvroSubjectResolver {
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(5);
@@ -44,33 +45,57 @@ public final class SchemaRegistryAvroSchemaResolver implements AvroSchemaResolve
 
     @Override
     public Schema resolve(int schemaId) {
-        HttpResponse<String> response = get(schemaId);
-        JsonNode body = parse(schemaId, response.body());
+        String what = "schema id " + schemaId;
+        return schema(what, fetch("/schemas/ids/" + schemaId, what));
+    }
+
+    @Override
+    public RegisteredAvroSchema resolve(String subject, @Nullable Integer version) {
+        String versionPath = version == null ? "latest" : version.toString();
+        String what = "subject '" + subject + "' version " + versionPath;
+        JsonNode body = fetch("/subjects/" + URLEncoder.encode(subject, StandardCharsets.UTF_8).replace("+", "%20")
+                + "/versions/" + versionPath, what);
+        JsonNode id = body.path("id");
+        if (!id.isInt()) {
+            throw new IllegalStateException("schema registry response for " + what + " has no schema id");
+        }
+        return new RegisteredAvroSchema(id.intValue(), schema(what, body));
+    }
+
+    /// GETs `path` and returns the JSON body of a `200` response.
+    private JsonNode fetch(String path, String what) {
+        HttpResponse<String> response = get(path, what);
+        JsonNode body = parse(what, response.body());
         if (response.statusCode() != 200) {
             throw new IllegalStateException("schema registry returned HTTP " + response.statusCode()
-                    + " for schema id " + schemaId + errorMessage(body));
+                    + " for " + what + errorMessage(body));
         }
+        return body;
+    }
+
+    /// Parses the Avro schema of a registry response that describes one schema.
+    private static Schema schema(String what, JsonNode body) {
         String schemaType = text(body, "schemaType");
         if (schemaType != null && !schemaType.equals("AVRO")) {
-            throw new IllegalStateException("schema id " + schemaId + " is a " + schemaType + " schema, not Avro");
+            throw new IllegalStateException(what + " is a " + schemaType + " schema, not Avro");
         }
         JsonNode references = body.path("references");
         if (references.isArray() && !references.isEmpty()) {
-            throw new IllegalStateException("schema id " + schemaId + " uses schema references, which are not supported yet");
+            throw new IllegalStateException(what + " uses schema references, which are not supported yet");
         }
         String schema = text(body, "schema");
         if (schema == null) {
-            throw new IllegalStateException("schema registry response for schema id " + schemaId + " has no schema");
+            throw new IllegalStateException("schema registry response for " + what + " has no schema");
         }
         try {
             return new Schema.Parser().parse(schema);
         } catch (SchemaParseException e) {
-            throw new IllegalStateException("schema id " + schemaId + " is not a valid Avro schema: " + e.getMessage(), e);
+            throw new IllegalStateException(what + " is not a valid Avro schema: " + e.getMessage(), e);
         }
     }
 
-    private HttpResponse<String> get(int schemaId) {
-        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(baseUrl + "/schemas/ids/" + schemaId))
+    private HttpResponse<String> get(String path, String what) {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .timeout(REQUEST_TIMEOUT)
                 .header("Accept", "application/vnd.schemaregistry.v1+json, application/json")
                 .GET();
@@ -83,15 +108,15 @@ public final class SchemaRegistryAvroSchemaResolver implements AvroSchemaResolve
             throw new IllegalStateException("schema registry at " + baseUrl + " is unreachable: " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("interrupted while fetching schema id " + schemaId, e);
+            throw new IllegalStateException("interrupted while fetching " + what, e);
         }
     }
 
-    private static JsonNode parse(int schemaId, String body) {
+    private static JsonNode parse(String what, String body) {
         try {
             return MAPPER.readTree(body);
         } catch (JacksonException e) {
-            throw new IllegalStateException("schema registry response for schema id " + schemaId + " is not JSON", e);
+            throw new IllegalStateException("schema registry response for " + what + " is not JSON", e);
         }
     }
 

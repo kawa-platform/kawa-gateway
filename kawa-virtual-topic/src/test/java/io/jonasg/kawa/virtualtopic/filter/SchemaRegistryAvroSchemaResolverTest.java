@@ -35,7 +35,7 @@ class SchemaRegistryAvroSchemaResolverTest {
     void startRegistry() throws IOException {
         registry = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         registry.createContext("/", exchange -> {
-            paths.add(exchange.getRequestURI().getPath());
+            paths.add(exchange.getRequestURI().getRawPath());
             String authorization = exchange.getRequestHeaders().getFirst("Authorization");
             authorizations.add(authorization == null ? "" : authorization);
             byte[] response = body.getBytes(StandardCharsets.UTF_8);
@@ -142,6 +142,67 @@ class SchemaRegistryAvroSchemaResolverTest {
                 .withFailMessage(() -> "An unreachable registry did not fail the lookup")
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("unreachable");
+    }
+
+    @Test
+    void resolvesTheLatestVersionOfASubject() {
+        // given
+        body = "{\"subject\":\"orders-value\",\"version\":3,\"id\":17," + schemaResponse(ORDER_SCHEMA).substring(1);
+        var resolver = resolver(null);
+
+        // when
+        RegisteredAvroSchema registered = resolver.resolve("orders-value", null);
+
+        // then
+        assertThat(paths)
+                .withFailMessage(() -> "The registry was not asked for the latest version, requests were " + paths)
+                .containsExactly("/subjects/orders-value/versions/latest");
+        assertThat(registered.id())
+                .withFailMessage(() -> "The subject's schema id was not taken from the response, got " + registered.id())
+                .isEqualTo(17);
+        assertThat(registered.schema().getFullName())
+                .withFailMessage(() -> "The subject's Order schema was not parsed, got " + registered.schema())
+                .isEqualTo("Order");
+    }
+
+    @Test
+    void resolvesAnExplicitVersionOfAnEncodedSubject() {
+        // given
+        body = "{\"id\":5," + schemaResponse(ORDER_SCHEMA).substring(1);
+        var resolver = resolver(null);
+
+        // when
+        resolver.resolve("orders value/eu", 2);
+
+        // then
+        assertThat(paths)
+                .withFailMessage(() -> "The subject was not URL-encoded or the version not asked for, requests were " + paths)
+                .containsExactly("/subjects/orders%20value%2Feu/versions/2");
+    }
+
+    @Test
+    void reportsTheRegistryErrorForAnUnknownSubject() {
+        // given
+        status = 404;
+        body = "{\"error_code\":40401,\"message\":\"Subject 'nope' not found.\"}";
+        var resolver = resolver(null);
+
+        // then
+        assertThatThrownBy(() -> resolver.resolve("nope", null))
+                .hasMessageContaining("HTTP 404")
+                .hasMessageContaining("subject 'nope' version latest")
+                .hasMessageContaining("Subject 'nope' not found.");
+    }
+
+    @Test
+    void rejectsASubjectResponseWithoutAnId() {
+        // given
+        body = schemaResponse(ORDER_SCHEMA);
+        var resolver = resolver(null);
+
+        // then
+        assertThatThrownBy(() -> resolver.resolve("orders-value", null))
+                .hasMessageContaining("has no schema id");
     }
 
     private SchemaRegistryAvroSchemaResolver resolver(SchemaRegistryBasicAuthConfig basicAuth) {
