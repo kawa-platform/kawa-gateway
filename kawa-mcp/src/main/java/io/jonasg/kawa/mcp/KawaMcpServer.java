@@ -23,7 +23,8 @@ import java.util.Objects;
 /// [ModuleId#MCP][io.jonasg.kawa.config.ModuleId#MCP] module is switched off, `/mcp` answers `404`.
 ///
 /// Tools call the [AdminServices] directly and answer with views shaped for an agent (see
-/// [ListTopicsTool]); a failure becomes a tool error (see [ToolResults]).
+/// [ListTopicsTool], [ListConsumerGroupsTool], [DescribeConsumerGroupTool]); a failure becomes a tool error (see
+/// [ToolResults]). Every tool only reads: one that is not annotated read-only is refused at startup.
 public final class KawaMcpServer implements AutoCloseable {
 
     static final String PATH = "/mcp";
@@ -38,10 +39,16 @@ public final class KawaMcpServer implements AutoCloseable {
     ///                 requests carrying an `Origin` header are refused
     public KawaMcpServer(Router router, AdminServices services, ModuleRegistry modules, @Nullable CorsConfig cors) {
         var mapper = McpJsonDefaults.getMapper();
-        this(router, modules, cors, mapper, List.of(new ListTopicsTool(services.topics(), mapper).specification()));
+        this(router, modules, cors, mapper, List.of(
+                new ListTopicsTool(services.topics(), mapper).specification(),
+                new ListConsumerGroupsTool(services.consumerGroups(), services.topics(), mapper).specification(),
+                new DescribeConsumerGroupTool(services.consumerGroups(), services.topics(), mapper).specification()));
     }
 
     /// Serves `tools`, which write their JSON with `mapper`.
+    ///
+    /// @throws IllegalArgumentException when a tool is not annotated read-only (see [ToolResults#READ_ONLY]):
+    ///                                  the MCP server only serves tools that read
     KawaMcpServer(
             Router router,
             ModuleRegistry modules,
@@ -49,6 +56,7 @@ public final class KawaMcpServer implements AutoCloseable {
             McpJsonMapper mapper,
             List<SyncToolSpecification> tools
     ) {
+        requireReadOnly(tools);
         var endpoint = new McpEndpoint(modules, mapper, originValidator(cors));
         this.server = McpServer.sync(endpoint)
                 .serverInfo("kawa", version())
@@ -57,6 +65,23 @@ public final class KawaMcpServer implements AutoCloseable {
                 .tools(tools)
                 .build();
         router.post(PATH, endpoint);
+    }
+
+    private static void requireReadOnly(List<SyncToolSpecification> tools) {
+        tools.stream()
+                .map(SyncToolSpecification::tool)
+                .filter(tool -> !isReadOnly(tool.annotations()))
+                .findFirst()
+                .ifPresent(tool -> {
+                    throw new IllegalArgumentException("MCP tool '" + tool.name()
+                            + "' is not read-only: kawa's MCP server only serves tools that read");
+                });
+    }
+
+    private static boolean isReadOnly(McpSchema.@Nullable ToolAnnotations annotations) {
+        return annotations != null
+                && Boolean.TRUE.equals(annotations.readOnlyHint())
+                && Boolean.FALSE.equals(annotations.destructiveHint());
     }
 
     /// Guards against DNS rebinding: a request with an `Origin` header must come from an origin the

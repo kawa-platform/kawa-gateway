@@ -23,16 +23,9 @@ services:
     image: apache/kafka:4.3.1
     depends_on:
       - kafka
-    entrypoint: [ "/bin/sh", "-c" ]
-    command:
-      - |
-        until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list > /dev/null 2>&1; do
-          echo "waiting for kafka...";
-          sleep 1;
-        done
-        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 \
-          --create --if-not-exists --topic orders-v2 --partitions 1 --replication-factor 1
-        echo "orders-v2 ready"
+    entrypoint: [ "/bin/sh", "/kafka-init.sh" ]
+    volumes:
+      - ./docker/kafka-init.sh:/kafka-init.sh:ro
     restart: "no"
 
   gateway:

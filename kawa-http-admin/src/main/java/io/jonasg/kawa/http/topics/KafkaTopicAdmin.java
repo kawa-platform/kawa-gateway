@@ -5,14 +5,29 @@ import io.jonasg.kawa.governance.TopicSpec;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.Config;
 import org.apache.kafka.clients.admin.ConfigEntry;
+import org.apache.kafka.clients.admin.ConsumerGroupDescription;
 import org.apache.kafka.clients.admin.DescribeConfigsOptions;
+import org.apache.kafka.clients.admin.DescribeConsumerGroupsOptions;
 import org.apache.kafka.clients.admin.DescribeTopicsOptions;
+import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsOptions;
+import org.apache.kafka.clients.admin.ListConsumerGroupOffsetsSpec;
+import org.apache.kafka.clients.admin.ListGroupsOptions;
+import org.apache.kafka.clients.admin.ListOffsetsOptions;
+import org.apache.kafka.clients.admin.ListOffsetsResult.ListOffsetsResultInfo;
+import org.apache.kafka.clients.admin.MemberDescription;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.admin.OffsetSpec;
 import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.common.GroupState;
+import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.config.ConfigResource;
+import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
 
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +40,8 @@ import java.util.concurrent.ExecutionException;
 
 import static org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
 
-/// [TopicAdmin] backed by Kafka's [AdminClient]: creates, deletes and describes topics on the
+/// [TopicAdmin] backed by Kafka's [AdminClient]: creates, deletes and describes topics, and reads
+/// consumer groups and their offsets, on the
 /// real cluster using the same bootstrap servers and broker credentials as the gateway. Also
 /// the gateway's describer for judging changes on the Kafka
 /// protocol: describing asks the broker on every call, since changes are rare admin operations.
@@ -56,6 +72,95 @@ public final class KafkaTopicAdmin implements TopicAdmin {
     @Override
     public void deleteTopic(String name) throws Exception {
         admin.deleteTopics(List.of(name)).all().get();
+    }
+
+    @Override
+    public List<GroupSummary> listConsumerGroups() throws Exception {
+        return admin.listGroups(ListGroupsOptions.forConsumerGroups().timeoutMs(DESCRIBE_TIMEOUT_MS)).all().get().stream()
+                .map(group -> new GroupSummary(group.groupId(), group.groupState().map(GroupState::toString)
+                        .orElse(GroupState.UNKNOWN.toString())))
+                .toList();
+    }
+
+    @Override
+    public Map<String, GroupDetails> describeConsumerGroups(Collection<String> groupIds) throws Exception {
+        var described = admin.describeConsumerGroups(groupIds, new DescribeConsumerGroupsOptions().timeoutMs(DESCRIBE_TIMEOUT_MS))
+                .describedGroups();
+        Map<String, GroupDetails> byId = new HashMap<>();
+        for (var entry : described.entrySet()) {
+            ConsumerGroupDescription group;
+            try {
+                group = entry.getValue().get();
+            } catch (ExecutionException e) {
+                if (e.getCause() instanceof GroupIdNotFoundException) {
+                    continue;
+                }
+                throw e;
+            }
+            // A classic group the coordinator does not know is described as DEAD rather than refused.
+            if (group.groupState() != GroupState.DEAD) {
+                byId.put(entry.getKey(), new GroupDetails(group.groupId(), group.groupState().toString(),
+                        group.members().stream().map(KafkaTopicAdmin::member).toList()));
+            }
+        }
+        return byId;
+    }
+
+    @Override
+    public Map<String, Map<GroupPartition, Long>> committedOffsets(Collection<String> groupIds) throws Exception {
+        if (groupIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, ListConsumerGroupOffsetsSpec> specs = new HashMap<>();
+        groupIds.forEach(id -> specs.put(id, new ListConsumerGroupOffsetsSpec()));
+        Map<String, Map<TopicPartition, OffsetAndMetadata>> offsets = admin.listConsumerGroupOffsets(specs,
+                new ListConsumerGroupOffsetsOptions().timeoutMs(DESCRIBE_TIMEOUT_MS)).all().get();
+        Map<String, Map<GroupPartition, Long>> byGroup = new HashMap<>();
+        offsets.forEach((groupId, committed) -> {
+            Map<GroupPartition, Long> partitions = new HashMap<>();
+            committed.forEach((partition, offset) -> {
+                if (offset != null) {
+                    partitions.put(partition(partition), offset.offset());
+                }
+            });
+            byGroup.put(groupId, partitions);
+        });
+        return byGroup;
+    }
+
+    @Override
+    public Map<GroupPartition, Long> endOffsets(Collection<GroupPartition> partitions) throws Exception {
+        if (partitions.isEmpty()) {
+            return Map.of();
+        }
+        Map<TopicPartition, OffsetSpec> specs = new HashMap<>();
+        partitions.forEach(p -> specs.put(new TopicPartition(p.topic(), p.partition()), OffsetSpec.latest()));
+        var result = admin.listOffsets(specs, new ListOffsetsOptions().timeoutMs(DESCRIBE_TIMEOUT_MS));
+        Map<GroupPartition, Long> byPartition = new HashMap<>();
+        for (TopicPartition partition : specs.keySet()) {
+            KafkaFuture<ListOffsetsResultInfo> future = result.partitionResult(partition);
+            try {
+                byPartition.put(partition(partition), future.get().offset());
+            } catch (ExecutionException e) {
+                // a partition of a deleted topic is left out; any other failure fails the lookup
+                if (!(e.getCause() instanceof UnknownTopicOrPartitionException)) {
+                    throw e;
+                }
+            }
+        }
+        return byPartition;
+    }
+
+    private static GroupMember member(MemberDescription member) {
+        var assignment = member.assignment().topicPartitions().stream()
+                .map(KafkaTopicAdmin::partition)
+                .sorted(Comparator.comparing(GroupPartition::topic).thenComparingInt(GroupPartition::partition))
+                .toList();
+        return new GroupMember(member.consumerId(), member.clientId(), member.host(), assignment);
+    }
+
+    private static GroupPartition partition(TopicPartition partition) {
+        return new GroupPartition(partition.topic(), partition.partition());
     }
 
     @Override

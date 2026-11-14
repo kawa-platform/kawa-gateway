@@ -36,6 +36,26 @@ public final class FakeTopicAdmin implements TopicAdmin {
     }
 
     @Override
+    public List<GroupSummary> listConsumerGroups() {
+        return List.of();
+    }
+
+    @Override
+    public Map<String, GroupDetails> describeConsumerGroups(Collection<String> groupIds) {
+        return Map.of();
+    }
+
+    @Override
+    public Map<String, Map<GroupPartition, Long>> committedOffsets(Collection<String> groupIds) {
+        return Map.of();
+    }
+
+    @Override
+    public Map<GroupPartition, Long> endOffsets(Collection<GroupPartition> partitions) {
+        return Map.of();
+    }
+
+    @Override
     public CompletionStage<Map<String, TopicState>> describe(Collection<String> topics) {
         Map<String, TopicState> found = new HashMap<>();
         topics.forEach(name -> {

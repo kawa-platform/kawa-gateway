@@ -5,10 +5,14 @@ import io.jonasg.kawa.http.configchange.ForbiddenException;
 import io.jonasg.kawa.http.configchange.NotFoundException;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.modelcontextprotocol.common.McpTransportContext;
+import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.function.Supplier;
 
 /// Turns a tool's failure into a tool error (`isError: true`), so the agent sees it as the tool's
@@ -22,6 +26,16 @@ import java.util.function.Supplier;
 final class ToolResults {
 
     static final String INTERNAL_ERROR = "internal error";
+
+    /// The annotations every kawa tool carries: it only reads gateway or broker state. [KawaMcpServer]
+    /// refuses to serve a tool without `readOnlyHint`, so adding one that creates, changes or deletes
+    /// anything takes a deliberate decision.
+    static final ToolAnnotations READ_ONLY = ToolAnnotations.builder()
+            .readOnlyHint(true)
+            .destructiveHint(false)
+            .idempotentHint(true)
+            .openWorldHint(false)
+            .build();
 
     private static final String UNKNOWN = "-";
     private static final Logger log = LoggerFactory.getLogger(ToolResults.class);
@@ -50,6 +64,19 @@ final class ToolResults {
                 principal == null || principal.clientId() == null ? UNKNOWN : principal.clientId(),
                 outcome);
         return result;
+    }
+
+    /// A successful result carrying `view` both as structured content and as its JSON text, for
+    /// clients that only read text.
+    static CallToolResult success(McpJsonMapper mapper, Object view) {
+        try {
+            return CallToolResult.builder()
+                    .structuredContent(view)
+                    .addTextContent(mapper.writeValueAsString(view))
+                    .build();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private static CallToolResult error(String message) {

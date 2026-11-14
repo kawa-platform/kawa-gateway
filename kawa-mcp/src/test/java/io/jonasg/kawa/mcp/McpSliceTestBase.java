@@ -45,6 +45,8 @@ abstract class McpSliceTestBase {
     protected MetadataCache cache = new MetadataCache();
     /// The gateway's modules, reloaded from the config on every write as the config consumer would.
     protected ModuleRegistry modules = new ModuleRegistry();
+    /// The broker admin the services read consumer groups and offsets from; stub it per test.
+    protected TopicAdmin topicAdmin = mock(TopicAdmin.class);
     /// Replaces the real topic service when set, e.g. with a mock that fails.
     protected @Nullable TopicService topicService;
 
@@ -69,10 +71,10 @@ abstract class McpSliceTestBase {
     /// Boots the server with the current state. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
         var real = AdminServices.create(virtualTopics, cache, new InMemoryConfigRepository(modules),
-                new GovernancePolicy(new GovernanceConfig(null)), mock(TopicAdmin.class), null, _ -> null);
+                new GovernancePolicy(new GovernanceConfig(null)), topicAdmin, null, _ -> null);
         services = topicService == null ? real : new AdminServices(topicService, real.roles(), real.groups(),
                 real.clients(), real.governanceRules(), real.adminUsers(), real.adminUserAuthenticator(), real.modules(),
-                real.oauthClients(), real.oauthClientDirectory());
+                real.oauthClients(), real.oauthClientDirectory(), real.consumerGroups());
         var authenticationProviders = new AuthenticationProviderRegistry();
         new BuiltInAuthenticationPlugin().register(authenticationProviders::register);
         server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none()), services,

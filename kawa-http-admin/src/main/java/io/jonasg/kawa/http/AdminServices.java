@@ -5,6 +5,7 @@ import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.http.clients.AuthClientService;
+import io.jonasg.kawa.http.consumergroups.ConsumerGroupService;
 import io.jonasg.kawa.http.governance.GovernanceService;
 import io.jonasg.kawa.http.modules.ModuleService;
 import io.jonasg.kawa.http.oauthclients.OAuthClientService;
@@ -38,7 +39,8 @@ public record AdminServices(
         AdminUserAuthenticator adminUserAuthenticator,
         ModuleService modules,
         OAuthClientService oauthClients,
-        StoredOAuthClients oauthClientDirectory
+        StoredOAuthClients oauthClientDirectory,
+        ConsumerGroupService consumerGroups
 ) implements AutoCloseable {
 
     /// Builds the services and seeds `bootstrapUser` into the admin users (see
@@ -68,7 +70,8 @@ public record AdminServices(
                 new AdminUserAuthenticator(configRepository),
                 new ModuleService(configRepository),
                 new OAuthClientService(configRepository),
-                new StoredOAuthClients(configRepository));
+                new StoredOAuthClients(configRepository),
+                new ConsumerGroupService(topicAdmin));
     }
 
     @Override

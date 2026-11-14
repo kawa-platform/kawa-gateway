@@ -1,14 +1,8 @@
 package io.jonasg.kawa.mcp;
 
 import io.jonasg.kawa.config.AvroFormatConfig;
-import io.jonasg.kawa.config.CelFilterConfig;
-import io.jonasg.kawa.config.HeaderContainsFilterConfig;
-import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
-import io.jonasg.kawa.config.HeaderMatchesFilterConfig;
-import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.PayloadFormatConfig;
-import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import io.jonasg.kawa.http.topics.TopicService;
 import io.jonasg.kawa.mcp.TopicsView.FilterView;
 import io.jonasg.kawa.mcp.TopicsView.PhysicalTopicView;
@@ -20,8 +14,6 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import org.jspecify.annotations.Nullable;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -68,6 +60,7 @@ final class ListTopicsTool {
                         + "replication factor. Pass `type` to list only one layer, and `name` to list only the topics "
                         + "whose name matches a regular expression.")
                 .outputSchema(TopicsView.SCHEMA)
+                .annotations(ToolResults.READ_ONLY)
                 .build();
         return SyncToolSpecification.builder()
                 .tool(tool)
@@ -76,15 +69,7 @@ final class ListTopicsTool {
     }
 
     private CallToolResult call(CallToolRequest request) {
-        var view = topicsView(namePattern(request), layer(request));
-        try {
-            return CallToolResult.builder()
-                    .structuredContent(view)
-                    .addTextContent(mapper.writeValueAsString(view))
-                    .build();
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return ToolResults.success(mapper, topicsView(namePattern(request), layer(request)));
     }
 
     /// The compiled `name` argument, or `null` when it is absent or blank and every topic is listed.
@@ -143,7 +128,7 @@ final class ListTopicsTool {
                                 entry.physicalTopic(),
                                 topics.partitionCount(entry.physicalTopic()),
                                 topics.replicationFactor(entry.physicalTopic()),
-                                filterView(entry.filter()),
+                                FilterView.of(entry.filter()),
                                 valueFormat(entry.valueFormat()),
                                 entry.exposePhysicalTopic()))
                         .toList()
@@ -158,22 +143,6 @@ final class ListTopicsTool {
                         .toList()
                 : List.<PhysicalTopicView>of();
         return new TopicsView(virtualTopics, physicalTopics);
-    }
-
-    private static @Nullable FilterView filterView(@Nullable VirtualTopicFilterConfig filter) {
-        return switch (filter) {
-            case null -> null;
-            case HeaderEqualsFilterConfig f -> new FilterView("headerEquals", header(f.header(), "equals", f.value()));
-            case HeaderContainsFilterConfig f -> new FilterView("headerContains", header(f.header(), "contains", f.value()));
-            case HeaderStartsWithFilterConfig f ->
-                    new FilterView("headerStartsWith", header(f.header(), "starts with", f.value()));
-            case HeaderMatchesFilterConfig f -> new FilterView("headerMatches", header(f.header(), "matches", f.value()));
-            case CelFilterConfig f -> new FilterView("cel", f.expression());
-        };
-    }
-
-    private static String header(String header, String operator, String value) {
-        return "header '" + header + "' " + operator + " '" + value + "'";
     }
 
     private static String valueFormat(@Nullable PayloadFormatConfig format) {
