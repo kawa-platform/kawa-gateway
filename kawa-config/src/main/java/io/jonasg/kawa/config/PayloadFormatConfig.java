@@ -15,9 +15,10 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 )
 @JsonSubTypes({
         @JsonSubTypes.Type(value = JsonFormatConfig.class, name = "json"),
-        @JsonSubTypes.Type(value = AvroFormatConfig.class, name = "avro")
+        @JsonSubTypes.Type(value = AvroFormatConfig.class, name = "avro"),
+        @JsonSubTypes.Type(value = XmlFormatConfig.class, name = "xml")
 })
-public sealed interface PayloadFormatConfig permits JsonFormatConfig, AvroFormatConfig {
+public sealed interface PayloadFormatConfig permits JsonFormatConfig, AvroFormatConfig, XmlFormatConfig {
 
     /// What to do with a record whose payload cannot be decoded in this format.
     DecodeErrorPolicy onDecodeError();
