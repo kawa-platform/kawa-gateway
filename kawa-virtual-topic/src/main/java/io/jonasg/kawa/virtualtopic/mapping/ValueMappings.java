@@ -41,12 +41,13 @@ public final class ValueMappings {
     private ValueMappings() {
     }
 
-    /// @throws IllegalArgumentException naming the step if one of `steps` is invalid
+    /// @throws IllegalArgumentException if one of `steps` is invalid, with a message starting with
+    ///                                  `transformations[N] (type)`, N being the step's 0-based index
     public static ValueMapping compile(List<TransformationConfig> steps) {
         List<ValueMapping> mappings = new ArrayList<>();
         for (int i = 0; i < steps.size(); i++) {
             TransformationConfig step = steps.get(i);
-            String label = "transformation #" + (i + 1) + " (" + type(step) + ")";
+            String label = "transformations[" + i + "] (" + type(step) + ")";
             ValueMapping mapping;
             try {
                 mapping = switch (step) {

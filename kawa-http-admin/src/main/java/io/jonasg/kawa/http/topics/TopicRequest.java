@@ -3,13 +3,16 @@ package io.jonasg.kawa.http.topics;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import org.jspecify.annotations.NullUnmarked;
+import tools.jackson.databind.JsonNode;
 
+import java.util.List;
 import java.util.Map;
 
 /// The `POST /topics` and `PUT /topics/{name}` request body: a `type` discriminator
 /// plus the fields of one topic kind. Physical topics carry partitions/replicationFactor/configs;
-/// virtual topics carry the physical backing topic, optional filter and optional (record) value
-/// format. Named `TopicRequest` rather than `TopicConfigRequest` because `type` names the route
+/// virtual topics carry the physical backing topic, optional filter, optional (record) value
+/// format and optional value transformations. The transformations stay raw JSON here so that
+/// [TopicTransformations] can report a bad step with its index. Named `TopicRequest` rather than `TopicConfigRequest` because `type` names the route
 /// resource (`physical` or `virtual`), not a config record.
 @NullUnmarked
 record TopicRequest(
@@ -21,7 +24,8 @@ record TopicRequest(
         String topic,
         VirtualTopicFilterConfig filter,
         Boolean exposePhysicalTopic,
-        PayloadFormatConfig valueFormat
+        PayloadFormatConfig valueFormat,
+        List<JsonNode> transformations
 ) {
 
     public TopicRequest {

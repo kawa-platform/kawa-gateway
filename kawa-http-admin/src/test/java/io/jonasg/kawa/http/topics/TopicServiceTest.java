@@ -72,7 +72,7 @@ class TopicServiceTest {
     @Test
     void putsVirtualTopic() {
         // given
-        var request = new TopicRequest("virtual", "orders", null, null, null, "orders-v2", null, null, null);
+        var request = new TopicRequest("virtual", "orders", null, null, null, "orders-v2", null, null, null, null);
 
         // when
         VirtualTopicConfig result = service.upsertVirtualTopic(ADMIN, "orders", request, Consistency.PERSISTED);
@@ -86,7 +86,7 @@ class TopicServiceTest {
     void patchesVirtualTopic() {
         // given
         repository.update(base -> base.upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1")));
-        var patch = new VirtualTopicConfigPatch(null, "orders-v2", null, null, null);
+        var patch = new VirtualTopicConfigPatch(null, "orders-v2", null, null, null, null);
 
         // when
         VirtualTopicConfig result = service.updateVirtualTopic(ADMIN, "orders", patch, Consistency.PERSISTED);
@@ -100,7 +100,7 @@ class TopicServiceTest {
     void patchesVirtualTopicRename() {
         // given
         repository.update(base -> base.upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1")));
-        var patch = new VirtualTopicConfigPatch("regional-orders", null, null, null, null);
+        var patch = new VirtualTopicConfigPatch("regional-orders", null, null, null, null, null);
 
         // when
         VirtualTopicConfig result = service.updateVirtualTopic(ADMIN, "orders", patch, Consistency.PERSISTED);
@@ -174,7 +174,7 @@ class TopicServiceTest {
 
         // then
         assertThatThrownBy(() -> service.updateVirtualTopic(ADMIN, 
-                "orders", new VirtualTopicConfigPatch(null, "x", null, null, null), Consistency.PERSISTED))
+                "orders", new VirtualTopicConfigPatch(null, "x", null, null, null, null), Consistency.PERSISTED))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("only virtual topics can be patched");
     }
@@ -183,7 +183,7 @@ class TopicServiceTest {
     void createsPhysicalTopic() throws Exception {
         // given
         var request = new TopicRequest(
-                "physical", "orders", 3, (short) 3, Map.of("cleanup.policy", "compact"), null, null, null, null);
+                "physical", "orders", 3, (short) 3, Map.of("cleanup.policy", "compact"), null, null, null, null, null);
 
         // when
         var creation = service.createPhysicalTopic(ADMIN, request);
@@ -252,7 +252,7 @@ class TopicServiceTest {
                 Map.of("min-replication",
                         minReplicationRule())));
         TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
-        var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null);
+        var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null, null);
 
         // then
         assertThatThrownBy(() -> governedService.createPhysicalTopic(ADMIN, request))
@@ -266,7 +266,7 @@ class TopicServiceTest {
         // given - virtual topics must be named after their physical topic
         governance = new GovernancePolicy(new GovernanceConfig(Map.of("aliases", virtualAliasRule())));
         TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
-        var request = new TopicRequest("virtual", "orders", null, null, null, "payments-v2", null, null, null);
+        var request = new TopicRequest("virtual", "orders", null, null, null, "payments-v2", null, null, null, null);
 
         // when / then
         assertThatThrownBy(() -> governedService.upsertVirtualTopic(ADMIN, "orders", request, Consistency.PERSISTED))
@@ -286,9 +286,9 @@ class TopicServiceTest {
 
         // when / then
         assertThatThrownBy(() -> governedService.updateVirtualTopic(ADMIN, "orders",
-                new VirtualTopicConfigPatch(null, "payments-v1", null, null, null), Consistency.PERSISTED))
+                new VirtualTopicConfigPatch(null, "payments-v1", null, null, null, null), Consistency.PERSISTED))
                 .isInstanceOf(ForbiddenException.class);
-        governedService.updateVirtualTopic(ADMIN, "orders", new VirtualTopicConfigPatch(null, "orders-v2", null, null, null), Consistency.PERSISTED);
+        governedService.updateVirtualTopic(ADMIN, "orders", new VirtualTopicConfigPatch(null, "orders-v2", null, null, null, null), Consistency.PERSISTED);
         assertThat(repository.getActiveConfig().virtualTopics().get("orders").topic()).isEqualTo("orders-v2");
     }
 
@@ -305,7 +305,7 @@ class TopicServiceTest {
                 List.of(new GovernanceRuleConfig.Exemption(
                         "ops", "Operators may create under-replicated topics.", Expression.cel("principal == 'admin'")))))));
         TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
-        var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null);
+        var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null, null);
 
         // when
         var creation = governedService.createPhysicalTopic(ADMIN, request);
@@ -319,7 +319,7 @@ class TopicServiceTest {
     void throwsConflictExceptionWhenPhysicalTopicExists() {
         // given
         brokerAdmin.createError = new TopicExistsException("Topic 'orders' already exists.");
-        var request = new TopicRequest("physical", "orders", 3, (short) 3, null, null, null, null, null);
+        var request = new TopicRequest("physical", "orders", 3, (short) 3, null, null, null, null, null, null);
 
         // then
         assertThatThrownBy(() -> service.createPhysicalTopic(ADMIN, request))

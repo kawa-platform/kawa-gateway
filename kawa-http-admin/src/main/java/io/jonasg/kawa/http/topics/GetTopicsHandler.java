@@ -36,6 +36,7 @@ final class GetTopicsHandler implements Router.Handler {
                     entry.physicalTopic(),
                     entry.exposePhysicalTopic(),
                     entry.valueFormat(),
+                    entry.transformations(),
                     entry.managedBy()));
         }
         for (TopicMetadata tm : listing.physical()) {
@@ -44,6 +45,7 @@ final class GetTopicsHandler implements Router.Handler {
                     tm.name(),
                     topicService.partitionCount(tm.name()),
                     topicService.replicationFactor(tm.name()),
+                    null,
                     null,
                     null,
                     null,

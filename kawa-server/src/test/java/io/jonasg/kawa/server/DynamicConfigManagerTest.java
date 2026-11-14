@@ -132,7 +132,7 @@ class DynamicConfigManagerTest {
         assertThatThrownBy(() -> manager.apply(broken))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("virtual topic 'orders'")
-                .hasMessageContaining("transformation #1 (cel)");
+                .hasMessageContaining("transformations[0] (cel)");
         assertThat(authorizer.isAuthorized("alice", ResourceType.TOPIC, "orders", AclOperation.READ))
                 .withFailMessage(() -> "The RBAC part of a refused snapshot was applied")
                 .isFalse();
