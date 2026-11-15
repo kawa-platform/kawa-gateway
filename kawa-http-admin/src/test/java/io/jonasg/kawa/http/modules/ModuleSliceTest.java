@@ -16,7 +16,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
     // --- GET /modules -------------------------------------------------------------------------
 
     @Test
-    void listsEveryModuleAsEnabledWhenNothingIsStored() throws Exception {
+    void listsEveryModuleWithTheirExpectedDefaultValueWhenNothingIsStored() throws Exception {
         // given
         startServer();
 
@@ -28,7 +28,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body()).isEqualTo("""
                 [
                   {"id":"governance","enabled":true},
-                  {"id":"mcp","enabled":true},
+                  {"id":"mcp","enabled":false},
                   {"id":"mcp-cimd","enabled":true},
                   {"id":"rbac","enabled":true},
                   {"id":"virtual-topics","enabled":true}
@@ -39,8 +39,11 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
     @Test
     void listsEveryModuleWithItsStoredStateSortedById() throws Exception {
         // given
-        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
-                .upsertModule(new ModuleConfig(ModuleId.GOVERNANCE, false)));
+        repository = new FakeDynamicConfigRepository(
+                DynamicConfig.empty()
+                        .upsertModule(new ModuleConfig(ModuleId.GOVERNANCE, false))
+                        .upsertModule(new ModuleConfig(ModuleId.VIRTUAL_TOPICS, false))
+                        .upsertModule(new ModuleConfig(ModuleId.MCP, true)));
         startServer();
 
         // when
@@ -54,7 +57,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
                   {"id":"mcp","enabled":true},
                   {"id":"mcp-cimd","enabled":true},
                   {"id":"rbac","enabled":true},
-                  {"id":"virtual-topics","enabled":true}
+                  {"id":"virtual-topics","enabled":false}
                 ]
                 """);
     }

@@ -1,6 +1,8 @@
 package io.jonasg.kawa.it;
 
 import io.jonasg.kawa.config.AdminConfig;
+import io.jonasg.kawa.config.ModuleConfig;
+import io.jonasg.kawa.config.ModuleId;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
@@ -28,6 +30,12 @@ class McpIT extends AdminHTTPTestSupport {
     @Override
     protected AdminConfig adminConfig() {
         return new AdminConfig(true, "127.0.0.1", 0, null);
+    }
+
+    /// The `mcp` module switched on, as it is off by default.
+    @Override
+    protected List<ModuleConfig> modules() {
+        return List.of(new ModuleConfig(ModuleId.MCP, true));
     }
 
     @Override

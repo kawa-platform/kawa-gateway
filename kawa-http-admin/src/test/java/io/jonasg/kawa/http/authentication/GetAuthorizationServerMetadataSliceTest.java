@@ -1,6 +1,10 @@
 package io.jonasg.kawa.http.authentication;
 
+import io.jonasg.kawa.config.DynamicConfig;
+import io.jonasg.kawa.config.ModuleConfig;
+import io.jonasg.kawa.config.ModuleId;
 import io.jonasg.kawa.http.AdminHttpSliceTestBase;
+import io.jonasg.kawa.http.FakeDynamicConfigRepository;
 import org.junit.jupiter.api.Test;
 
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
@@ -36,8 +40,10 @@ class GetAuthorizationServerMetadataSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
-    void advertisesClientIdMetadataDocumentsByDefault() throws Exception {
-        // given
+    void advertisesClientIdMetadataDocumentsByDefaultOnceMcpIsOn() throws Exception {
+        // given: mcp is off until switched on; mcp-cimd is on unless switched off
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .upsertModule(new ModuleConfig(ModuleId.MCP, true)));
         enableOAuth();
         startServer();
 
@@ -56,6 +62,7 @@ class GetAuthorizationServerMetadataSliceTest extends AdminHttpSliceTestBase {
         enableOAuth();
         startServer();
         var admin = bearer(login("admin@kawa", "s3cret"));
+        send("PUT", "/modules/mcp", "{\"enabled\":true}", admin);
 
         // when / then: switching mcp-cimd off, then back on
         send("PUT", "/modules/mcp-cimd", "{\"enabled\":false}", admin);

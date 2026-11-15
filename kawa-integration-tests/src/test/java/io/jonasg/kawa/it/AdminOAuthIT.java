@@ -2,6 +2,8 @@ package io.jonasg.kawa.it;
 
 import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
+import io.jonasg.kawa.config.ModuleConfig;
+import io.jonasg.kawa.config.ModuleId;
 import io.modelcontextprotocol.client.McpClient;
 import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.client.transport.HttpClientStreamableHttpTransport;
@@ -28,6 +30,7 @@ import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -69,6 +72,12 @@ class AdminOAuthIT extends AdminHTTPTestSupport {
                         "loginUrl", "http://localhost:5173/admin/login",
                         "redirectUris", REDIRECT_URI)),
                 PUBLIC_URL);
+    }
+
+    /// The `mcp` module switched on, as it is off by default.
+    @Override
+    protected List<ModuleConfig> modules() {
+        return List.of(new ModuleConfig(ModuleId.MCP, true));
     }
 
     @AfterAll
