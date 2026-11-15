@@ -2,11 +2,12 @@ package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.RbacConfig;
-import io.jonasg.kawa.core.module.ModuleRegistry;
+import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.rbac.RbacAuthorizer;
 import io.jonasg.kawa.server.auth.SaslAuthenticator;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,48 +15,59 @@ import java.util.Map;
 import java.util.Properties;
 
 /// Owns the dynamically-reloaded consumers ([VirtualTopicManager], [RbacAuthorizer],
-/// [SaslAuthenticator], [GovernancePolicy], [ModuleRegistry]) and the [DynamicConfigManager] that feeds them
-/// from the config topic. Created empty, then [start] blocks until the config topic has been
-/// caught up, so the gateway can refuse to serve until it has applied the config that existed
-/// at boot. An empty config topic on first boot is valid - the gateway boots with no virtual
-/// topics, default-deny RBAC and no client auth.
+/// [SaslAuthenticator], [GovernancePolicy]) and the [DynamicConfigManager] that feeds them, and the
+/// Kafka path's [InterceptorPipeline], from the config topic. Created empty, so the pipeline can be
+/// built on its consumers; then [start] blocks until the config topic has been caught up, so the
+/// gateway can refuse to serve until it has applied the config that existed at boot. An empty
+/// config topic on first boot is valid - the gateway boots with no virtual topics, default-deny
+/// RBAC and no client auth.
 public final class DynamicGatewayState implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(DynamicGatewayState.class);
 
     private final String bootstrapServers;
     private final String topic;
+    private final Properties brokerSecurity;
     private final VirtualTopicManager virtualTopics;
     private final RbacAuthorizer authorizer;
     private final SaslAuthenticator saslAuthenticator;
     private final GovernancePolicy governance;
-    private final ModuleRegistry modules;
-    private final DynamicConfigManager configManager;
+    private @Nullable DynamicConfigManager configManager;
 
     /// @param brokerSecurity the Kafka client settings for reaching the brokers (`security.protocol`,
     ///                       `sasl.*`, `ssl.*`), see [io.jonasg.kawa.config.BrokerSecurity#clientProperties]
     public DynamicGatewayState(String bootstrapServers, String topic, Properties brokerSecurity) {
         this.bootstrapServers = bootstrapServers;
         this.topic = topic;
+        this.brokerSecurity = brokerSecurity;
         virtualTopics = new VirtualTopicManager(Map.of());
         authorizer = new RbacAuthorizer(new RbacConfig(Map.of(), Map.of()));
         saslAuthenticator = new SaslAuthenticator();
         governance = new GovernancePolicy(new GovernanceConfig(null));
-        modules = new ModuleRegistry();
+    }
+
+    /// Starts the config-topic consumer and blocks until the initial load has been applied.
+    ///
+    /// @param pipeline the Kafka path's interceptors, built on this state's consumers; each applied
+    ///                 snapshot switches its modules
+    public void start(InterceptorPipeline pipeline) throws InterruptedException {
+        var configManager = createConfigManager(pipeline);
+        configManager.start();
+        log.info("waiting for initial config load from topic '{}' on {}", topic, bootstrapServers);
+        configManager.awaitInitialLoad();
+    }
+
+    /// Creates the config manager that feeds this state's consumers and switches `pipeline`'s modules,
+    /// without starting its consumer. Package-private so tests can apply snapshots without a broker.
+    DynamicConfigManager createConfigManager(InterceptorPipeline pipeline) {
         // Direct partition assignment: the config consumer re-reads the full topic from the
         // earliest offset on every boot, so no consumer group is needed (and none is
         // registered in the cluster).
         configManager = new DynamicConfigManager(
                 bootstrapServers, topic,
                 brokerSecurity,
-                virtualTopics, authorizer, saslAuthenticator, governance, modules);
-    }
-
-    /// Starts the config-topic consumer and blocks until the initial load has been applied.
-    public void start() throws InterruptedException {
-        configManager.start();
-        log.info("waiting for initial config load from topic '{}' on {}", topic, bootstrapServers);
-        configManager.awaitInitialLoad();
+                virtualTopics, authorizer, saslAuthenticator, governance, pipeline);
+        return configManager;
     }
 
     public VirtualTopicManager virtualTopics() {
@@ -74,16 +86,18 @@ public final class DynamicGatewayState implements AutoCloseable {
         return governance;
     }
 
-    public ModuleRegistry modules() {
-        return modules;
-    }
-
+    /// The config manager. Only after [#start].
     public DynamicConfigManager configManager() {
+        if (configManager == null) {
+            throw new IllegalStateException("the dynamic gateway state has not been started");
+        }
         return configManager;
     }
 
     @Override
     public void close() {
-        configManager.close();
+        if (configManager != null) {
+            configManager.close();
+        }
     }
 }

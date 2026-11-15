@@ -4,6 +4,7 @@ import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.BootstrapConfig;
 import io.jonasg.kawa.config.BrokerSecurity;
 import io.jonasg.kawa.config.ClusterConfig;
+import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.ModuleId;
 import io.jonasg.kawa.core.Gateway;
 import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
@@ -38,7 +39,6 @@ import org.slf4j.LoggerFactory;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.time.Duration;
-import java.util.Set;
 
 /// Netty-based Kafka gateway: accepts client connections, rewrites virtual topics and
 /// forwards traffic to the physical cluster.
@@ -133,18 +133,22 @@ public final class KafkaGateway implements Gateway {
         codec = new KafkaBodyCodec(kawaApiRegistry);
         apiVersionsBuilder = new ApiVersionsResponseBuilder(SupportedVersions.from(kawaApiRegistry));
 
-        // Dynamic config from the config topic (blocks until caught up)
+        // Dynamic config holders, filled from the config topic below
         dynamicState = new DynamicGatewayState(bootstrapServers, config.configTopic(), brokerSecurity);
-        dynamicState.start();
 
-        // Bind the client listener; resolve the advertised endpoint
+        // Bind the client listener; resolve the advertised endpoint. The listener closes every
+        // connection until the dispatcher is installed below.
         listener = new KafkaListener(metrics, codec, listenerConfig.securityProtocol(), listenerTls);
         int boundPort = listener.bind(listenerConfig.host(), listenerConfig.port());
         AdvertisedListener advertised = resolveAdvertised(config.advertised(), boundPort);
 
-        // Interceptor pipeline
+        // Interceptor pipeline, built before the config load so every applied snapshot switches its modules
         topicDescriber = new KafkaTopicAdmin(bootstrapServers, brokerSecurity);
         RequestPipeline requestPipeline = buildPipeline(dynamicState, advertised, topicDescriber, schemaRegistries);
+
+        // Dynamic config from the config topic (blocks until caught up)
+        dynamicState.start(requestPipeline.pipeline());
+        warnWhenRbacHasNoAcls(dynamicState);
 
         // Broker connections (metadata client) - the same static bootstrap that hosts the
         //    config topic. The dynamic snapshot's `clusters` map is carried in the message but
@@ -228,7 +232,7 @@ public final class KafkaGateway implements Gateway {
         log.info("decoding Avro record values with the schema registry at {}", registry.url());
         AvroSchemaResolver avroSchemas = new CachingAvroSchemaResolver(
                 new SchemaRegistryAvroSchemaResolver(registry.url(), registry.basicAuth(), schemaRegistryClient));
-        return physicalTopic -> avroSchemas;
+        return _ -> avroSchemas;
     }
 
     private RequestPipeline buildPipeline(
@@ -238,9 +242,6 @@ public final class KafkaGateway implements Gateway {
             SchemaRegistries schemaRegistries
     ) {
         var fetchSessions = new FetchSessionRegistry();
-        if (state.modules().isEnabled(ModuleId.RBAC) && !state.authorizer().hasAnyAcls()) {
-            log.warn("RBAC has no roles or groups configured - every request will be denied");
-        }
         var governance = state.governance();
         var pipeline = InterceptorPipeline.builder()
                 .module(ModuleId.RBAC, new AuthorizationInterceptor(state.authorizer(), state.virtualTopics()))
@@ -248,16 +249,14 @@ public final class KafkaGateway implements Gateway {
                 .module(ModuleId.VIRTUAL_TOPICS, new VirtualTopicInterceptor(state.virtualTopics(), fetchSessions, schemaRegistries))
                 .always(new BrokerEndpointInterceptor(advertised))
                 .build();
-        state.modules().subscribe(pipeline::enable);
-        state.modules().subscribe(KafkaGateway::warnWhenRbacIsDisabled);
         return new RequestPipeline(pipeline, fetchSessions);
     }
 
-    /// RBAC is fail-open: switched off, every Kafka request is admitted without access control.
-    private static void warnWhenRbacIsDisabled(Set<ModuleId> enabled) {
-        if (!enabled.contains(ModuleId.RBAC)) {
-            log.warn("RBAC disabled - no authorization is enforced on the Kafka path; "
-                    + "requests are admitted without access control");
+    /// RBAC is default-deny: switched on without roles or groups, every Kafka request is denied.
+    private static void warnWhenRbacHasNoAcls(DynamicGatewayState state) {
+        var modules = state.configManager().getActiveConfigOrEmpty().modules();
+        if (ModuleConfig.stateOf(ModuleId.RBAC, modules).enabled() && !state.authorizer().hasAnyAcls()) {
+            log.warn("RBAC has no roles or groups configured - every request will be denied");
         }
     }
 

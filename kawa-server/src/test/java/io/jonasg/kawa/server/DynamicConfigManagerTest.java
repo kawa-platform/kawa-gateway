@@ -18,8 +18,11 @@ import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
 import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.ModuleId;
-import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.config.VirtualTopicConfig;
+import io.jonasg.kawa.core.GatewayContext;
+import io.jonasg.kawa.core.Interceptor;
+import io.jonasg.kawa.core.InterceptorPipeline;
+import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.governance.TopicSpec;
@@ -138,30 +141,33 @@ class DynamicConfigManagerTest {
     }
 
     @Test
-    void appliesTheModulesSectionToTheRegistry() {
+    void appliesTheModulesSectionToThePipeline() {
         // given
-        var modules = new ModuleRegistry();
+        var ran = new ArrayList<String>();
+        var pipeline = rbacPipeline(ran);
         var manager = new DynamicConfigManager(new FakeConfigTopicWriter(), new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())), new SaslAuthenticator(), emptyGovernance(),
-                modules, Duration.ofSeconds(1));
+                pipeline, Duration.ofSeconds(1));
         var config = config(Map.of(), null, null, null).upsertModule(new ModuleConfig(ModuleId.RBAC, false));
 
         // when
         manager.apply(config);
+        pipeline.onRequest(new GatewayContext("source", 0L), null);
 
         // then
-        assertThat(modules.isEnabled(ModuleId.RBAC))
-                .withFailMessage(() -> "Module 'rbac' is still enabled after a snapshot switched it off")
-                .isFalse();
+        assertThat(ran)
+                .withFailMessage(() -> "Module 'rbac' still ran after a snapshot switched it off")
+                .isEmpty();
     }
 
     @Test
     void rejectedSnapshotLeavesTheModulesUntouched() {
         // given
-        var modules = new ModuleRegistry();
+        var ran = new ArrayList<String>();
+        var pipeline = rbacPipeline(ran);
         var manager = new DynamicConfigManager(new FakeConfigTopicWriter(), new VirtualTopicManager(Map.of()),
                 new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())), new SaslAuthenticator(), emptyGovernance(),
-                modules, Duration.ofSeconds(1));
+                pipeline, Duration.ofSeconds(1));
         var broken = config(Map.of(),
                 new RbacConfig(Map.of(), Map.of("team", new GroupConfig(List.of("alice"), List.of("missing-role")))),
                 null, null)
@@ -169,9 +175,22 @@ class DynamicConfigManagerTest {
 
         // when / then
         assertThatThrownBy(() -> manager.apply(broken)).isInstanceOf(IllegalArgumentException.class);
-        assertThat(modules.isEnabled(ModuleId.RBAC))
+        pipeline.onRequest(new GatewayContext("source", 0L), null);
+        assertThat(ran)
                 .withFailMessage(() -> "A rejected snapshot switched module 'rbac' off")
-                .isTrue();
+                .containsExactly("rbac");
+    }
+
+    /// A pipeline with one interceptor in the `rbac` module that records into `ran` when it runs.
+    private static InterceptorPipeline rbacPipeline(List<String> ran) {
+        return InterceptorPipeline.builder()
+                .module(ModuleId.RBAC, new Interceptor() {
+                    @Override
+                    public void onRequest(GatewayContext context, Request request) {
+                        ran.add("rbac");
+                    }
+                })
+                .build();
     }
 
     @Test

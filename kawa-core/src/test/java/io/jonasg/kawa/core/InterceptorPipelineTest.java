@@ -1,11 +1,12 @@
 package io.jonasg.kawa.core;
 
+import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.ModuleId;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -139,7 +140,7 @@ class InterceptorPipelineTest {
     }
 
     @Test
-    void runsEveryInterceptorUntilToldWhichModulesAreEnabled() {
+    void runsTheInterceptorsOfTheModulesEnabledByDefault() {
         // given
         var pipeline = InterceptorPipeline.builder()
                 .always(new RecordingInterceptor("always"))
@@ -166,7 +167,7 @@ class InterceptorPipelineTest {
         var ctx = new GatewayContext("source", 0L);
 
         // when
-        pipeline.enable(Set.of(ModuleId.RBAC, ModuleId.GOVERNANCE));
+        pipeline.reload(switchedOff(ModuleId.VIRTUAL_TOPICS));
         pipeline.onRequest(ctx, null);
         pipeline.onResponse(ctx, null);
 
@@ -184,10 +185,10 @@ class InterceptorPipelineTest {
                 .module(ModuleId.VIRTUAL_TOPICS, new RecordingInterceptor("virtual-topics"))
                 .always(new RecordingInterceptor("last"))
                 .build();
-        pipeline.enable(Set.of());
+        pipeline.reload(switchedOff(ModuleId.VIRTUAL_TOPICS));
 
         // when
-        pipeline.enable(Set.of(ModuleId.VIRTUAL_TOPICS));
+        pipeline.reload(Map.of());
         pipeline.onRequest(new GatewayContext("source", 0L), null);
 
         // then
@@ -202,7 +203,7 @@ class InterceptorPipelineTest {
         var pipeline = InterceptorPipeline.builder()
                 .module(ModuleId.GOVERNANCE, lookup(new CompletableFuture<>()))
                 .build();
-        pipeline.enable(Set.of());
+        pipeline.reload(switchedOff(ModuleId.GOVERNANCE));
 
         // when
         var prepared = pipeline.prepare(new GatewayContext("source", 0L), null);
@@ -211,6 +212,10 @@ class InterceptorPipelineTest {
         assertThat(prepared)
                 .withFailMessage(() -> "Disabled module 'governance' started a lookup the request waits on")
                 .isNull();
+    }
+
+    private static Map<String, ModuleConfig> switchedOff(ModuleId module) {
+        return Map.of(module.id(), new ModuleConfig(module, false));
     }
 
     private static Interceptor lookup(CompletionStage<?> stage) {
