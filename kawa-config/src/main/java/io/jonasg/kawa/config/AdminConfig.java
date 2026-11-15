@@ -15,7 +15,8 @@ import java.net.URISyntaxException;
 /// @param auth      admin API authentication (defaults to none)
 /// @param publicUrl the absolute URL clients reach the admin API at, e.g. `https://kawa.example.com`
 ///                  when kawa sits behind a proxy; `null` when not set, see [#resolvedPublicUrl()].
-///                  A trailing `/` is dropped
+///                  Only scheme, host and port: OAuth discovery clients look for `/.well-known/...` right
+///                  after the host, so kawa must be served at the root. A trailing `/` is dropped
 public record AdminConfig(
         boolean enabled,
         String host,
@@ -83,12 +84,15 @@ public record AdminConfig(
         try {
             URI uri = new URI(url);
             if (uri.isAbsolute() && uri.getHost() != null
-                    && ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
+                    && ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    && uri.getRawPath().isEmpty() && uri.getRawQuery() == null && uri.getRawFragment() == null
+                    && uri.getRawUserInfo() == null) {
                 return url;
             }
         } catch (URISyntaxException e) {
             // reported below
         }
-        throw new IllegalArgumentException("admin.publicUrl must be an absolute http(s) URL: " + value);
+        throw new IllegalArgumentException("admin.publicUrl must be an absolute http(s) URL without path, query, fragment or user info, "
+                + "e.g. https://kawa.example.com: " + value);
     }
 }
