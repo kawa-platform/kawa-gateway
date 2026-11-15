@@ -121,7 +121,7 @@ new names. That is why `VirtualTopicConfigView` still exposes `VirtualTopicFilte
   proves and pin the internal split between handler, mapper and service.
 - Every handler gets its own slice test, named after the handler with `Handler` replaced by `SliceTest`:
   `PutGovernanceRuleHandler` → `PutGovernanceRuleSliceTest`,
-  `GetGovernanceRulesHandler` → `GetGovernanceRulesSliceTest`. A slice test covers exactly one HTTP method on one
+  `GetGovernanceRulesHandler` → `GetGovernanceManifestSliceTest`. A slice test covers exactly one HTTP method on one
   route; it may call other endpoints only to set up state or to read back the result.
 - Add a mapper or service unit test only when a case cannot reasonably be reached or set up over HTTP, and say why
   in the test.

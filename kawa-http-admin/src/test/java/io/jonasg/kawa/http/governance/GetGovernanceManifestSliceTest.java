@@ -7,7 +7,7 @@ import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 
 /// Slice tests for [GetGovernanceRulesHandler]: real HTTP requests through a booted [AdminHttpServer][io.jonasg.kawa.http.AdminHttpServer],
 /// asserting the JSON wire format the admin UI consumes.
-class GetGovernanceRulesSliceTest extends AdminHttpSliceTestBase {
+class GetGovernanceManifestSliceTest extends AdminHttpSliceTestBase {
 
     @Test
     void returnsRuleWithItsExemptions() throws Exception {

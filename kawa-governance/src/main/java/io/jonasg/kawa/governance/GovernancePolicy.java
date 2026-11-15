@@ -99,10 +99,10 @@ public final class GovernancePolicy {
     /// Environments without variables, for validating a lone expression.
     private static final Environments NO_VARIABLES = environments(List.of());
 
-    /// Bound on [Snapshot#decisions]; the cache is cleared when it fills up.
+    /// Bound on [GovernanceManifest#decisions]; the cache is cleared when it fills up.
     private static final int MAX_CACHED_DECISIONS = 10_000;
 
-    private volatile Snapshot snapshot;
+    private volatile GovernanceManifest governanceManifest;
 
     public GovernancePolicy(GovernanceConfig config) {
         reload(config);
@@ -115,7 +115,7 @@ public final class GovernancePolicy {
     /// partially-applied one. Throws [IllegalArgumentException] if any rule expression fails
     /// to compile; the previous snapshot is left untouched in that case.
     public void reload(GovernanceConfig config) {
-        this.snapshot = compile(config);
+        this.governanceManifest = compile(config);
     }
 
     /// Evaluates all rules against a physical topic creation request. Returns every violation,
@@ -139,19 +139,19 @@ public final class GovernancePolicy {
     /// Group and transactional-id verdicts are cached per request until the next [#reload]; a
     /// rule that fails to evaluate is not cached, so it is retried.
     public List<Violation> evaluate(GovernanceRequest request) {
-        Snapshot current = snapshot;
+        GovernanceManifest manifest = governanceManifest;
         if (request.resourceType() == ResourceType.TOPIC) {
-            return violations(dryRun(current, request));
+            return violations(dryRun(manifest, request));
         }
-        List<Violation> cached = current.decisions().get(request);
+        List<Violation> cached = manifest.decisions().get(request);
         if (cached != null) {
             return cached;
         }
-        List<Violation> violations = violations(dryRun(current, request));
-        if (current.decisions().size() >= MAX_CACHED_DECISIONS) {
-            current.decisions().clear();
+        List<Violation> violations = violations(dryRun(manifest, request));
+        if (manifest.decisions().size() >= MAX_CACHED_DECISIONS) {
+            manifest.decisions().clear();
         }
-        current.decisions().put(request, violations);
+        manifest.decisions().put(request, violations);
         return violations;
     }
 
@@ -173,10 +173,10 @@ public final class GovernancePolicy {
     /// Evaluates every stored rule for the request's resource type and topic kind, without
     /// side effects, and reports each rule, sub-rule and check.
     public GovernanceTrace dryRun(GovernanceRequest request) {
-        return dryRun(snapshot, request);
+        return dryRun(governanceManifest, request);
     }
 
-    private static GovernanceTrace dryRun(Snapshot current, GovernanceRequest request) {
+    private static GovernanceTrace dryRun(GovernanceManifest current, GovernanceRequest request) {
         Map<String, Object> bindings = bindings(current, request);
         for (CompiledExemption exemption : current.exemptions()) {
             if (holds(exemption.program(), bindings)) {
@@ -199,7 +199,7 @@ public final class GovernancePolicy {
     ///
     /// @throws IllegalArgumentException if the rule does not compile
     public GovernanceTrace dryRun(GovernanceRequest request, GovernanceRuleConfig rule) {
-        Snapshot current = snapshot;
+        GovernanceManifest current = governanceManifest;
         CompiledRule compiled = compileRule(current.environments(), rule.name(), rule);
         List<GovernanceTrace.RuleTrace> rules = applies(compiled, request)
                 ? List.of(trace(compiled, bindings(current, request)))
@@ -210,9 +210,9 @@ public final class GovernancePolicy {
     /// Whether any stored rule runs on physical topics for `operation`; when none does, the
     /// gateway skips reading a topic's current state for a change.
     public boolean hasPhysicalTopicRules(Operation operation) {
-        return snapshot.rules().stream().anyMatch(rule -> rule.resourceType() == ResourceType.TOPIC
-                && rule.scope() != TopicScope.VIRTUAL
-                && rule.operations().contains(operation));
+        return governanceManifest.rules().stream().anyMatch(rule -> rule.resourceType() == ResourceType.TOPIC
+                                                                    && rule.scope() != TopicScope.VIRTUAL
+                                                                    && rule.operations().contains(operation));
     }
 
     /// Operations and scope only narrow topic rules: groups and transactional ids are judged
@@ -231,7 +231,7 @@ public final class GovernancePolicy {
                 || rule.scope() == (request.virtual() ? TopicScope.VIRTUAL : TopicScope.PHYSICAL);
     }
 
-    private static Map<String, Object> bindings(Snapshot current, GovernanceRequest request) {
+    private static Map<String, Object> bindings(GovernanceManifest current, GovernanceRequest request) {
         Map<String, Object> bindings = new HashMap<>(current.variables());
         bindings.put("principal", request.principal());
         bindings.put("service", request.service());
@@ -487,7 +487,7 @@ public final class GovernancePolicy {
         }
     }
 
-    private static Snapshot compile(GovernanceConfig config) {
+    private static GovernanceManifest compile(GovernanceConfig config) {
         Environments environments = environments(config.variables().values());
         Map<String, Object> variables = new HashMap<>();
         for (GovernanceVariableConfig variable : config.variables().values()) {
@@ -507,7 +507,7 @@ public final class GovernancePolicy {
         for (Map.Entry<String, GovernanceRuleConfig> entry : config.rules().entrySet()) {
             rules.add(compileRule(environments, entry.getKey(), entry.getValue()));
         }
-        return new Snapshot(List.copyOf(rules), List.copyOf(globalExemptions), Map.copyOf(variables), environments);
+        return new GovernanceManifest(List.copyOf(rules), List.copyOf(globalExemptions), Map.copyOf(variables), environments);
     }
 
     /// Compiles the rule's selector, exemptions and every check on its own, so a trace can
@@ -636,7 +636,7 @@ public final class GovernancePolicy {
     /// @param decisions    group and transactional-id verdicts, which clients ask for on every
     ///                     heartbeat and commit; it lives and dies with the snapshot, so a reload
     ///                     starts empty
-    private record Snapshot(
+    private record GovernanceManifest(
             List<CompiledRule> rules,
             List<CompiledExemption> exemptions,
             Map<String, Object> variables,
@@ -644,7 +644,7 @@ public final class GovernancePolicy {
             Map<GovernanceRequest, List<Violation>> decisions
     ) {
 
-        Snapshot(List<CompiledRule> rules, List<CompiledExemption> exemptions, Map<String, Object> variables, Environments environments) {
+        GovernanceManifest(List<CompiledRule> rules, List<CompiledExemption> exemptions, Map<String, Object> variables, Environments environments) {
             this(rules, exemptions, variables, environments, new ConcurrentHashMap<>());
         }
     }
