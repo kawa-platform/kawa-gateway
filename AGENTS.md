@@ -111,7 +111,7 @@ depend on production modules such as `kawa-config` or `kawa-broker` (for `FakeTo
   (`io.jonasg.kawa.http.oauthclients`, which reserves the studio id) and read via
   `AuthenticationProviderContext.oauthClients()` on every request. Their redirect URIs match exactly, except that an
   `http` loopback URI may give `*` as its whole port (`http://localhost:*/callback`). Audience `admin` gets
-  `aud = <issuer>` (the whole admin API), `mcp` gets `aud = <publicUrl>/mcp` (only `POST /mcp`). Tokens carry
+  `aud = <publicUrl>` (the whole admin API, also the token issuer), `mcp` gets `aud = <publicUrl>/mcp` (only `POST /mcp`). Tokens carry
   `client_id`, surfaced as `KawaPrincipal.clientId`; disabling or deleting a client, or changing its audience, revokes
   its tokens on the next request. `POST /oauth/login` takes either username + password or, for "continue as" in studio,
   just the `login_challenge` with `Authorization: Bearer <admin access token>` (`LoginEndpoint` verifies it with the admin

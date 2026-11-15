@@ -77,8 +77,7 @@ class OAuthAuthenticationProviderFactoryTest {
     @Test
     void publishesTheMcpEndpointAsProtectedResource() {
         // given
-        var context = new FakeProviderContext(defaults(Map.of("issuer", "https://auth.example.com")), Map.of("admin", "s3cret"),
-                "https://kawa.example.com");
+        var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"), "https://kawa.example.com");
         factory.create(context);
 
         // when
@@ -91,17 +90,16 @@ class OAuthAuthenticationProviderFactoryTest {
                 .isEqualTo("""
                         {
                           "resource": "https://kawa.example.com/mcp",
-                          "authorization_servers": ["https://auth.example.com"],
+                          "authorization_servers": ["https://kawa.example.com"],
                           "bearer_methods_supported": ["header"]
                         }
                         """);
     }
 
     @Test
-    void namesTheAuthorizationServerByItsIssuer() {
+    void namesThePublicUrlAsAuthorizationServer() {
         // given
-        var context = new FakeProviderContext(defaults(Map.of("issuer", "https://auth.example.com")), Map.of("admin", "s3cret"),
-                "https://kawa.example.com");
+        var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"), "https://kawa.example.com");
         factory.create(context);
 
         // when
@@ -109,10 +107,10 @@ class OAuthAuthenticationProviderFactoryTest {
 
         // then
         assertThatJson(body(response))
-                .withFailMessage(() -> "the protected resource metadata does not name the configured issuer: " + body(response))
+                .withFailMessage(() -> "the protected resource metadata does not name the public URL as authorization server: " + body(response))
                 .isObject()
                 .containsEntry("resource", "https://kawa.example.com")
-                .containsEntry("authorization_servers", List.of("https://auth.example.com"));
+                .containsEntry("authorization_servers", List.of("https://kawa.example.com"));
     }
 
     @ParameterizedTest
@@ -145,7 +143,7 @@ class OAuthAuthenticationProviderFactoryTest {
     }
 
     @Test
-    void issuesTokensForThePublicUrlByDefault() {
+    void issuesTokensForThePublicUrl() {
         // given
         var context = new FakeProviderContext(defaults(Map.of()), Map.of("admin", "s3cret"), "https://kawa.example.com");
         factory.create(context);
@@ -162,27 +160,6 @@ class OAuthAuthenticationProviderFactoryTest {
         assertThatJson(claims)
                 .withFailMessage(() -> "the access token was not issued for the public URL: " + claims)
                 .isObject().containsEntry("iss", "https://kawa.example.com").containsEntry("aud", "https://kawa.example.com");
-    }
-
-    @Test
-    void theIssuerSettingOverridesThePublicUrl() {
-        // given
-        var context = new FakeProviderContext(defaults(Map.of("issuer", "kawa-prod")), Map.of("admin", "s3cret"),
-                "https://kawa.example.com");
-        factory.create(context);
-
-        // when
-        HttpResponse metadata = metadata(context);
-        HttpResponse tokens = new AuthorizationCodeFlow(context).signIn("admin", "s3cret");
-
-        // then
-        assertThatJson(body(metadata))
-                .withFailMessage(() -> "the authorization server metadata does not publish the configured issuer: " + body(metadata))
-                .isObject().containsEntry("issuer", "kawa-prod");
-        String claims = payload(jsonField(tokens, "access_token"));
-        assertThatJson(claims)
-                .withFailMessage(() -> "the access token was not issued for the configured issuer: " + claims)
-                .isObject().containsEntry("iss", "kawa-prod");
     }
 
     @Test
@@ -372,10 +349,10 @@ class OAuthAuthenticationProviderFactoryTest {
     void loginContinuingRefusesAnExpiredToken() {
         // given: an access token issued 3 hours ago with a 15 minute lifetime, same signing key
         var threeHoursAgo = Clock.fixed(Instant.now().minus(Duration.ofHours(3)), ZoneOffset.UTC);
-        String expired = new TokenIssuer(SigningKeys.from(TestSigningKeys.SEC1_P256), "kawa",
+        String expired = new TokenIssuer(SigningKeys.from(TestSigningKeys.SEC1_P256), "http://localhost:8080",
                 Duration.ofMinutes(15), Duration.ofHours(8), threeHoursAgo)
-                .newSession("admin", "admin", "kawa-studio", "kawa").getAccessToken().getValue();
-        var context = context(Map.of("signingKey", TestSigningKeys.SEC1_P256, "issuer", "kawa"));
+                .newSession("admin", "admin", "kawa-studio", "http://localhost:8080").getAccessToken().getValue();
+        var context = context(Map.of("signingKey", TestSigningKeys.SEC1_P256));
         factory.create(context);
         var flow = new AuthorizationCodeFlow(context);
         String challenge = AuthorizationCodeFlow.challenge(flow.authorize(flow.defaultAuthorization()));

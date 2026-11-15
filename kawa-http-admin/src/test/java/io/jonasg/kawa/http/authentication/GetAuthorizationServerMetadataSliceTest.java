@@ -13,7 +13,6 @@ class GetAuthorizationServerMetadataSliceTest extends AdminHttpSliceTestBase {
     void describesTheBuiltInAuthorizationServer() throws Exception {
         // given
         enableOAuth();
-        publicUrl = "https://kawa.example.com";
         startServer();
 
         // when: the request reaches kawa on 127.0.0.1, not on its public URL
@@ -24,7 +23,7 @@ class GetAuthorizationServerMetadataSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body())
                 .withFailMessage(() -> "the endpoint URLs were not built from admin.publicUrl: " + response.body())
                 .isObject()
-                .containsEntry("issuer", "kawa-test")
+                .containsEntry("issuer", PUBLIC_URL)
                 .containsEntry("authorization_endpoint", "https://kawa.example.com/oauth/authorize")
                 .containsEntry("token_endpoint", "https://kawa.example.com/oauth/token")
                 .containsEntry("jwks_uri", "https://kawa.example.com/.well-known/jwks.json");

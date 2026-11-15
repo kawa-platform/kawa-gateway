@@ -13,7 +13,6 @@ class GetProtectedResourceMetadataSliceTest extends AdminHttpSliceTestBase {
     void describesTheAdminApiAsProtectedResourceWithoutAToken() throws Exception {
         // given
         enableOAuth();
-        publicUrl = "https://kawa.example.com";
         startServer();
 
         // when
@@ -26,7 +25,7 @@ class GetProtectedResourceMetadataSliceTest extends AdminHttpSliceTestBase {
                 .isEqualTo("""
                         {
                           "resource": "https://kawa.example.com",
-                          "authorization_servers": ["kawa-test"],
+                          "authorization_servers": ["https://kawa.example.com"],
                           "bearer_methods_supported": ["header"]
                         }
                         """);
@@ -36,7 +35,6 @@ class GetProtectedResourceMetadataSliceTest extends AdminHttpSliceTestBase {
     void describesTheMcpEndpointAsProtectedResourceWithoutAToken() throws Exception {
         // given
         enableOAuth();
-        publicUrl = "https://kawa.example.com";
         startServer();
 
         // when
@@ -49,7 +47,7 @@ class GetProtectedResourceMetadataSliceTest extends AdminHttpSliceTestBase {
                 .isEqualTo("""
                         {
                           "resource": "https://kawa.example.com/mcp",
-                          "authorization_servers": ["kawa-test"],
+                          "authorization_servers": ["https://kawa.example.com"],
                           "bearer_methods_supported": ["header"]
                         }
                         """);

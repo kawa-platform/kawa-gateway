@@ -65,8 +65,10 @@ public abstract class AdminHttpSliceTestBase {
     };
     protected CorsConfig cors;
     protected AdminAuthConfig auth = AdminAuthConfig.none();
-    /// `admin.publicUrl`; `null` derives it from the bind address.
-    protected @Nullable String publicUrl;
+    /// The default `admin.publicUrl`, and so the `oauth` provider's token issuer.
+    protected static final String PUBLIC_URL = "https://kawa.example.com";
+    /// `admin.publicUrl`; `null` derives it from the bind address (with the ephemeral port `0`).
+    protected @Nullable String publicUrl = PUBLIC_URL;
     protected AuthenticationProviderRegistry authenticationProviders = registryOf(new BuiltInAuthenticationPlugin());
     /// The environment the server sees, e.g. `KAWA_ADMIN_RESET`.
     protected Map<String, String> env = Map.of();
@@ -147,7 +149,7 @@ public abstract class AdminHttpSliceTestBase {
 
     private void enableOAuth(AdminAuthConfig.@Nullable BootstrapUser bootstrapUser, Map<String, String> extraSettings) {
         var settings = new HashMap<String, Object>(Map.of(
-                "issuer", "kawa-test", "signingKey", TestSigningKeys.SEC1_P256,
+                "signingKey", TestSigningKeys.SEC1_P256,
                 "loginUrl", LOGIN_URL, "redirectUris", REDIRECT_URI));
         settings.putAll(extraSettings);
         auth = new AdminAuthConfig("oauth", bootstrapUser, settings);
@@ -234,7 +236,7 @@ public abstract class AdminHttpSliceTestBase {
     /// An oauth admin auth config with the operator client enabled (secret `operator-secret`).
     protected static AdminAuthConfig operatorAuth() {
         return new AdminAuthConfig("oauth", new AdminAuthConfig.BootstrapUser("admin@kawa", "s3cret"), Map.of(
-                "issuer", "kawa-test", "signingKey", TestSigningKeys.SEC1_P256,
+                "signingKey", TestSigningKeys.SEC1_P256,
                 "loginUrl", LOGIN_URL, "redirectUris", REDIRECT_URI,
                 "operatorSecret", "operator-secret"));
     }

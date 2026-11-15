@@ -17,9 +17,6 @@ import java.util.stream.Collectors;
 ///
 /// Settings (`admin.auth.settings`):
 ///
-/// - `issuer`: the `iss` claim of issued tokens and the `aud` claim of tokens for the whole admin API,
-///   also published as the authorization server's issuer (defaults to the admin API's public URL,
-///   `admin.publicUrl`)
 /// - `tokenTtl`: access token lifetime as an ISO-8601 duration (defaults to `PT15M`)
 /// - `sessionTtl`: how long a login lasts before the refresh token stops working; refreshing does not
 ///   extend it (defaults to `PT8H`)
@@ -48,6 +45,10 @@ import java.util.stream.Collectors;
 /// on `POST /mcp`. Disabling or deleting a client, or changing its audience, revokes its tokens.
 ///
 /// Users log in with the authorization code flow with PKCE (no password grant, per OAuth 2.1).
+///
+/// The issuer is the admin API's public URL: the `iss` claim of every token, the `aud` claim of tokens for the
+/// whole admin API, and the authorization server's name in the discovery metadata, which RFC 8414 requires to be
+/// the URL that metadata is served under.
 ///
 /// Requires a public URL (`admin.publicUrl`, or the bind address it defaults to) that clients can reach:
 /// a wildcard bind address such as `0.0.0.0` is refused, as tokens and metadata would name it.
@@ -95,7 +96,7 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
         }
         requireReachable(context.publicUrl());
         var settings = context.settings();
-        String issuer = settings.string("issuer").orElseGet(context::publicUrl);
+        String issuer = context.publicUrl();
         Duration tokenTtl = positive("tokenTtl", settings.duration("tokenTtl").orElse(DEFAULT_TOKEN_TTL));
         Duration sessionTtl = positive("sessionTtl", settings.duration("sessionTtl").orElse(DEFAULT_SESSION_TTL));
         String loginUrl = absoluteUri("loginUrl", settings.requireString("loginUrl")).toString();
