@@ -1,7 +1,7 @@
 package io.jonasg.kawa.mcp;
 
 import io.jonasg.kawa.config.ModuleId;
-import io.jonasg.kawa.core.module.ModuleRegistry;
+import io.jonasg.kawa.http.modules.ModuleService;
 import io.jonasg.kawa.http.web.Router;
 import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.json.McpJsonMapper;
@@ -39,13 +39,13 @@ final class McpEndpoint implements Router.Handler, McpStatelessServerTransport {
     private static final String JSON = "application/json";
     private static final String EVENT_STREAM = "text/event-stream";
 
-    private final ModuleRegistry modules;
+    private final ModuleService modules;
     private final McpJsonMapper mapper;
     private final ServerTransportSecurityValidator securityValidator;
     private @Nullable McpStatelessServerHandler mcpHandler;
     private volatile boolean closing;
 
-    McpEndpoint(ModuleRegistry modules, McpJsonMapper mapper, ServerTransportSecurityValidator securityValidator) {
+    McpEndpoint(ModuleService modules, McpJsonMapper mapper, ServerTransportSecurityValidator securityValidator) {
         this.modules = modules;
         this.mapper = mapper;
         this.securityValidator = securityValidator;
@@ -64,7 +64,7 @@ final class McpEndpoint implements Router.Handler, McpStatelessServerTransport {
     @Override
     @SuppressWarnings("ConstantConditions")
     public Router.Response<?> handle(Router.Request request) {
-        if (!modules.isEnabled(ModuleId.MCP)) {
+        if (!modules.getModule(ModuleId.MCP).enabled()) {
             return Router.Response.notFound("not found");
         }
         if (closing) {

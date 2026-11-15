@@ -29,7 +29,7 @@ public final class AdminSurface implements AutoCloseable {
                 DynamicConfigManager.DEFAULT_APPLY_WAIT_TIMEOUT, state.configManager(),
                 state.governance(), topicAdmin, config.auth().bootstrapUser(), System::getenv);
         server = new AdminHttpServer(config, services, authenticationProviders);
-        mcp = new KawaMcpServer(server.router(), services, state.modules(), config.cors());
+        mcp = new KawaMcpServer(server.router(), services, config.cors());
     }
 
     public void start() throws InterruptedException {
