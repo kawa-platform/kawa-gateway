@@ -32,7 +32,6 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
     void rejectsRequestWithoutToken() throws Exception {
         // given
         enableOAuth();
-        publicUrl = "https://kawa.example.com";
         startServer();
 
         // when
@@ -49,7 +48,6 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
     void pointsAnUnauthenticatedMcpRequestAtTheMcpMetadata() throws Exception {
         // given: a stand-in for kawa-mcp's endpoint at POST /mcp
         enableOAuth();
-        publicUrl = "https://kawa.example.com";
         startServer();
         server().router().post("/mcp", _ -> Router.Response.ok(null));
 
@@ -95,8 +93,8 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         // given
         enableOAuth();
         startServer();
-        var foreign = new TokenIssuer(SigningKeys.generate(), "kawa-test", Duration.ofMinutes(15), Duration.ofHours(8), Clock.systemUTC());
-        String token = foreign.newSession("admin@kawa", "admin", "kawa-studio", "kawa-test").getAccessToken().getValue();
+        var foreign = new TokenIssuer(SigningKeys.generate(), PUBLIC_URL, Duration.ofMinutes(15), Duration.ofHours(8), Clock.systemUTC());
+        String token = foreign.newSession("admin@kawa", "admin", "kawa-studio", PUBLIC_URL).getAccessToken().getValue();
 
         // when
         var response = send("GET", "/topics", null, bearer(token));
@@ -112,7 +110,7 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         startServer();
         var otherIssuer = new TokenIssuer(SigningKeys.from(TestSigningKeys.SEC1_P256), "someone-else",
                 Duration.ofMinutes(15), Duration.ofHours(8), Clock.systemUTC());
-        String token = otherIssuer.newSession("admin@kawa", "admin", "kawa-studio", "kawa-test").getAccessToken().getValue();
+        String token = otherIssuer.newSession("admin@kawa", "admin", "kawa-studio", PUBLIC_URL).getAccessToken().getValue();
 
         // when
         var response = send("GET", "/topics", null, bearer(token));
@@ -127,9 +125,9 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         enableOAuth();
         startServer();
         var anHourAgo = Clock.fixed(Instant.now().minus(Duration.ofHours(1)), ZoneOffset.UTC);
-        var expired = new TokenIssuer(SigningKeys.from(TestSigningKeys.SEC1_P256), "kawa-test",
+        var expired = new TokenIssuer(SigningKeys.from(TestSigningKeys.SEC1_P256), PUBLIC_URL,
                 Duration.ofMinutes(15), Duration.ofHours(8), anHourAgo);
-        String token = expired.newSession("admin@kawa", "admin", "kawa-studio", "kawa-test").getAccessToken().getValue();
+        String token = expired.newSession("admin@kawa", "admin", "kawa-studio", PUBLIC_URL).getAccessToken().getValue();
 
         // when
         var response = send("GET", "/topics", null, bearer(token));
