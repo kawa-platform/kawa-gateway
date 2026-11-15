@@ -263,4 +263,31 @@ class ConfigLoaderTest {
                 .withFailMessage(() -> "a relative admin.publicUrl was accepted")
                 .hasStackTraceContaining("admin.publicUrl must be an absolute http(s) URL");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://kawa.example.com/kawa", "https://kawa.example.com/kawa/", "https://kawa.example.com?x=1",
+            "https://kawa.example.com#admin", "https://user@kawa.example.com"})
+    void rejectsAnAdminPublicUrlThatIsNotAnOrigin(String publicUrl) {
+        // when / then: OAuth discovery puts /.well-known/... right after the host, so kawa must be served at the root
+        assertThatThrownBy(() -> loader.loadFromYaml("""
+                admin:
+                  publicUrl: %s
+                """.formatted(publicUrl)))
+                .withFailMessage(() -> "admin.publicUrl " + publicUrl + " was accepted although it is not just scheme, host and port")
+                .hasStackTraceContaining("admin.publicUrl must be an absolute http(s) URL without path, query, fragment or user info");
+    }
+
+    @Test
+    void acceptsAnAdminPublicUrlWithAPort() {
+        // when
+        BootstrapConfig config = loader.loadFromYaml("""
+                admin:
+                  publicUrl: http://localhost:8080/
+                """);
+
+        // then
+        assertThat(config.admin().publicUrl())
+                .withFailMessage(() -> "an origin with a port was not accepted as admin.publicUrl: " + config.admin().publicUrl())
+                .isEqualTo("http://localhost:8080");
+    }
 }
