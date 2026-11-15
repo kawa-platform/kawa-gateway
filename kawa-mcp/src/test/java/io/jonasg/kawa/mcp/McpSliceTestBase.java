@@ -3,14 +3,14 @@ package io.jonasg.kawa.mcp;
 import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.DynamicConfig;
-import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.GovernanceConfig;
+import io.jonasg.kawa.config.ModuleConfig;
+import io.jonasg.kawa.config.ModuleId;
 import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.core.cluster.MetadataSnapshot;
 import io.jonasg.kawa.core.cluster.PartitionMetadata;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
-import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.http.AdminHttpServer;
 import io.jonasg.kawa.http.AdminServices;
@@ -34,7 +34,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.UnaryOperator;
 
 /// Shared setup for the MCP slice tests: boots a real [AdminHttpServer] with the [KawaMcpServer] on an
 /// ephemeral port, wired to in-memory state, and sends real JSON-RPC requests to `POST /mcp` through
@@ -44,8 +43,8 @@ public abstract class McpSliceTestBase {
 
     protected VirtualTopicManager virtualTopics = new VirtualTopicManager(Map.of());
     protected MetadataCache cache = new MetadataCache();
-    /// The gateway's modules, reloaded from the config on every write as the config consumer would.
-    protected ModuleRegistry modules = new ModuleRegistry();
+    /// The stored config the server starts with: the `mcp` module switched on, as it is off by default.
+    protected DynamicConfig config = DynamicConfig.empty().upsertModule(new ModuleConfig(ModuleId.MCP, true));
     /// Replaces the real topic service when set, e.g. with a mock that fails.
     protected @Nullable TopicService topicService;
     /// The broker the topic service talks to: topics in here exist on the broker, as `states`.
@@ -71,17 +70,34 @@ public abstract class McpSliceTestBase {
 
     /// Boots the server with the current state. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
-        var real = AdminServices.create(virtualTopics, cache, () -> CompletableFuture.completedFuture(null),
-                Duration.ofSeconds(5), new InMemoryConfigRepository(modules),
-                new GovernancePolicy(new GovernanceConfig(null)), topicAdmin, null, _ -> null);
-        services = topicService == null ? real : new AdminServices(topicService, real.roles(), real.groups(),
-                real.clients(), real.governanceRules(), real.adminUsers(), real.adminUserAuthenticator(), real.modules(),
-                real.oauthClients(), real.oauthClientDirectory());
+        var adminServices = AdminServices.create(
+                virtualTopics,
+                cache,
+                () -> CompletableFuture.completedFuture(null),
+                Duration.ofSeconds(5),
+                new InMemoryConfigRepository(config),
+                new GovernancePolicy(new GovernanceConfig(null)),
+                topicAdmin,
+                null,
+                _ -> null
+        );
+        services = topicService == null ? adminServices : new AdminServices(
+                topicService,
+                adminServices.roles(),
+                adminServices.groups(),
+                adminServices.clients(),
+                adminServices.governanceRules(),
+                adminServices.adminUsers(),
+                adminServices.adminUserAuthenticator(),
+                adminServices.modules(),
+                adminServices.oauthClients(),
+                adminServices.oauthClientDirectory()
+        );
         var authenticationProviders = new AuthenticationProviderRegistry();
         new BuiltInAuthenticationPlugin().register(authenticationProviders::register);
         server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none()), services,
                 authenticationProviders);
-        mcp = new KawaMcpServer(server.router(), services, modules, null);
+        mcp = new KawaMcpServer(server.router(), services, null);
         server.start();
     }
 
@@ -138,36 +154,5 @@ public abstract class McpSliceTestBase {
     public String structuredContent(String body) {
         var mapper = new JsonMapper();
         return mapper.writeValueAsString(mapper.readTree(body).get("result").get("structuredContent"));
-    }
-
-    /// Holds the config in memory; a write applies at once and reloads the modules from it.
-    private static final class InMemoryConfigRepository implements DynamicConfigRepository {
-
-        private final ModuleRegistry modules;
-        private DynamicConfig current = DynamicConfig.empty();
-
-        private InMemoryConfigRepository(ModuleRegistry modules) {
-            this.modules = modules;
-        }
-
-        @Override
-        public DynamicConfig getActiveConfig() {
-            return current;
-        }
-
-        @Override
-        public synchronized void update(UnaryOperator<DynamicConfig> mutation) {
-            current = mutation.apply(current);
-            modules.reload(current.modules());
-        }
-
-        @Override
-        public void updateAndWaitUntilApplied(UnaryOperator<DynamicConfig> mutation) {
-            update(mutation);
-        }
-
-        @Override
-        public void close() {
-        }
     }
 }

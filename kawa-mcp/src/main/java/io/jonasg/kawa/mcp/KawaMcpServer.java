@@ -1,8 +1,8 @@
 package io.jonasg.kawa.mcp;
 
 import io.jonasg.kawa.config.CorsConfig;
-import io.jonasg.kawa.core.module.ModuleRegistry;
 import io.jonasg.kawa.http.AdminServices;
+import io.jonasg.kawa.http.modules.ModuleService;
 import io.jonasg.kawa.http.web.Router;
 import io.jonasg.kawa.mcp.describetopic.DescribeTopicMcpTool;
 import io.jonasg.kawa.mcp.listtopics.ListTopicsMcpTool;
@@ -33,15 +33,13 @@ public final class KawaMcpServer implements AutoCloseable {
 
     /// @param router   the admin route table to serve `/mcp` from
     /// @param services the admin services the tools read from
-    /// @param modules  the gateway's modules; `/mcp` is served only while
-    ///                 [ModuleId#MCP][io.jonasg.kawa.config.ModuleId#MCP] is enabled
     /// @param cors     the admin CORS config: browser origins it allows may call `/mcp`; without it,
     ///                 requests carrying an `Origin` header are refused
-    public KawaMcpServer(Router router, AdminServices services, ModuleRegistry modules, @Nullable CorsConfig cors) {
+    public KawaMcpServer(Router router, AdminServices services, @Nullable CorsConfig cors) {
         var mapper = McpJsonDefaults.getMapper();
         this(
                 router,
-                modules,
+                services.modules(),
                 cors,
                 mapper,
                 List.of(
@@ -54,7 +52,7 @@ public final class KawaMcpServer implements AutoCloseable {
     /// Serves `tools`, which write their JSON with `mapper`.
     KawaMcpServer(
             Router router,
-            ModuleRegistry modules,
+            ModuleService modules,
             @Nullable CorsConfig cors,
             McpJsonMapper mapper,
             List<McpTool> tools

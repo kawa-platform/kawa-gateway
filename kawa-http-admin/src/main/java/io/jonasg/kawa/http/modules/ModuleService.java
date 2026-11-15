@@ -29,7 +29,7 @@ public final class ModuleService {
     }
 
     /// The effective state of module `id`.
-    ModuleConfig getModule(ModuleId id) {
+    public ModuleConfig getModule(ModuleId id) {
         return ModuleConfig.stateOf(id, repository.getActiveConfigOrEmpty().modules());
     }
 

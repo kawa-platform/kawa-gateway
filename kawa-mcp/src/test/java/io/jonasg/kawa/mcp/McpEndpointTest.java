@@ -1,9 +1,10 @@
 package io.jonasg.kawa.mcp;
 
 import io.jonasg.kawa.config.CorsConfig;
+import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.ModuleId;
-import io.jonasg.kawa.core.module.ModuleRegistry;
+import io.jonasg.kawa.http.modules.ModuleService;
 import io.jonasg.kawa.http.web.Router;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.modelcontextprotocol.json.McpJsonDefaults;
@@ -24,7 +25,8 @@ class McpEndpointTest {
     private static final KawaPrincipal ALICE = new KawaPrincipal("alice");
 
     private final Router router = new Router();
-    private final ModuleRegistry modules = new ModuleRegistry();
+    private final InMemoryConfigRepository repository = new InMemoryConfigRepository(
+            DynamicConfig.empty().upsertModule(new ModuleConfig(ModuleId.MCP, true)));
 
     @Test
     void initializeAdvertisesServerInfoAndToolsCapability() {
@@ -46,7 +48,7 @@ class McpEndpointTest {
     @Test
     void answersNotFoundWhileTheMcpModuleIsDisabled() {
         // given
-        modules.reload(Map.of("mcp", new ModuleConfig(ModuleId.MCP, false)));
+        repository.update(config -> config.upsertModule(new ModuleConfig(ModuleId.MCP, false)));
         serve(null);
 
         // when
@@ -150,7 +152,7 @@ class McpEndpointTest {
 
     /// Serves `/mcp` on the test router without tools: these tests cover the transport only.
     private void serve(@Nullable CorsConfig cors) {
-        new KawaMcpServer(router, modules, cors, McpJsonDefaults.getMapper(), List.of());
+        new KawaMcpServer(router, new ModuleService(repository), cors, McpJsonDefaults.getMapper(), List.of());
     }
 
     private static String rpc(int id, String method, String params) {
