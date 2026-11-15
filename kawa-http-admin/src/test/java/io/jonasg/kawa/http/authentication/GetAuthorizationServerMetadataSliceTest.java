@@ -13,19 +13,21 @@ class GetAuthorizationServerMetadataSliceTest extends AdminHttpSliceTestBase {
     void describesTheBuiltInAuthorizationServer() throws Exception {
         // given
         enableOAuth();
+        publicUrl = "https://kawa.example.com";
         startServer();
-        String base = "http://127.0.0.1:" + server().boundPort();
 
-        // when
+        // when: the request reaches kawa on 127.0.0.1, not on its public URL
         var response = send("GET", "/.well-known/oauth-authorization-server");
 
         // then
         assertThat(response).hasStatusCode(200);
-        assertThatJson(response.body()).isObject()
+        assertThatJson(response.body())
+                .withFailMessage(() -> "the endpoint URLs were not built from admin.publicUrl: " + response.body())
+                .isObject()
                 .containsEntry("issuer", "kawa-test")
-                .containsEntry("authorization_endpoint", base + "/oauth/authorize")
-                .containsEntry("token_endpoint", base + "/oauth/token")
-                .containsEntry("jwks_uri", base + "/.well-known/jwks.json");
+                .containsEntry("authorization_endpoint", "https://kawa.example.com/oauth/authorize")
+                .containsEntry("token_endpoint", "https://kawa.example.com/oauth/token")
+                .containsEntry("jwks_uri", "https://kawa.example.com/.well-known/jwks.json");
         assertThatJson(response.body()).node("code_challenge_methods_supported").isArray().containsExactly("S256");
         assertThatJson(response.body()).node("grant_types_supported").isArray()
                 .containsExactly("authorization_code", "refresh_token", "client_credentials",

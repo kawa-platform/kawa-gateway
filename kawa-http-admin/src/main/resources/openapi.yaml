@@ -1031,8 +1031,8 @@ paths:
       summary: Authorization server metadata
       description: |
         RFC 8414 metadata: issuer, token endpoint, JWKS location and supported grants. Only exists
-        with `admin.auth.type: oauth`. Endpoint URLs are derived from the `Host` and
-        `X-Forwarded-Proto` request headers. `client_id_metadata_document_supported: true` is present
+        with `admin.auth.type: oauth`. Endpoint URLs are built from `admin.publicUrl` (or the bind
+        address it defaults to), never from request headers. `client_id_metadata_document_supported: true` is present
         while the `mcp` and `mcp-cimd` modules are both on, decided on every request.
       security: []
       responses:
