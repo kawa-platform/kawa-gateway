@@ -12,6 +12,7 @@ import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.ListenerConfig;
 import io.jonasg.kawa.config.Mechanism;
+import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.RbacConfig;
 import io.jonasg.kawa.config.ResourceConfig;
 import io.jonasg.kawa.config.RoleConfig;
@@ -260,6 +261,12 @@ abstract class GatewayTestSupport {
         return null;
     }
 
+    /// The modules stored in the config topic with the rest of the dynamic config. Defaults to none:
+    /// every module has its default ([io.jonasg.kawa.config.ModuleId#enabledByDefault]).
+    protected List<ModuleConfig> modules() {
+        return List.of();
+    }
+
     /// The gateway's admin HTTP server configuration.
     protected AdminConfig adminConfig() {
         return new AdminConfig(true, "127.0.0.1", 0, null);
@@ -286,17 +293,21 @@ abstract class GatewayTestSupport {
     }
 
     /// The full dynamic config written to the config topic before the gateway starts. Only
-    /// virtual topics, RBAC, client auth and governance are dynamic; listeners, advertised and admin are
+    /// virtual topics, RBAC, client auth, governance and modules are dynamic; listeners, advertised and admin are
     /// startup-only and come from the static bootstrap.
     private DynamicConfig buildDynamicConfig() {
         Map<String, VirtualTopicConfig> typedVirtualTopics = new java.util.HashMap<>();
         virtualTopics().forEach((virtual, physical) ->
                 typedVirtualTopics.put(virtual, new VirtualTopicConfig(physical)));
         typedVirtualTopics.putAll(filteredVirtualTopics());
-        return new DynamicConfig(
+        var config = new DynamicConfig(
                 typedVirtualTopics,
                 authConfig(),
                 rbacConfig(), governanceConfig());
+        for (ModuleConfig module : modules()) {
+            config = config.upsertModule(module);
+        }
+        return config;
     }
 
     /// Serializes the full dynamic config as JSON and writes it to the config topic, so the

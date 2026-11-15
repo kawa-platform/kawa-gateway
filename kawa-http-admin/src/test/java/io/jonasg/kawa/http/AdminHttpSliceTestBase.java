@@ -73,11 +73,11 @@ public abstract class AdminHttpSliceTestBase {
     /// The environment the server sees, e.g. `KAWA_ADMIN_RESET`.
     protected Map<String, String> env = Map.of();
 
-    private AdminServices services;
-    private AdminHttpServer server;
+    private @Nullable AdminServices services;
+    private @Nullable AdminHttpServer server;
     private final HttpClient client = HttpClient.newHttpClient();
 
-    protected AdminHttpServer server() {
+    protected @Nullable AdminHttpServer server() {
         return server;
     }
 
