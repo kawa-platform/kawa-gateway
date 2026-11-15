@@ -1,9 +1,12 @@
 package io.jonasg.kawa.server;
 
 import io.jonasg.kawa.config.AdminConfig;
+import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.server.plugin.PluginLoader;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -13,6 +16,7 @@ class AdminSurfaceTest {
     void startBindsAndCloseStops() throws Exception {
         // given
         var state = new DynamicGatewayState("localhost:9092", "__kawa", new java.util.Properties());
+        state.createConfigManager(new InterceptorPipeline(List.of()));
         var cache = new MetadataCache();
         var admin = new AdminSurface(
                 new AdminConfig(true, "127.0.0.1", 0, null), state, cache, () -> java.util.concurrent.CompletableFuture.completedFuture(null),

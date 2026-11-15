@@ -14,6 +14,7 @@ import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
 import io.jonasg.kawa.config.VirtualTopicConfig;
+import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.governance.TopicSpec;
 import io.jonasg.kawa.server.auth.AuthenticationResult;
 import io.jonasg.kawa.server.netty.ClientSession;
@@ -38,6 +39,7 @@ class DynamicGatewayStateTest {
     void applyReachesAllConsumers() {
         // given
         var state = new DynamicGatewayState("localhost:9092", "__kawa", new java.util.Properties());
+        state.createConfigManager(new InterceptorPipeline(List.of()));
         var config = DynamicConfig.empty()
                 .upsertVirtualTopic("orders", new VirtualTopicConfig("orders-physical"))
                 .updateRbac(new RbacConfig(
