@@ -1167,7 +1167,7 @@ paths:
       summary: List modules
       description: |
         Every module the gateway knows, with its effective state, sorted by id. A module with no
-        stored state is enabled.
+        stored state has its default: `mcp` is off, every other module is on.
       responses:
         '200':
           description: The modules
@@ -1184,7 +1184,9 @@ paths:
   /modules/{id}:
     get:
       summary: Get a module
-      description: The module's effective state; enabled when no state is stored for it.
+      description: |
+        The module's effective state. A module with no stored state has its default: `mcp` is off,
+        every other module is on.
       parameters:
         - $ref: '#/components/parameters/ModuleId'
       responses:
@@ -1494,6 +1496,13 @@ components:
           enum: [virtual-topics, rbac, governance, mcp, mcp-cimd]
         enabled:
           type: boolean
+        connectUrl:
+          type: string
+          format: uri
+          description: |
+            The URL agents connect to, `<admin.publicUrl>/mcp`. Only on the `mcp` module, while it
+            is on and `admin.publicUrl` is set; left out otherwise.
+          example: https://kawa.example.com/mcp
     ModuleRequest:
       type: object
       required:
