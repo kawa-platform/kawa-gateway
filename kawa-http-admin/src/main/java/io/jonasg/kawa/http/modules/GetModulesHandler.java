@@ -4,7 +4,7 @@ import io.jonasg.kawa.http.web.Router;
 import java.util.Comparator;
 
 /// Serves `GET /modules`: every module the gateway knows with its effective state, sorted by id. A
-/// module nothing is stored for is listed as enabled.
+/// module nothing is stored for is listed with its default ([io.jonasg.kawa.config.ModuleId#enabledByDefault]).
 final class GetModulesHandler implements Router.Handler {
 
     private final ModuleService service;
