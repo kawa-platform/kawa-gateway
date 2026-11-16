@@ -10,6 +10,13 @@ import org.jspecify.annotations.Nullable;
 /// A stateless instance created once in [ModuleRoutes] and shared by the module handlers.
 final class ModuleConfigMapper {
 
+    @Nullable
+    private final String mcpUrl;
+
+    ModuleConfigMapper(@Nullable String mcpUrl) {
+        this.mcpUrl = mcpUrl;
+    }
+
     /// The module a path addresses.
     ///
     /// @throws NotFoundException when no module has the id
@@ -29,6 +36,7 @@ final class ModuleConfigMapper {
 
     /// A single module as the response body.
     ModuleConfigView toModuleConfigView(ModuleConfig config) {
-        return new ModuleConfigView(config.id().id(), config.enabled());
+        String connectUrl = config.id() == ModuleId.MCP && config.enabled() ? mcpUrl : null;
+        return new ModuleConfigView(config.id().id(), config.enabled(), connectUrl);
     }
 }

@@ -54,11 +54,40 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body()).isEqualTo("""
                 [
                   {"id":"governance","enabled":false},
-                  {"id":"mcp","enabled":true},
+                  {"id":"mcp","enabled":true,"connectUrl":"https://kawa.example.com/mcp"},
                   {"id":"mcp-cimd","enabled":true},
                   {"id":"rbac","enabled":true},
                   {"id":"virtual-topics","enabled":false}
                 ]
+                """);
+    }
+
+    @Test
+    void reportsTheMcpConnectUrlOnlyWhileMcpIsOn() throws Exception {
+        // given
+        publicUrl = "https://kawa.example.com";
+        startServer();
+
+        // when
+        var enableMcpResp = send("PUT", "/modules/mcp", """
+                {"enabled":true}
+                """);
+        var whileOnResp = send("GET", "/modules");
+        var disableMcpResp = send("PUT", "/modules/mcp", """
+                {"enabled":false}
+                """);
+        var whileOffResp = send("GET", "/modules");
+
+        // then
+        assertThat(enableMcpResp).hasStatusCode(200);
+        assertThat(whileOnResp).hasStatusCode(200);
+        assertThatJson(whileOnResp.body()).inPath("[?(@.id == 'mcp')]").isEqualTo("""
+                [{"id":"mcp","enabled":true,"connectUrl":"https://kawa.example.com/mcp"}]
+                """);
+        assertThat(disableMcpResp).hasStatusCode(200);
+        assertThat(whileOffResp).hasStatusCode(200);
+        assertThatJson(whileOffResp.body()).inPath("[?(@.id == 'mcp')]").isEqualTo("""
+                [{"id":"mcp","enabled":false}]
                 """);
     }
 
