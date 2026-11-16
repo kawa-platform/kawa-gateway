@@ -27,7 +27,7 @@ public final class AdminSurface implements AutoCloseable {
         var topicAdmin = new KafkaTopicAdmin(bootstrapServers, brokerSecurity);
         services = AdminServices.create(state.virtualTopics(), cache, metadataRefresher,
                 DynamicConfigManager.DEFAULT_APPLY_WAIT_TIMEOUT, state.configManager(),
-                state.governance(), topicAdmin, config.auth().bootstrapUser(), System::getenv);
+                state.governance(), topicAdmin, config.auth().bootstrapUser(), config.publicUrl(), System::getenv);
         server = new AdminHttpServer(config, services, authenticationProviders);
         mcp = new KawaMcpServer(server.router(), services, config.cors());
     }

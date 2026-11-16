@@ -50,6 +50,7 @@ public record AdminServices(
     ///
     /// @param metadataRefresher       refreshes `cache` on demand, so a created topic is listed at once
     /// @param topicVisibilityTimeout  how long a topic creation waits for the created topic to reach `cache`
+    /// @param publicUrl               `admin.publicUrl`, or `null` when it is not set: then the mcp module cannot be switched on
     /// @param env                     looks up environment variables, such as the bootstrap user reset switch
     public static AdminServices create(
             VirtualTopicManager virtualTopics,
@@ -60,6 +61,7 @@ public record AdminServices(
             GovernancePolicy governance,
             TopicAdmin topicAdmin,
             @Nullable BootstrapUser bootstrapUser,
+            @Nullable String publicUrl,
             Function<String, @Nullable String> env
     ) {
         new BootstrapUserSeeder(configRepository, Clock.systemUTC())
@@ -73,7 +75,7 @@ public record AdminServices(
                 new GovernanceService(configRepository, governance),
                 new AdminUserService(configRepository),
                 new AdminUserAuthenticator(configRepository),
-                new ModuleService(configRepository),
+                new ModuleService(configRepository, publicUrl),
                 new OAuthClientService(configRepository),
                 new StoredOAuthClients(configRepository));
     }

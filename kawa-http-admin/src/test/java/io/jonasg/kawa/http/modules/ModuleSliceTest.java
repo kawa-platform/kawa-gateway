@@ -219,6 +219,25 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void refusesToSwitchMcpOnWithoutAPublicUrl() throws Exception {
+        // given
+        publicUrl = null;
+        startServer();
+
+        // when
+        var response = send("PUT", "/modules/mcp", """
+                {"enabled":true}
+                """);
+
+        // then
+        assertThat(response).hasStatusCode(409);
+        assertThat(response.body()).contains("module 'mcp': set admin.publicUrl");
+        assertThat(repository.getActiveConfigOrEmpty().modules())
+                .withFailMessage(() -> "module 'mcp' was stored although admin.publicUrl is not set: " + repository.getActiveConfigOrEmpty().modules())
+                .doesNotContainKey("mcp");
+    }
+
+    @Test
     void putWithoutEnabledIsABadRequest() throws Exception {
         // given
         startServer();

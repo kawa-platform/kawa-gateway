@@ -27,9 +27,11 @@ class McpIT extends AdminHTTPTestSupport {
 
     private McpSyncClient client;
 
+    /// `admin.publicUrl` is set, as the `mcp` module can only be switched on with it. With the `none`
+    /// provider it is only reported as the connect URL, so it need not be the ephemeral admin port.
     @Override
     protected AdminConfig adminConfig() {
-        return new AdminConfig(true, "127.0.0.1", 0, null);
+        return new AdminConfig(true, "127.0.0.1", 0, null, null, "https://kawa.example.com");
     }
 
     /// The `mcp` module switched on, as it is off by default.

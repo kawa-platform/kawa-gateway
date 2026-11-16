@@ -1206,7 +1206,10 @@ paths:
           $ref: '#/components/responses/InternalError'
     put:
       summary: Upsert a module
-      description: Adds or replaces the module `id`. An unknown module id is refused with `404`.
+      description: |
+        Adds or replaces the module `id`. An unknown module id is refused with `404`. Switching the
+        `mcp` module on while `admin.publicUrl` is not set is refused with `409`: it is the URL agents
+        connect to. Switching a module off is always allowed.
       parameters:
         - $ref: '#/components/parameters/ModuleId'
       requestBody:
@@ -1226,6 +1229,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
         '500':
