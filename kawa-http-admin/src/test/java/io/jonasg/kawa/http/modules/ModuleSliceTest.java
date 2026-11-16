@@ -27,11 +27,11 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThat(response).hasStatusCode(200);
         assertThatJson(response.body()).isEqualTo("""
                 [
-                  {"id":"governance","enabled":true},
-                  {"id":"mcp","enabled":false},
-                  {"id":"mcp-cimd","enabled":true},
-                  {"id":"rbac","enabled":true},
-                  {"id":"virtual-topics","enabled":true}
+                  {"id":"governance","enabled":true,"available":true},
+                  {"id":"mcp","enabled":false,"available":true},
+                  {"id":"mcp-cimd","enabled":true,"available":true},
+                  {"id":"rbac","enabled":true,"available":true},
+                  {"id":"virtual-topics","enabled":true,"available":true}
                 ]
                 """);
     }
@@ -53,11 +53,11 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThat(response).hasStatusCode(200);
         assertThatJson(response.body()).isEqualTo("""
                 [
-                  {"id":"governance","enabled":false},
-                  {"id":"mcp","enabled":true,"connectUrl":"https://kawa.example.com/mcp"},
-                  {"id":"mcp-cimd","enabled":true},
-                  {"id":"rbac","enabled":true},
-                  {"id":"virtual-topics","enabled":false}
+                  {"id":"governance","enabled":false,"available":true},
+                  {"id":"mcp","enabled":true,"available":true,"connectUrl":"https://kawa.example.com/mcp"},
+                  {"id":"mcp-cimd","enabled":true,"available":true},
+                  {"id":"rbac","enabled":true,"available":true},
+                  {"id":"virtual-topics","enabled":false,"available":true}
                 ]
                 """);
     }
@@ -82,12 +82,30 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThat(enableMcpResp).hasStatusCode(200);
         assertThat(whileOnResp).hasStatusCode(200);
         assertThatJson(whileOnResp.body()).inPath("[?(@.id == 'mcp')]").isEqualTo("""
-                [{"id":"mcp","enabled":true,"connectUrl":"https://kawa.example.com/mcp"}]
+                [{"id":"mcp","enabled":true,"available":true,"connectUrl":"https://kawa.example.com/mcp"}]
                 """);
         assertThat(disableMcpResp).hasStatusCode(200);
         assertThat(whileOffResp).hasStatusCode(200);
         assertThatJson(whileOffResp.body()).inPath("[?(@.id == 'mcp')]").isEqualTo("""
-                [{"id":"mcp","enabled":false}]
+                [{"id":"mcp","enabled":false,"available":true}]
+                """);
+    }
+
+    @Test
+    void reportsMcpAsUnavailableWithoutAPublicUrl() throws Exception {
+        // given: switched on, then restarted without admin.publicUrl
+        publicUrl = null;
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .upsertModule(new ModuleConfig(ModuleId.MCP, true)));
+        startServer();
+
+        // when
+        var modulesResp = send("GET", "/modules");
+
+        // then
+        assertThat(modulesResp).hasStatusCode(200);
+        assertThatJson(modulesResp.body()).inPath("[?(@.id == 'mcp')]").isEqualTo("""
+                [{"id":"mcp","enabled":true,"available":false,"unavailableReason":"set admin.publicUrl, the URL agents connect to"}]
                 """);
     }
 
@@ -106,7 +124,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response).hasStatusCode(200);
         assertThatJson(response.body()).isEqualTo("""
-                {"id":"rbac","enabled":false}
+                {"id":"rbac","enabled":false,"available":true}
                 """);
     }
 
@@ -121,7 +139,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response).hasStatusCode(200);
         assertThatJson(response.body()).isEqualTo("""
-                {"id":"rbac","enabled":true}
+                {"id":"rbac","enabled":true,"available":true}
                 """);
     }
 
@@ -153,7 +171,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response).hasStatusCode(200);
         assertThatJson(response.body()).isEqualTo("""
-                {"id":"virtual-topics","enabled":false}
+                {"id":"virtual-topics","enabled":false,"available":true}
                 """);
         assertThat(repository.getActiveConfigOrEmpty().modules().get("virtual-topics"))
                 .withFailMessage(() -> "module 'virtual-topics' was not stored: " + repository.getActiveConfigOrEmpty().modules())
@@ -173,7 +191,7 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThatJson(initially.body()).isEqualTo("""
-                {"id":"mcp-cimd","enabled":true}
+                {"id":"mcp-cimd","enabled":true,"available":true}
                 """);
         assertThat(off).hasStatusCode(200);
         assertThat(repository.getActiveConfigOrEmpty().modules().get("mcp-cimd"))
@@ -235,6 +253,26 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThat(repository.getActiveConfigOrEmpty().modules())
                 .withFailMessage(() -> "module 'mcp' was stored although admin.publicUrl is not set: " + repository.getActiveConfigOrEmpty().modules())
                 .doesNotContainKey("mcp");
+    }
+
+    @Test
+    void switchesMcpOffWhileItIsUnavailable() throws Exception {
+        // given: switched on, then restarted without admin.publicUrl
+        publicUrl = null;
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty()
+                .upsertModule(new ModuleConfig(ModuleId.MCP, true)));
+        startServer();
+
+        // when
+        var disableMcpResp = send("PUT", "/modules/mcp", """
+                {"enabled":false}
+                """);
+
+        // then
+        assertThat(disableMcpResp).hasStatusCode(200);
+        assertThat(repository.getActiveConfigOrEmpty().modules().get("mcp"))
+                .withFailMessage(() -> "module 'mcp' was not switched off while unavailable: " + repository.getActiveConfigOrEmpty().modules())
+                .isEqualTo(new ModuleConfig(ModuleId.MCP, false));
     }
 
     @Test

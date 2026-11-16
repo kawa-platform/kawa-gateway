@@ -7,14 +7,14 @@ import org.jspecify.annotations.Nullable;
 
 /// Converts between the `/modules` transport types and [ModuleConfig].
 ///
-/// A stateless instance created once in [ModuleRoutes] and shared by the module handlers.
+/// A stateless instance created once in [ModuleRoutes] and shared by the module handlers. A view
+/// asks the [ModuleService] whether the module is available and where agents connect to it.
 final class ModuleConfigMapper {
 
-    @Nullable
-    private final String mcpUrl;
+    private final ModuleService service;
 
-    ModuleConfigMapper(@Nullable String mcpUrl) {
-        this.mcpUrl = mcpUrl;
+    ModuleConfigMapper(ModuleService service) {
+        this.service = service;
     }
 
     /// The module a path addresses.
@@ -36,7 +36,8 @@ final class ModuleConfigMapper {
 
     /// A single module as the response body.
     ModuleConfigView toModuleConfigView(ModuleConfig config) {
-        String connectUrl = config.id() == ModuleId.MCP && config.enabled() ? mcpUrl : null;
-        return new ModuleConfigView(config.id().id(), config.enabled(), connectUrl);
+        String unavailableReason = service.unavailableReason(config.id());
+        return new ModuleConfigView(config.id().id(), config.enabled(), unavailableReason == null, unavailableReason,
+                service.connectUrl(config));
     }
 }

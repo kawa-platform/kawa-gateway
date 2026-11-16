@@ -83,7 +83,7 @@ public final class AdminHttpServer {
         ClientRoutes.register(router, services.clients());
         GovernanceRoutes.register(router, services.governanceRules());
         UserRoutes.register(router, services.adminUsers());
-        ModuleRoutes.register(router, services.modules(), config.publicUrl());
+        ModuleRoutes.register(router, services.modules());
         OAuthClientRoutes.register(router, services.oauthClients());
         router.publicGet("/docs", new GetDocsHandler());
         this.authenticationProvider = authenticationProviders.require(adminAuthConfig.type()).create(
