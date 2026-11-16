@@ -1209,9 +1209,9 @@ paths:
     put:
       summary: Upsert a module
       description: |
-        Adds or replaces the module `id`. An unknown module id is refused with `404`. Switching the
-        `mcp` module on while `admin.publicUrl` is not set is refused with `409`: it is the URL agents
-        connect to. Switching a module off is always allowed.
+        Adds or replaces the module `id`. An unknown module id is refused with `404`. Switching on a
+        module that is not available (`mcp` while `admin.publicUrl` is not set, the URL agents connect
+        to) is refused with `409`. Switching a module off is always allowed.
       parameters:
         - $ref: '#/components/parameters/ModuleId'
       requestBody:
@@ -1490,18 +1490,29 @@ components:
       required:
         - id
         - enabled
+        - available
       properties:
         id:
           type: string
           enum: [virtual-topics, rbac, governance, mcp, mcp-cimd]
         enabled:
           type: boolean
+        available:
+          type: boolean
+          description: |
+            Whether the module can run on this gateway, whether or not it is switched on. `mcp` is
+            unavailable while `admin.publicUrl` is not set. An unavailable module cannot be switched
+            on; one that is on can still be switched off.
+        unavailableReason:
+          type: string
+          description: Why the module is not available. Only while `available` is `false`.
+          example: set admin.publicUrl, the URL agents connect to
         connectUrl:
           type: string
           format: uri
           description: |
             The URL agents connect to, `<admin.publicUrl>/mcp`. Only on the `mcp` module, while it
-            is on and `admin.publicUrl` is set; left out otherwise.
+            is on and available; left out otherwise.
           example: https://kawa.example.com/mcp
     ModuleRequest:
       type: object
