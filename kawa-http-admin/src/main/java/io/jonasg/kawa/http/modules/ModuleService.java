@@ -10,8 +10,8 @@ import java.util.Arrays;
 import java.util.List;
 
 /// Owns reading and writing the modules section of the gateway config snapshot. Reads report every
-/// module's effective state: its stored entry, or enabled when nothing is stored for it, the same
-/// rule the gateway applies.
+/// module's effective state: its stored entry, or its default ([ModuleId#enabledByDefault]) when
+/// nothing is stored for it, the same rule the gateway applies ([ModuleConfig#stateOf]).
 public final class ModuleService {
 
     private final DynamicConfigRepository repository;
