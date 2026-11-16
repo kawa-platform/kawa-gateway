@@ -94,7 +94,7 @@ public abstract class AdminHttpSliceTestBase {
     /// Boots the server with the current fakes. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
         services = AdminServices.create(virtualTopics, cache, metadataRefresher, topicVisibilityTimeout, repository,
-                governance, topicAdmin, auth.bootstrapUser(), env::get);
+                governance, topicAdmin, auth.bootstrapUser(), publicUrl, env::get);
         server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, cors, auth, publicUrl), services, authenticationProviders);
         server.start();
     }

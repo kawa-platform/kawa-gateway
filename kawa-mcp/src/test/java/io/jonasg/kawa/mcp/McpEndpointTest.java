@@ -152,7 +152,7 @@ class McpEndpointTest {
 
     /// Serves `/mcp` on the test router without tools: these tests cover the transport only.
     private void serve(@Nullable CorsConfig cors) {
-        new KawaMcpServer(router, new ModuleService(repository), cors, McpJsonDefaults.getMapper(), List.of());
+        new KawaMcpServer(router, new ModuleService(repository, null), cors, McpJsonDefaults.getMapper(), List.of());
     }
 
     private static String rpc(int id, String method, String params) {

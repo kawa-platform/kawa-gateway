@@ -1,5 +1,6 @@
 package io.jonasg.kawa.http.modules;
 
+import io.jonasg.kawa.http.configchange.ConflictException;
 import io.jonasg.kawa.http.configchange.Consistency;
 import io.jonasg.kawa.http.configchange.NotFoundException;
 import io.jonasg.kawa.http.web.Router;
@@ -32,6 +33,8 @@ final class PutModuleHandler implements Router.Handler {
             return Router.Response.ok(mapper.toModuleConfigView(module));
         } catch (NotFoundException e) {
             return Router.Response.notFound(e.getMessage());
+        } catch (ConflictException e) {
+            return Router.Response.conflict(e.getMessage());
         } catch (IllegalArgumentException e) {
             return Router.Response.badRequest(e.getMessage());
         }

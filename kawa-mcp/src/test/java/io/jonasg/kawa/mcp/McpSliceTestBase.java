@@ -41,6 +41,9 @@ import java.util.concurrent.CompletableFuture;
 /// cannot share: it lives in that module's test sources.
 public abstract class McpSliceTestBase {
 
+    /// `admin.publicUrl`, which the `mcp` module needs to be switched on.
+    protected static final String PUBLIC_URL = "https://kawa.example.com";
+
     protected VirtualTopicManager virtualTopics = new VirtualTopicManager(Map.of());
     protected MetadataCache cache = new MetadataCache();
     /// The stored config the server starts with: the `mcp` module switched on, as it is off by default.
@@ -79,6 +82,7 @@ public abstract class McpSliceTestBase {
                 new GovernancePolicy(new GovernanceConfig(null)),
                 topicAdmin,
                 null,
+                PUBLIC_URL,
                 _ -> null
         );
         services = topicService == null ? adminServices : new AdminServices(
@@ -95,7 +99,7 @@ public abstract class McpSliceTestBase {
         );
         var authenticationProviders = new AuthenticationProviderRegistry();
         new BuiltInAuthenticationPlugin().register(authenticationProviders::register);
-        server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none()), services,
+        server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none(), PUBLIC_URL), services,
                 authenticationProviders);
         mcp = new KawaMcpServer(server.router(), services, null);
         server.start();
