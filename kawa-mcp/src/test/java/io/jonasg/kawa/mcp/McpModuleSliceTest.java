@@ -1,5 +1,6 @@
 package io.jonasg.kawa.mcp;
 
+import io.jonasg.kawa.config.DynamicConfig;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -11,6 +12,24 @@ import static org.awaitility.Awaitility.await;
 /// Slice tests for switching `/mcp` with the `mcp` module through `PUT /modules/mcp` on a booted
 /// admin server.
 class McpModuleSliceTest extends McpSliceTestBase {
+
+    @Test
+    void answersNotFoundAndReportsMcpOffOnAFreshInstall() throws Exception {
+        // given: nothing stored for the mcp module
+        config = DynamicConfig.empty();
+        startServer();
+
+        // when
+        var toolsResp = rpc("tools/list", "{}");
+        var modulesResp = send("GET", "/modules", null);
+
+        // then
+        assertThat(toolsResp).hasStatusCode(404);
+        assertThatJson(toolsResp.body()).isEqualTo("""
+                {"error": "not found"}""");
+        assertThat(modulesResp).hasStatusCode(200);
+        assertThatJson(modulesResp.body()).inPath("$[?(@.id == 'mcp')].enabled").isArray().containsExactly(false);
+    }
 
     @Test
     void answersNotFoundOnceTheMcpModuleIsDisabled() throws Exception {
