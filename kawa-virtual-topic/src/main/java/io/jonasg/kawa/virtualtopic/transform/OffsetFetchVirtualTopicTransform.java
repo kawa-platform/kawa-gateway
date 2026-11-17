@@ -6,6 +6,8 @@ import io.jonasg.kawa.virtualtopic.VirtualTopicState;
 import org.apache.kafka.common.message.OffsetFetchRequestData;
 import org.apache.kafka.common.message.OffsetFetchResponseData;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 public final class OffsetFetchVirtualTopicTransform
@@ -47,12 +49,19 @@ public final class OffsetFetchVirtualTopicTransform
             OffsetFetchResponseData data
     ) {
         VirtualTopicState state = VirtualTopicState.from(context);
-        for (OffsetFetchResponseData.OffsetFetchResponseTopic topic : data.topics()) {
+        // A physical topic with several virtual topics is answered once per virtual topic: the first takes over
+        // this entry and every other one is appended to data.topics(). Iterate a copy, since appending to the
+        // list being iterated throws ConcurrentModificationException.
+        for (OffsetFetchResponseData.OffsetFetchResponseTopic topic : new ArrayList<>(data.topics())) {
             String virtual = state.virtualFor(topic.name());
             if (virtual != null) {
                 topic.setName(virtual);
             } else if (state.offsetFetchAllTopics()) {
-                topic.setName(virtualTopics.toVirtual(topic.name()));
+                List<String> names = virtualTopics.toVirtual(topic.name());
+                for (String name : names.subList(1, names.size())) {
+                    data.topics().add(topic.duplicate().setName(name));
+                }
+                topic.setName(names.getFirst());
             }
         }
     }

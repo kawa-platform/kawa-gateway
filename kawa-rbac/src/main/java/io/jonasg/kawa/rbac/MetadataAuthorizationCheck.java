@@ -3,6 +3,7 @@ package io.jonasg.kawa.rbac;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.ShortCircuitResult;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicState;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.MetadataResponseData;
@@ -11,6 +12,7 @@ import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.resource.ResourceType;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 /// Gates Metadata visibility on TOPIC DESCRIBE, matching real Kafka: a topic the principal
@@ -90,10 +92,22 @@ public final class MetadataAuthorizationCheck implements AuthorizationCheck<Meta
         // VirtualTopicInterceptor.onResponse. This must run BEFORE appending the synthesized
         // denial entries below - those carry UNKNOWN_TOPIC_OR_PARTITION and a name the principal
         // is by definition denied DESCRIBE on, so removeIf would immediately delete them again.
-        data.topics().removeIf(topic -> {
-            String virtual = virtualTopics.toVirtual(topic.name());
-            return !authorizer.isAuthorized(principal, ResourceType.TOPIC, virtual, AclOperation.DESCRIBE);
-        });
+        // A physical topic with several virtual topics is listed under each of them: the entry is
+        // removed when the principal may describe none of them, and otherwise the ones it may not
+        // describe are hidden so VirtualTopicInterceptor leaves them out.
+        Iterator<MetadataResponseData.MetadataResponseTopic> topics = data.topics().iterator();
+        while (topics.hasNext()) {
+            List<String> virtuals = virtualTopics.toVirtual(topics.next().name());
+            List<String> denied = virtuals.stream()
+                    .filter(virtual -> !authorizer.isAuthorized(principal, ResourceType.TOPIC, virtual, AclOperation.DESCRIBE))
+                    .toList();
+            if (denied.size() == virtuals.size()) {
+                topics.remove();
+            } else if (!denied.isEmpty()) {
+                var virtualTopicState = VirtualTopicState.from(context);
+                denied.forEach(virtualTopicState::hide);
+            }
+        }
         // Then append the synthesized denial entries for the specific-topics case.
         MetadataAuthState state = context.state(MetadataAuthState.class);
         if (state != null && !state.deniedTopics().isEmpty()) {

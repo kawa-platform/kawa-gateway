@@ -4,6 +4,7 @@ import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -26,14 +27,14 @@ class VirtualTopicManagerTest {
 
     @Test
     void mapsPhysicalToVirtual() {
-        assertThat(virtualTopics.toVirtual("orders-v2")).isEqualTo("orders");
-        assertThat(virtualTopics.toVirtual("crm.customers")).isEqualTo("customers");
+        assertThat(virtualTopics.toVirtual("orders-v2")).containsExactly("orders");
+        assertThat(virtualTopics.toVirtual("crm.customers")).containsExactly("customers");
     }
 
     @Test
     void identityForNonVirtualTopics() {
         assertThat(virtualTopics.toPhysical("plain")).isEqualTo("plain");
-        assertThat(virtualTopics.toVirtual("plain")).isEqualTo("plain");
+        assertThat(virtualTopics.toVirtual("plain")).containsExactly("plain");
     }
 
     @Test
@@ -159,5 +160,22 @@ class VirtualTopicManagerTest {
 
         // then
         assertThat(failure.get()).isNull();
+    }
+
+    @Test
+    void mapsPhysicalTopicToEveryVirtualTopicOnIt() {
+        // given
+        var manager = new VirtualTopicManager(Map.of(
+                "orders-eu", new VirtualTopicConfig("orders-v2"),
+                "orders-us", new VirtualTopicConfig("orders-v2")));
+
+        // when
+        List<String> virtual = manager.toVirtual("orders-v2");
+
+        // then
+        assertThat(virtual)
+                .withFailMessage(() -> "Physical topic 'orders-v2' did not map to both 'orders-eu' and 'orders-us' but to %s"
+                        .formatted(virtual))
+                .containsExactlyInAnyOrder("orders-eu", "orders-us");
     }
 }

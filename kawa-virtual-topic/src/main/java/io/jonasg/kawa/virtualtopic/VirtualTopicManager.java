@@ -4,8 +4,10 @@ import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -33,14 +35,15 @@ public final class VirtualTopicManager {
     /// partially-applied one.
     public void reload(Map<String, VirtualTopicConfig> virtualTopics) {
         Map<String, VirtualTopic> virtual = new LinkedHashMap<>();
-        Map<String, VirtualTopic> physical = new LinkedHashMap<>();
+        Map<String, List<VirtualTopic>> physical = new LinkedHashMap<>();
         Map<String, String> names = new LinkedHashMap<>();
         virtualTopics.forEach((v, config) -> {
             VirtualTopic virtualTopic = new VirtualTopic(v, config.topic(), config.filter(), config.exposePhysicalTopic(), config.valueFormat());
             virtual.put(v, virtualTopic);
-            physical.put(config.topic(), virtualTopic);
+            physical.computeIfAbsent(config.topic(), _ -> new ArrayList<>()).add(virtualTopic);
             names.put(v, config.topic());
         });
+        physical.replaceAll((_, topics) -> List.copyOf(topics));
         this.snapshot = new Snapshot(
                 Collections.unmodifiableMap(virtual),
                 Collections.unmodifiableMap(physical),
@@ -60,10 +63,11 @@ public final class VirtualTopicManager {
         return virtualTopic == null ? virtual : virtualTopic.physical();
     }
 
-    /// Maps a physical topic name back to the client-visible (virtual) name.
-    public String toVirtual(String physical) {
-        VirtualTopic virtualTopic = snapshot.byPhysical().get(physical);
-        return virtualTopic == null ? physical : virtualTopic.name();
+    /// Maps a physical topic name back to the client-visible (virtual) names: every virtual topic
+    /// that points at it, or the physical name itself when none does.
+    public List<String> toVirtual(String physical) {
+        List<VirtualTopic> virtualTopics = snapshot.byPhysical().get(physical);
+        return virtualTopics == null ? List.of(physical) : virtualTopics.stream().map(VirtualTopic::name).toList();
     }
 
     public boolean hasVirtualTopic(String physical) {
@@ -97,7 +101,7 @@ public final class VirtualTopicManager {
         Snapshot snap = snapshot;
         VirtualTopic virtualTopic = snap.byVirtual().get(virtualOrPhysical);
         if (virtualTopic == null) {
-            virtualTopic = snap.byPhysical().get(virtualOrPhysical);
+            virtualTopic = firstOnPhysical(snap, virtualOrPhysical);
         }
         return Optional.ofNullable(virtualTopic);
     }
@@ -109,9 +113,15 @@ public final class VirtualTopicManager {
         Snapshot snap = snapshot;
         VirtualTopic virtualTopic = snap.byVirtual().get(virtualOrPhysical);
         if (virtualTopic == null) {
-            virtualTopic = snap.byPhysical().get(virtualOrPhysical);
+            virtualTopic = firstOnPhysical(snap, virtualOrPhysical);
         }
         return virtualTopic != null && virtualTopic.exposePhysicalTopic();
+    }
+
+    /// The first virtual topic on `physical`, or `null` when none points at it.
+    private static VirtualTopic firstOnPhysical(Snapshot snap, String physical) {
+        List<VirtualTopic> virtualTopics = snap.byPhysical().get(physical);
+        return virtualTopics == null ? null : virtualTopics.getFirst();
     }
 
     public record VirtualTopic(
@@ -127,7 +137,7 @@ public final class VirtualTopicManager {
     /// be observed half-applied.
     private record Snapshot(
             Map<String, VirtualTopic> byVirtual,
-            Map<String, VirtualTopic> byPhysical,
+            Map<String, List<VirtualTopic>> byPhysical,
             Map<String, String> virtualToPhysical) {
 
     }

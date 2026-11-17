@@ -153,8 +153,8 @@ new names. That is why `VirtualTopicConfigView` still exposes `VirtualTopicFilte
 
 ## Test method naming
 
-Use descriptive, behavior-focused method names. For the standard CRUD lifecycle in slice tests,
-follow the existing patterns:
+For the standard CRUD lifecycle in slice tests, follow the existing patterns (the general rule is in the root
+`AGENTS.md`):
 
 - First create/upsert via `PUT /{name}`: `adds<Resource>AndPersistsSnapshot()`
   - e.g. `addsRoleAndPersistsSnapshot()`, `addsGroupAndPersistsSnapshot()`,
@@ -178,5 +178,4 @@ follow the existing patterns:
 ## Style
 
 - Match the surrounding file's indentation and formatting.
-- Prefer small, behavior-focused tests with descriptive test method names.
 - Do not introduce a new abstraction when an existing helper or base class already covers the use case.

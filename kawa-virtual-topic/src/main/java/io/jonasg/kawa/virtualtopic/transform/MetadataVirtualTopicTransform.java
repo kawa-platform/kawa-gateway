@@ -2,10 +2,14 @@ package io.jonasg.kawa.virtualtopic.transform;
 
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicState;
 import org.apache.kafka.common.message.MetadataRequestData;
 import org.apache.kafka.common.message.MetadataResponseData;
 
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 public final class MetadataVirtualTopicTransform
         implements VirtualTopicTransform<MetadataRequestData, MetadataResponseData> {
@@ -29,9 +33,12 @@ public final class MetadataVirtualTopicTransform
         if (data.topics() == null) {
             return;
         }
+        Set<String> requested = new HashSet<>();
         for (MetadataRequestData.MetadataRequestTopic topic : data.topics()) {
+            requested.add(topic.name());
             topic.setName(virtualTopics.toPhysical(topic.name()));
         }
+        VirtualTopicState.from(context).requestedTopics(requested);
     }
 
     @Override
@@ -39,23 +46,35 @@ public final class MetadataVirtualTopicTransform
             GatewayContext context,
             MetadataResponseData data
     ) {
-        // Physical topics backing a virtual topic are hidden by default: renamed to their
-        // virtual name in place rather than exposed alongside their physical name. A virtual
-        // topic configured with exposePhysicalTopic: true opts back into the old behaviour and
-        // gets both names listed - iterate a copy since that path adds to data.topics().
+        // A physical topic is listed once per virtual topic the principal may see (and the request named),
+        // and under its own name only with exposePhysicalTopic. Iterate a copy, since this adds to data.topics().
+        VirtualTopicState state = VirtualTopicState.from(context);
         for (MetadataResponseData.MetadataResponseTopic topic : new ArrayList<>(data.topics())) {
             if (!virtualTopics.hasVirtualTopic(topic.name())) {
                 continue;
             }
-            String virtual = virtualTopics.toVirtual(topic.name());
-            if (virtualTopics.exposesPhysicalTopic(topic.name())) {
+            List<String> visible = virtualTopics.toVirtual(topic.name()).stream()
+                    .filter(virtual -> !state.isHidden(virtual))
+                    .toList();
+            if (visible.isEmpty()) {
+                // Authorization removes an entry whose virtual topics are all hidden; never list it under none.
+                data.topics().remove(topic);
+                continue;
+            }
+            List<String> requested = visible.stream().filter(state::wasRequested).toList();
+            // A request naming only the physical topic named none of its virtual topics: answer it under all of them.
+            List<String> virtuals = requested.isEmpty() ? visible : requested;
+            boolean exposed = virtuals.stream().anyMatch(virtualTopics::exposesPhysicalTopic);
+            List<String> added = exposed ? virtuals : virtuals.subList(1, virtuals.size());
+            for (String name : added) {
                 data.topics().add(new MetadataResponseData.MetadataResponseTopic()
-                        .setName(virtual)
+                        .setName(name)
                         .setTopicId(topic.topicId())
                         .setIsInternal(topic.isInternal())
                         .setPartitions(topic.partitions()));
-            } else {
-                topic.setName(virtual);
+            }
+            if (!exposed) {
+                topic.setName(virtuals.getFirst());
             }
         }
     }
