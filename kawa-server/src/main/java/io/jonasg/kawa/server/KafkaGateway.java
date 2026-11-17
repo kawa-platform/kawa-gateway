@@ -164,8 +164,8 @@ public final class KafkaGateway implements Gateway {
 
         //  Admin surface
         if (config.admin().enabled()) {
-            admin = new AdminSurface(config.admin(), dynamicState, cache, bootstrapServers, brokerSecurity,
-                    authenticationProviders);
+            admin = new AdminSurface(config.admin(), dynamicState, cache, connections.metadataClient(), bootstrapServers,
+                    brokerSecurity, authenticationProviders);
             admin.start();
         }
         running = true;

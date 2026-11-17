@@ -9,6 +9,7 @@ import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import io.jonasg.kawa.core.cluster.MetadataCache;
+import io.jonasg.kawa.core.cluster.MetadataRefresher;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.governance.GovernanceRequest;
@@ -24,7 +25,10 @@ import io.jonasg.kawa.http.configchange.Ownership;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -38,13 +42,16 @@ import java.util.stream.Collectors;
 /// broker create/delete, and governance admission. Governance judges each change as the
 /// authenticated caller (`principal`): an admin user's email, a service client's id, or the
 /// principal a delegate acts for (e.g. `k8s:team-a`). Every virtual topic write honours
-/// [Ownership]: a managed virtual topic only changes through its owner. Owns the [TopicAdmin]:
-/// closing the service closes it.
+/// [Ownership]: a managed virtual topic only changes through its owner. A physical topic it creates
+/// is waited for in the [MetadataCache] (see [#createPhysicalTopic]), so the topic list shows it
+/// as soon as the creating call returns. Owns the [TopicAdmin]: closing the service closes it.
 public final class TopicService implements AutoCloseable {
 
+    private static final Logger log = LoggerFactory.getLogger(TopicService.class);
     private static final String KIND = "topic";
     private static final String SERVICE = "kawa";
     private static final int DESCRIBE_TIMEOUT_SECONDS = 10;
+    private static final Duration VISIBILITY_RETRY_PAUSE = Duration.ofMillis(100);
 
     private final VirtualTopicManager virtualTopicManager;
     private final MetadataCache cache;
@@ -52,20 +59,28 @@ public final class TopicService implements AutoCloseable {
     private final TopicAdmin topicAdmin;
     private final GovernancePolicy governancePolicy;
     private final ConsistencyAwareUpdater consistencyAwareUpdater;
+    private final MetadataRefresher metadataRefresher;
+    private final Duration visibilityTimeout;
 
+    /// @param visibilityTimeout how long a physical topic creation waits for the topic to reach the
+    ///                          [MetadataCache]; the same limit the config writes wait for the gateway to apply them
     public TopicService(
             VirtualTopicManager virtualTopicManager,
             MetadataCache cache,
+            MetadataRefresher metadataRefresher,
             DynamicConfigRepository dynamicConfigRepository,
             TopicAdmin topicAdmin,
-            GovernancePolicy governancePolicy
+            GovernancePolicy governancePolicy,
+            Duration visibilityTimeout
     ) {
         this.virtualTopicManager = virtualTopicManager;
         this.cache = cache;
+        this.metadataRefresher = metadataRefresher;
         this.dynamicConfigRepository = dynamicConfigRepository;
         this.topicAdmin = topicAdmin;
         this.governancePolicy = governancePolicy;
         this.consistencyAwareUpdater = new ConsistencyAwareUpdater(dynamicConfigRepository);
+        this.visibilityTimeout = visibilityTimeout;
     }
 
     @Override
@@ -246,7 +261,11 @@ public final class TopicService implements AutoCloseable {
         });
     }
 
-    TopicSpec createPhysicalTopic(KawaPrincipal caller, TopicRequest request) {
+    /// Creates the physical topic on the broker, then refreshes the gateway's metadata until the
+    /// topic is in the [MetadataCache] or the visibility timeout passes. A topic that is not
+    /// visible in time is still created: the result says so instead of failing, because a retry
+    /// would only answer "already exists".
+    PhysicalTopicCreation createPhysicalTopic(KawaPrincipal caller, TopicRequest request) {
         String principal = principalName(caller);
         if (!"physical".equals(request.type())) {
             throw new IllegalArgumentException("type must be 'physical' or 'virtual'");
@@ -268,7 +287,37 @@ public final class TopicService implements AutoCloseable {
             }
             throw new IllegalStateException("failed to create topic '" + spec.name() + "': " + e.getMessage(), e);
         }
-        return spec;
+        return new PhysicalTopicCreation(spec, awaitVisible(spec.name()));
+    }
+
+    /// Refreshes the metadata until `name` is in the [MetadataCache]; `false` when the visibility
+    /// timeout passes first. Right after creation the broker may still report the topic with an
+    /// error (no leader yet), which the cache skips, hence the retries.
+    private boolean awaitVisible(String name) {
+        long deadline = System.nanoTime() + visibilityTimeout.toNanos();
+        while (!cache.contains(name)) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) {
+                log.warn("Topic '{}' was created but is not in the gateway's metadata after {} ms",
+                        name, visibilityTimeout.toMillis());
+                return false;
+            }
+            try {
+                try {
+                    metadataRefresher.refresh().toCompletableFuture().get(remaining, TimeUnit.NANOSECONDS);
+                } catch (ExecutionException | TimeoutException e) {
+                    log.debug("Metadata refresh while waiting for topic '{}' failed: {}", name, e.toString());
+                }
+                if (!cache.contains(name)) {
+                    long left = Math.max(0, deadline - System.nanoTime());
+                    Thread.sleep(Math.min(VISIBILITY_RETRY_PAUSE.toMillis(), TimeUnit.NANOSECONDS.toMillis(left)));
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return cache.contains(name);
+            }
+        }
+        return true;
     }
 
     /// The topic's current state from the broker, or `null` when the broker does not know it.
@@ -338,6 +387,13 @@ public final class TopicService implements AutoCloseable {
             }
         }
         return false;
+    }
+
+    /// The outcome of [#createPhysicalTopic]: the topic was created on the broker.
+    ///
+    /// @param spec    the created topic
+    /// @param visible whether the topic reached the [MetadataCache] before the call returned
+    public record PhysicalTopicCreation(TopicSpec spec, boolean visible) {
     }
 
     /// Raw virtual and physical topic data returned by [#listTopics()].

@@ -7,6 +7,7 @@ import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
+import io.jonasg.kawa.core.cluster.MetadataRefresher;
 import io.jonasg.kawa.core.cluster.MetadataSnapshot;
 import io.jonasg.kawa.core.cluster.PartitionMetadata;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
@@ -29,6 +30,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -37,6 +39,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 
@@ -51,6 +55,14 @@ public abstract class AdminHttpSliceTestBase {
     protected FakeDynamicConfigRepository repository = new FakeDynamicConfigRepository(DynamicConfig.empty());
     protected GovernancePolicy governance = new GovernancePolicy(new GovernanceConfig(null));
     protected FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
+    /// How long a topic creation waits for the created topic to show in [#cache].
+    protected Duration topicVisibilityTimeout = Duration.ofSeconds(5);
+    /// Refreshes [#cache] like the broker would: afterwards it also holds every topic [#topicAdmin]
+    /// created.
+    protected MetadataRefresher metadataRefresher = () -> {
+        showCreatedTopics();
+        return CompletableFuture.completedFuture(null);
+    };
     protected CorsConfig cors;
     protected AdminAuthConfig auth = AdminAuthConfig.none();
     /// `admin.publicUrl`; `null` derives it from the bind address.
@@ -79,8 +91,8 @@ public abstract class AdminHttpSliceTestBase {
 
     /// Boots the server with the current fakes. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
-        services = AdminServices.create(virtualTopics, cache, repository, governance, topicAdmin,
-                auth.bootstrapUser(), env::get);
+        services = AdminServices.create(virtualTopics, cache, metadataRefresher, topicVisibilityTimeout, repository,
+                governance, topicAdmin, auth.bootstrapUser(), env::get);
         server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, cors, auth, publicUrl), services, authenticationProviders);
         server.start();
     }
@@ -257,6 +269,18 @@ public abstract class AdminHttpSliceTestBase {
     /// The `Authorization` header carrying `token`.
     protected static Map<String, String> bearer(String token) {
         return Map.of("Authorization", "Bearer " + token);
+    }
+
+    /// Adds every topic [#topicAdmin] created to [#cache], keeping what it already holds.
+    private void showCreatedTopics() {
+        Map<String, TopicMetadata> topics = new HashMap<>();
+        cache.topics().forEach(topic -> topics.put(topic.name(), topic));
+        topicAdmin.created.forEach(spec -> topics.putIfAbsent(spec.name(),
+                topic(spec.name(), Math.max(spec.partitions(), 1), Math.max(spec.replicationFactor(), 1))));
+        cache.update(MetadataSnapshot.of(
+                topics,
+                cache.brokers().stream().collect(Collectors.toMap(BrokerNode::id, broker -> broker)),
+                "test-cluster"));
     }
 
     /// A metadata cache holding the given topics, mirroring a broker snapshot.

@@ -74,6 +74,10 @@ public final class Router {
             return new Response<>(201, body, JSON, false);
         }
 
+        public static <T> Response<T> accepted(T body) {
+            return new Response<>(202, body, JSON, false);
+        }
+
         public static Response<Void> noContent() {
             return new Response<>(204, null, JSON, false);
         }

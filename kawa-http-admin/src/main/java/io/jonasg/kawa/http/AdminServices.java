@@ -3,6 +3,7 @@ package io.jonasg.kawa.http;
 import io.jonasg.kawa.config.AdminAuthConfig.BootstrapUser;
 import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.core.cluster.MetadataCache;
+import io.jonasg.kawa.core.cluster.MetadataRefresher;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.http.clients.AuthClientService;
 import io.jonasg.kawa.http.governance.GovernanceService;
@@ -20,6 +21,7 @@ import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.function.Function;
 
 /// The services behind the admin surface, built once and shared by every surface that exposes
@@ -46,10 +48,14 @@ public record AdminServices(
     /// before the admin authentication provider is created: a provider may require an admin user
     /// to exist.
     ///
-    /// @param env looks up environment variables, such as the bootstrap user reset switch
+    /// @param metadataRefresher       refreshes `cache` on demand, so a created topic is listed at once
+    /// @param topicVisibilityTimeout  how long a topic creation waits for the created topic to reach `cache`
+    /// @param env                     looks up environment variables, such as the bootstrap user reset switch
     public static AdminServices create(
             VirtualTopicManager virtualTopics,
             MetadataCache cache,
+            MetadataRefresher metadataRefresher,
+            Duration topicVisibilityTimeout,
             DynamicConfigRepository configRepository,
             GovernancePolicy governance,
             TopicAdmin topicAdmin,
@@ -59,7 +65,8 @@ public record AdminServices(
         new BootstrapUserSeeder(configRepository, Clock.systemUTC())
                 .seed(bootstrapUser, Boolean.parseBoolean(env.apply(BootstrapUserSeeder.RESET_ENV)));
         return new AdminServices(
-                new TopicService(virtualTopics, cache, configRepository, topicAdmin, governance),
+                new TopicService(virtualTopics, cache, metadataRefresher, configRepository, topicAdmin, governance,
+                        topicVisibilityTimeout),
                 new RbacRoleService(configRepository),
                 new RbacGroupService(configRepository),
                 new AuthClientService(configRepository),

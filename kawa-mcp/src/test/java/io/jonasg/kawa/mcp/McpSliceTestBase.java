@@ -27,11 +27,13 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.UnaryOperator;
 
 /// Shared setup for the MCP slice tests: boots a real [AdminHttpServer] with the [KawaMcpServer] on an
@@ -69,7 +71,8 @@ public abstract class McpSliceTestBase {
 
     /// Boots the server with the current state. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
-        var real = AdminServices.create(virtualTopics, cache, new InMemoryConfigRepository(modules),
+        var real = AdminServices.create(virtualTopics, cache, () -> CompletableFuture.completedFuture(null),
+                Duration.ofSeconds(5), new InMemoryConfigRepository(modules),
                 new GovernancePolicy(new GovernanceConfig(null)), topicAdmin, null, _ -> null);
         services = topicService == null ? real : new AdminServices(topicService, real.roles(), real.groups(),
                 real.clients(), real.governanceRules(), real.adminUsers(), real.adminUserAuthenticator(), real.modules(),

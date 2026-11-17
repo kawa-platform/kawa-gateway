@@ -55,7 +55,9 @@ public final class DynamicConfigManager implements DynamicConfigRepository, Auto
 
     private static final Logger log = LoggerFactory.getLogger(DynamicConfigManager.class);
 
-    private static final Duration DEFAULT_APPLY_WAIT_TIMEOUT = Duration.ofSeconds(5);
+    /// How long a config write waits for the gateway to apply it. The admin API's topic creation waits
+    /// the same time for the new topic to show in the metadata.
+    public static final Duration DEFAULT_APPLY_WAIT_TIMEOUT = Duration.ofSeconds(5);
     private static final int MAX_WRITE_ATTEMPTS = 10;
 
     private final ConfigTopicConsumer consumer;

@@ -28,22 +28,20 @@ class TopicsAdminApiIT extends AdminHTTPTestSupport {
                         .build()
         );
 
-        // and - the topic exists on the broker
+        // and - the topic is listed as soon as the creating call returned. This read is deliberately
+        // immediate, not awaited: the creation itself waits until the gateway's metadata has the topic.
         assertThat(createResp.statusCode()).isEqualTo(201);
+        HttpResponse<String> list = httpExec(reqBuilder("/topics").GET().build());
+        assertThat(list.body())
+                .withFailMessage(() -> "Topic 'orders' is not listed straight after it was created: " + list.body())
+                .contains("\"type\":\"physical\"", "\"name\":\"orders\"");
+
+        // and - the topic exists on the broker
         Awaitility.await()
                 .atMost(Duration.ofSeconds(30))
                 .pollInterval(Duration.ofMillis(500))
                 .untilAsserted(() ->
                         assertThat(brokerAdmin.listTopics().names().get()).contains("orders"));
-
-        // and - the gateway's metadata cache knows the topic before it can be deleted
-        Awaitility.await()
-                .atMost(Duration.ofSeconds(30))
-                .pollInterval(Duration.ofMillis(500))
-                .untilAsserted(() -> {
-                    HttpResponse<String> list = httpExec(reqBuilder("/topics").GET().build());
-                    assertThat(list.body()).contains("\"type\":\"physical\"", "\"name\":\"orders\"");
-                });
 
         // when - the topic is deleted through the unified /topics surface
         var deleteResp = httpExec(
