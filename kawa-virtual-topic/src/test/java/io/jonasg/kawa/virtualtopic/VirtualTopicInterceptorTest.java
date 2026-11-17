@@ -745,6 +745,54 @@ class VirtualTopicInterceptorTest {
     }
 
     @Test
+    void offsetFetchAllTopicsAnswersPhysicalTopicOncePerVirtualTopic() {
+        // given
+        var sharedInterceptor = new VirtualTopicInterceptor(new VirtualTopicManager(Map.of(
+                "orders-eu", new VirtualTopicConfig("orders-v2"),
+                "orders-us", new VirtualTopicConfig("orders-v2"))));
+        GatewayContext requestContext = freshContext();
+        sharedInterceptor.onRequest(requestContext, request(OFFSET_FETCH, new OffsetFetchRequestData().setGroupId("g1").setTopics(null)));
+        var responseData = new OffsetFetchResponseData();
+        var committed = new OffsetFetchResponseData.OffsetFetchResponseTopic().setName("orders-v2");
+        committed.partitions().add(new OffsetFetchResponseData.OffsetFetchResponsePartition().setPartitionIndex(0).setCommittedOffset(42));
+        responseData.topics().add(committed);
+
+        // when
+        sharedInterceptor.onResponse(requestContext, response(OFFSET_FETCH, responseData));
+
+        // then
+        assertThat(responseData.topics())
+                .withFailMessage(() -> "Committed offset on 'orders-v2' was not answered for both 'orders-eu' and 'orders-us': %s"
+                        .formatted(responseData.topics()))
+                .extracting(OffsetFetchResponseData.OffsetFetchResponseTopic::name, topic -> first(topic.partitions()).committedOffset())
+                .containsExactlyInAnyOrder(tuple("orders-eu", 42L), tuple("orders-us", 42L));
+    }
+
+    @Test
+    void listsVirtualTopicWithoutAnotherOnSamePhysicalTopicWhenNotRequested() {
+        // given
+        var virtualTopicInterceptor = new VirtualTopicInterceptor(new VirtualTopicManager(Map.of(
+                "orders-eu", new VirtualTopicConfig("orders-v2"),
+                "orders-us", new VirtualTopicConfig("orders-v2"))));
+        GatewayContext requestContext = freshContext();
+        var requestData = new MetadataRequestData();
+        requestData.topics().add(new MetadataRequestData.MetadataRequestTopic().setName("orders-eu"));
+        virtualTopicInterceptor.onRequest(requestContext, request(METADATA, requestData));
+        var responseData = new MetadataResponseData();
+        addTopic(responseData, "orders-v2");
+
+        // when
+        virtualTopicInterceptor.onResponse(requestContext, response(METADATA, responseData));
+
+        // then
+        var topics = responseData.topics().stream().map(MetadataResponseData.MetadataResponseTopic::name).toList();
+        assertThat(topics)
+                .withFailMessage(() -> "Metadata request for 'orders-eu' did not answer only 'orders-eu' (shares 'orders-v2' with 'orders-us'), got %s"
+                        .formatted(topics))
+                .containsExactly("orders-eu");
+    }
+
+    @Test
     void responsesKeepPhysicalNamesWhenRequestSpokePhysical() {
         var listOffsetsResponse = new ListOffsetsResponseData();
         listOffsetsResponse.topics().add(new ListOffsetsResponseData.ListOffsetsTopicResponse().setName("orders-v2"));

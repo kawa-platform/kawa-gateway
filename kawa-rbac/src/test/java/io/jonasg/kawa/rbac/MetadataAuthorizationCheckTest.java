@@ -7,8 +7,10 @@ import io.jonasg.kawa.config.ResourceConfig;
 import io.jonasg.kawa.config.RoleConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.core.GatewayContext;
+import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.core.Response;
+import io.jonasg.kawa.virtualtopic.VirtualTopicInterceptor;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.acl.AclOperation;
 import org.apache.kafka.common.message.MetadataRequestData;
@@ -66,6 +68,64 @@ class MetadataAuthorizationCheckTest {
                     .setName(topic).setErrorCode((short) 0));
         }
         return body;
+    }
+
+    /// RBAC and virtual topics in the order `KafkaGateway` runs them, so a test sees the Metadata
+    /// response the client receives.
+    private static InterceptorPipeline gateway(RbacAuthorizer authorizer, VirtualTopicManager virtualTopics) {
+        return new InterceptorPipeline(List.of(
+                new AuthorizationInterceptor(authorizer, virtualTopics),
+                new VirtualTopicInterceptor(virtualTopics)));
+    }
+
+    @Test
+    void listsVirtualTopicWhenAnotherOnSamePhysicalTopicIsDenied() {
+        // given
+        var gateway = gateway(
+                authorizer(topicAcl("orders-eu", AclOperation.DESCRIBE)),
+                new VirtualTopicManager(Map.of(
+                        "orders-eu", new VirtualTopicConfig("orders-v2"),
+                        "orders-us", new VirtualTopicConfig("orders-v2"))
+                )
+        );
+        var ctx = context("alice");
+        gateway.onRequest(ctx, metadataRequest("orders-eu"));
+
+        // when
+        var response = metadataResponse(brokerResponse("orders-v2"));
+        gateway.onResponse(ctx, response);
+
+        // then
+        var topics = ((MetadataResponseData) response.body()).topics().stream()
+                .map(MetadataResponseData.MetadataResponseTopic::name)
+                .toList();
+        assertThat(topics)
+                .withFailMessage(() -> "Alice may describe 'orders-eu' but did not get only 'orders-eu' (both on 'orders-v2'), got %s"
+                        .formatted(topics))
+                .containsExactly("orders-eu");
+    }
+
+    @Test
+    void listAllListsVirtualTopicWhenAnotherOnSamePhysicalTopicIsDenied() {
+        // given
+        var gateway = gateway(authorizer(topicAcl("orders-eu", AclOperation.DESCRIBE)), new VirtualTopicManager(Map.of(
+                "orders-eu", new VirtualTopicConfig("orders-v2"),
+                "orders-us", new VirtualTopicConfig("orders-v2"))));
+        var ctx = context("alice");
+        gateway.onRequest(ctx, metadataRequest());
+        var response = metadataResponse(brokerResponse("orders-v2"));
+
+        // when
+        gateway.onResponse(ctx, response);
+
+        // then
+        var topics = ((MetadataResponseData) response.body()).topics().stream()
+                .map(MetadataResponseData.MetadataResponseTopic::name)
+                .toList();
+        assertThat(topics)
+                .withFailMessage(() -> "Alice may describe 'orders-eu' but did not see only 'orders-eu' (both on 'orders-v2'), got %s"
+                        .formatted(topics))
+                .containsExactly("orders-eu");
     }
 
     @Test
