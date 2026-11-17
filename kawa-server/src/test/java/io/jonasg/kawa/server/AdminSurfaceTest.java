@@ -15,7 +15,8 @@ class AdminSurfaceTest {
         var state = new DynamicGatewayState("localhost:9092", "__kawa", new java.util.Properties());
         var cache = new MetadataCache();
         var admin = new AdminSurface(
-                new AdminConfig(true, "127.0.0.1", 0, null), state, cache, "localhost:9092", new java.util.Properties(),
+                new AdminConfig(true, "127.0.0.1", 0, null), state, cache, () -> java.util.concurrent.CompletableFuture.completedFuture(null),
+                "localhost:9092", new java.util.Properties(),
                 new PluginLoader(getClass().getClassLoader()).loadAll().authenticationProviders());
 
         // when

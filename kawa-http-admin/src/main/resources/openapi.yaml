@@ -69,7 +69,10 @@ paths:
         Unified topic creation. Both kinds run the governance admission check first (`403`
         with the violations when refused). A `"type": "virtual"` body then writes a virtual
         topic config through the config repository, judged on `CREATE` or, when it already
-        exists, `ALTER`; a `"type": "physical"` body creates the topic on the broker.
+        exists, `ALTER`; a `"type": "physical"` body creates the topic on the broker and
+        returns once the gateway's metadata contains it, so a `GET /topics` straight after
+        lists it. If it is still not visible after 5 seconds the call answers `202`: the
+        topic was created (a second `POST` answers `409`) and appears shortly.
       requestBody:
         required: true
         content:
@@ -85,6 +88,17 @@ paths:
                 oneOf:
                   - $ref: '#/components/schemas/VirtualTopicConfigView'
                   - $ref: '#/components/schemas/TopicSpecView'
+        '202':
+          description: Physical topic created on the broker but not yet visible in the gateway's metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - message
+                properties:
+                  message:
+                    type: string
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':

@@ -32,10 +32,12 @@ import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.resource.ResourceType;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
@@ -344,6 +346,48 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                 """);
         assertThat(topicAdmin.created)
                 .containsExactly(new TopicSpec("orders", 3, 3, Map.of("cleanup.policy", "compact")));
+    }
+
+    @Test
+    void listsACreatedPhysicalTopicStraightAfterTheCreatingCallReturns() throws Exception {
+        // given - topic 'orders' does not exist
+        startServer();
+
+        // when - it is created and the topics are listed straight after
+        var created = send("POST", "/topics", "{\"type\":\"physical\",\"name\":\"orders\"}");
+        var topics = send("GET", "/topics");
+
+        // then
+        assertThat(created).hasStatusCode(201);
+        assertThat(topics).hasStatusCode(200);
+        assertThat(topics.body())
+                .withFailMessage(() -> "Topic 'orders' is not listed straight after it was created: " + topics.body())
+                .contains("\"type\":\"physical\"", "\"name\":\"orders\"");
+    }
+
+    @Test
+    void acceptsAPhysicalTopicThatIsCreatedButNotYetVisible() throws Exception {
+        // given - the gateway's metadata never shows the new topic
+        metadataRefresher = () -> CompletableFuture.completedFuture(null);
+        topicVisibilityTimeout = Duration.ofMillis(200);
+        startServer();
+
+        // when
+        var response = send("POST", "/topics", "{\"type\":\"physical\",\"name\":\"orders\"}");
+
+        // then - the topic was created and the caller is told it is not visible yet
+        assertThat(response).hasStatusCode(202);
+        assertThatJson(response.body()).isEqualTo("""
+                {"message": "topic 'orders' was created but is not yet visible in the gateway's metadata"}
+                """);
+        assertThat(topicAdmin.created).extracting(TopicSpec::name).containsExactly("orders");
+
+        // when - the caller creates it again, the broker now knowing it
+        topicAdmin.createError = new TopicExistsException("Topic 'orders' already exists.");
+        var retry = send("POST", "/topics", "{\"type\":\"physical\",\"name\":\"orders\"}");
+
+        // then
+        assertThat(retry).hasStatusCode(409);
     }
 
     @Test

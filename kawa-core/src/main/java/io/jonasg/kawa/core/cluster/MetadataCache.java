@@ -50,6 +50,11 @@ public final class MetadataCache {
         return brokers.get(brokerId);
     }
 
+    /// Whether the cache knows `physicalTopic`.
+    public boolean contains(String physicalTopic) {
+        return topics.containsKey(physicalTopic);
+    }
+
     /// Number of partitions for `physicalTopic`, or `0` if unknown.
     public int partitionCount(String physicalTopic) {
         TopicMetadata topic = topics.get(physicalTopic);

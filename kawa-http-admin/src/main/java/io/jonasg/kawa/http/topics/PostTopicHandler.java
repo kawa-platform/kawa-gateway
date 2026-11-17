@@ -6,7 +6,10 @@ import io.jonasg.kawa.http.configchange.ForbiddenException;
 import io.jonasg.kawa.http.web.Router;
 import tools.jackson.databind.json.JsonMapper;
 
-/// Serves `POST /topics`: the unified topic creation surface.
+import java.util.Map;
+
+/// Serves `POST /topics`: the unified topic creation surface. A physical topic answers `201` once it
+/// is in the gateway's metadata, or `202` when it was created but is not visible yet in time.
 final class PostTopicHandler implements Router.Handler {
 
     private final TopicService topicService;
@@ -37,7 +40,12 @@ final class PostTopicHandler implements Router.Handler {
                             value.managedBy()));
                 }
                 case "physical" -> {
-                    var spec = topicService.createPhysicalTopic(request.principal(), body);
+                    var creation = topicService.createPhysicalTopic(request.principal(), body);
+                    var spec = creation.spec();
+                    if (!creation.visible()) {
+                        yield Router.Response.accepted(Map.of("message", "topic '" + spec.name()
+                                + "' was created but is not yet visible in the gateway's metadata"));
+                    }
                     yield Router.Response.created(new TopicSpecView(
                             spec.name(),
                             spec.partitions(),

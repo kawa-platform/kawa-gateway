@@ -2,6 +2,7 @@ package io.jonasg.kawa.server.broker;
 
 import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
+import io.jonasg.kawa.core.cluster.MetadataRefresher;
 import io.jonasg.kawa.core.cluster.MetadataSnapshot;
 import io.jonasg.kawa.core.cluster.PartitionMetadata;
 import io.jonasg.kawa.core.cluster.TopicMetadata;
@@ -33,6 +34,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -42,8 +46,9 @@ import java.util.stream.Collectors;
 
 /// The gateway's own connection to the cluster. Refreshes the [MetadataCache] used for
 /// routing and captures the broker's ApiVersions ranges so the gateway can advertise a safe
-/// intersection to clients.
-public final class MetadataClient {
+/// intersection to clients. Besides the scheduled refresh, [#refresh()] fetches the metadata on
+/// demand, so the admin API sees a topic it just created without waiting for the next schedule.
+public final class MetadataClient implements MetadataRefresher {
 
     private static final Logger log = LoggerFactory.getLogger(MetadataClient.class);
     private static final short API_VERSIONS = 18;
@@ -62,6 +67,7 @@ public final class MetadataClient {
     private final RequestHeaderCodec requestHeaderCodec = new RequestHeaderCodec();
     private final ResponseHeaderCodec responseHeaderCodec = new ResponseHeaderCodec();
     private final Map<Integer, Consumer<ByteBuf>> pending = new ConcurrentHashMap<>();
+    private final Set<CompletableFuture<Void>> inFlightRefreshes = ConcurrentHashMap.newKeySet();
     private final AtomicInteger correlationIds = new AtomicInteger();
     private final CountDownLatch initialMetadataLatch = new CountDownLatch(1);
 
@@ -109,12 +115,14 @@ public final class MetadataClient {
                 channel.config().isAutoRead());
         channel.closeFuture().addListener(_ -> {
             metrics.brokerConnectionClosed();
+            pending.clear();
+            failInFlightRefreshes();
             if (running) {
                 log.warn("Metadata connection to {}:{} lost; will not refresh topology", host, port);
             }
         });
         running = true;
-        refresh();
+        scheduledRefresh();
 
         if (!initialMetadataLatch.await(INITIAL_METADATA_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
             throw new IllegalStateException("Timed out waiting for initial metadata from " + host + ":" + port);
@@ -146,14 +154,50 @@ public final class MetadataClient {
         return brokerRanges;
     }
 
-    private void refresh() {
+    /// Requests the metadata once, outside the schedule; completes once the [MetadataCache] holds
+    /// the response. Fails straight away when the metadata connection is not up, and as soon as the
+    /// connection closes (it drops or [#stop()] runs) while the request is in flight. A broker that
+    /// stays connected but never answers leaves the stage incomplete, so callers still bound their wait.
+    @Override
+    public CompletionStage<Void> refresh() {
+        Channel ch = channel;
+        if (!running || ch == null || !ch.isActive()) {
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException("metadata connection to " + host + ":" + port + " is not active"));
+        }
+        var refreshed = new CompletableFuture<Void>();
+        inFlightRefreshes.add(refreshed);
+        refreshed.whenComplete((_, _) -> inFlightRefreshes.remove(refreshed));
+        sendMetadata(ch, frame -> {
+            try {
+                onMetadataResponse(frame);
+                refreshed.complete(null);
+            } catch (RuntimeException e) {
+                refreshed.completeExceptionally(e);
+                throw e;
+            }
+        });
+        // The connection may have closed between the check above and the request being queued,
+        // after the close listener already failed the in-flight refreshes.
+        if (!ch.isActive()) {
+            failInFlightRefreshes();
+        }
+        return refreshed;
+    }
+
+    private void failInFlightRefreshes() {
+        var closed = new IllegalStateException("metadata connection to " + host + ":" + port + " closed");
+        inFlightRefreshes.forEach(refresh -> refresh.completeExceptionally(closed));
+    }
+
+    private void scheduledRefresh() {
         Channel ch = channel;
         if (!running || ch == null || !ch.isActive()) {
             return;
         }
         sendApiVersions(ch);
-        sendMetadata(ch);
-        ch.eventLoop().schedule(this::refresh, REFRESH_SECONDS, java.util.concurrent.TimeUnit.SECONDS);
+        sendMetadata(ch, this::onMetadataResponse);
+        ch.eventLoop().schedule(this::scheduledRefresh, REFRESH_SECONDS, TimeUnit.SECONDS);
     }
 
     private void sendApiVersions(Channel ch) {
@@ -165,11 +209,11 @@ public final class MetadataClient {
         write(ch, API_VERSIONS, (short) 3, correlationId, request);
     }
 
-    private void sendMetadata(Channel ch) {
+    private void sendMetadata(Channel ch, Consumer<ByteBuf> onResponse) {
         // A null `topics` array requests metadata for ALL topics; an empty array requests none.
         var request = new MetadataRequestData().setTopics(null);
         int correlationId = correlationIds.incrementAndGet();
-        pending.put(correlationId, this::onMetadataResponse);
+        pending.put(correlationId, onResponse);
         write(ch, METADATA, (short) 8, correlationId, request);
     }
 
@@ -286,5 +330,6 @@ public final class MetadataClient {
             ch.close();
         }
         pending.clear();
+        failInFlightRefreshes();
     }
 }
