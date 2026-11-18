@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http.topics;
 
-import io.jonasg.kawa.broker.TopicAdmin;
+import io.jonasg.kawa.broker.BrokerAdmin;
 import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.ManagedBy;
@@ -44,7 +44,7 @@ import java.util.stream.Collectors;
 /// principal a delegate acts for (e.g. `k8s:team-a`). Every virtual topic write honours
 /// [Ownership]: a managed virtual topic only changes through its owner. A physical topic it creates
 /// is waited for in the [MetadataCache] (see [#createPhysicalTopic]), so the topic list shows it
-/// as soon as the creating call returns. Owns the [TopicAdmin]: closing the service closes it.
+/// as soon as the creating call returns. Owns the [BrokerAdmin]: closing the service closes it.
 public final class TopicService implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(TopicService.class);
@@ -56,7 +56,7 @@ public final class TopicService implements AutoCloseable {
     private final VirtualTopicManager virtualTopicManager;
     private final MetadataCache cache;
     private final DynamicConfigRepository dynamicConfigRepository;
-    private final TopicAdmin topicAdmin;
+    private final BrokerAdmin brokerAdmin;
     private final GovernancePolicy governancePolicy;
     private final ConsistencyAwareUpdater consistencyAwareUpdater;
     private final MetadataRefresher metadataRefresher;
@@ -69,7 +69,7 @@ public final class TopicService implements AutoCloseable {
             MetadataCache cache,
             MetadataRefresher metadataRefresher,
             DynamicConfigRepository dynamicConfigRepository,
-            TopicAdmin topicAdmin,
+            BrokerAdmin brokerAdmin,
             GovernancePolicy governancePolicy,
             Duration visibilityTimeout
     ) {
@@ -77,7 +77,7 @@ public final class TopicService implements AutoCloseable {
         this.cache = cache;
         this.metadataRefresher = metadataRefresher;
         this.dynamicConfigRepository = dynamicConfigRepository;
-        this.topicAdmin = topicAdmin;
+        this.brokerAdmin = brokerAdmin;
         this.governancePolicy = governancePolicy;
         this.consistencyAwareUpdater = new ConsistencyAwareUpdater(dynamicConfigRepository);
         this.visibilityTimeout = visibilityTimeout;
@@ -85,7 +85,7 @@ public final class TopicService implements AutoCloseable {
 
     @Override
     public void close() {
-        topicAdmin.close();
+        brokerAdmin.close();
     }
 
     /// The virtual topics the [VirtualTopicManager] serves and the physical topics in the broker
@@ -113,7 +113,7 @@ public final class TopicService implements AutoCloseable {
                 var virtualTopic = maybeVirtualTopic.get();
                 String physical = virtualTopic.physical();
                 var names = physical.equals(name) ? List.of(name) : List.of(physical, name);
-                Map<String, TopicState> topics = this.topicAdmin.describe(names).toCompletableFuture().get();
+                Map<String, TopicState> topics = this.brokerAdmin.describe(names).toCompletableFuture().get();
                 var state = topics.get(physical);
                 return new TopicDescription(
                         name,
@@ -126,7 +126,7 @@ public final class TopicService implements AutoCloseable {
                 );
             }
 
-            var res = this.topicAdmin.describe(List.of(name));
+            var res = this.brokerAdmin.describe(List.of(name));
             Map<String, TopicState> topics = res.toCompletableFuture().get();
             if (topics.containsKey(name)) {
                 var state = topics.get(name);
@@ -235,7 +235,7 @@ public final class TopicService implements AutoCloseable {
                     new TopicSpec(name, current.partitions(), current.replicationFactor(), current.configs())));
         }
         try {
-            topicAdmin.deleteTopic(name);
+            brokerAdmin.deleteTopic(name);
         } catch (Exception e) {
             throw new IllegalStateException("failed to delete topic '" + name + "': " + e.getMessage(), e);
         }
@@ -280,7 +280,7 @@ public final class TopicService implements AutoCloseable {
                 request.configs());
         admit(spec.name(), GovernanceRequest.topic(principal, SERVICE, spec));
         try {
-            topicAdmin.createTopic(spec);
+            brokerAdmin.createTopic(spec);
         } catch (Exception e) {
             if (isTopicExists(e)) {
                 throw new ConflictException("topic '" + spec.name() + "' already exists");
@@ -323,7 +323,7 @@ public final class TopicService implements AutoCloseable {
     /// The topic's current state from the broker, or `null` when the broker does not know it.
     private TopicState currentState(String name) {
         try {
-            return topicAdmin.describe(List.of(name)).toCompletableFuture()
+            return brokerAdmin.describe(List.of(name)).toCompletableFuture()
                     .get(DESCRIBE_TIMEOUT_SECONDS, TimeUnit.SECONDS).get(name);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

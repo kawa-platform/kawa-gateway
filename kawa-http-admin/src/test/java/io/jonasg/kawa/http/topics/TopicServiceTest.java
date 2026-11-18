@@ -19,7 +19,7 @@ import io.jonasg.kawa.http.FakeDynamicConfigRepository;
 import io.jonasg.kawa.http.configchange.ConflictException;
 import io.jonasg.kawa.http.configchange.Consistency;
 import io.jonasg.kawa.http.configchange.ForbiddenException;
-import io.jonasg.kawa.test.FakeTopicAdmin;
+import io.jonasg.kawa.test.FakeBrokerAdmin;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.resource.ResourceType;
@@ -49,16 +49,16 @@ class TopicServiceTest {
         return CompletableFuture.completedFuture(null);
     };
     private final FakeDynamicConfigRepository repository = new FakeDynamicConfigRepository(DynamicConfig.empty());
-    private final FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
+    private final FakeBrokerAdmin brokerAdmin = new FakeBrokerAdmin();
     private GovernancePolicy governance = new GovernancePolicy(new GovernanceConfig(null));
-    private final TopicService service = new TopicService(virtualTopics, cache, metadataRefresher, repository, topicAdmin, governance, VISIBILITY_TIMEOUT);
+    private final TopicService service = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
 
     @Test
     void listsVirtualAndPhysicalTopics() {
         // given
         var virtualTopicsWithOrders = new VirtualTopicManager(Map.of(
                 "orders", new VirtualTopicConfig("orders-v2")));
-        var serviceWithVirtual = new TopicService(virtualTopicsWithOrders, cache, metadataRefresher, repository, topicAdmin, governance, VISIBILITY_TIMEOUT);
+        var serviceWithVirtual = new TopicService(virtualTopicsWithOrders, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
         cacheWith(topic("orders-v2", 3, 2));
 
         // when
@@ -121,7 +121,7 @@ class TopicServiceTest {
 
         // then
         assertThat(repository.getActiveConfig().virtualTopics()).isEmpty();
-        assertThat(topicAdmin.deleted).isEmpty();
+        assertThat(brokerAdmin.deleted).isEmpty();
     }
 
     @Test
@@ -133,22 +133,22 @@ class TopicServiceTest {
         service.deleteTopic(ADMIN, "orders", Consistency.PERSISTED);
 
         // then
-        assertThat(topicAdmin.deleted).containsExactly("orders");
+        assertThat(brokerAdmin.deleted).containsExactly("orders");
     }
 
     @Test
     void refusesDeletingAProtectedPhysicalTopic() {
         // given - compacted topics are kept
         cacheWith(topic("orders", 1, 1));
-        topicAdmin.states.put("orders", new TopicState(1, 1, Map.of("cleanup.policy", "compact")));
+        brokerAdmin.states.put("orders", new TopicState(1, 1, Map.of("cleanup.policy", "compact")));
         governance = new GovernancePolicy(new GovernanceConfig(Map.of("keep-compacted", keepCompactedRule())));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, topicAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
 
         // when / then
         assertThatThrownBy(() -> governedService.deleteTopic(ADMIN, "orders", Consistency.PERSISTED))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessage("topic 'orders' rejected by governance: [keep-compacted] compacted topics are kept");
-        assertThat(topicAdmin.deleted).isEmpty();
+        assertThat(brokerAdmin.deleted).isEmpty();
     }
 
     @Test
@@ -159,7 +159,7 @@ class TopicServiceTest {
                 "keep-views", "views of orders are kept", null,
                 new Selector(ResourceType.TOPIC, null, GovernanceRuleConfig.TopicScope.VIRTUAL, Set.of(GovernanceRuleConfig.Operation.DELETE)),
                 Expression.cel("topic.physicalTopic != 'orders'")))));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, topicAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
 
         // when / then
         assertThatThrownBy(() -> governedService.deleteTopic(ADMIN, "orders-view", Consistency.PERSISTED))
@@ -190,7 +190,7 @@ class TopicServiceTest {
 
         // then
         assertThat(creation.spec().name()).isEqualTo("orders");
-        assertThat(topicAdmin.created).hasSize(1);
+        assertThat(brokerAdmin.created).hasSize(1);
         assertThat(creation.visible())
                 .withFailMessage(() -> "Topic 'orders' was not reported visible after the metadata refresh")
                 .isTrue();
@@ -209,7 +209,7 @@ class TopicServiceTest {
             }
             return CompletableFuture.completedFuture(null);
         };
-        var slowService = new TopicService(virtualTopics, cache, slowBroker, repository, topicAdmin, governance,
+        var slowService = new TopicService(virtualTopics, cache, slowBroker, repository, brokerAdmin, governance,
                 Duration.ofSeconds(5));
         var request = new TopicRequest("physical", "orders", 1, (short) 1, null, null, null, null, null);
 
@@ -229,7 +229,7 @@ class TopicServiceTest {
     void reportsACreatedTopicNotYetVisibleWhenTheMetadataNeverShowsIt() {
         // given - every metadata refresh fails
         MetadataRefresher brokenRefresh = () -> CompletableFuture.failedFuture(new IllegalStateException("connection down"));
-        var impatientService = new TopicService(virtualTopics, cache, brokenRefresh, repository, topicAdmin, governance,
+        var impatientService = new TopicService(virtualTopics, cache, brokenRefresh, repository, brokerAdmin, governance,
                 Duration.ofMillis(300));
         var request = new TopicRequest("physical", "orders", 1, (short) 1, null, null, null, null, null);
 
@@ -237,7 +237,7 @@ class TopicServiceTest {
         var creation = impatientService.createPhysicalTopic(ADMIN, request);
 
         // then
-        assertThat(topicAdmin.created)
+        assertThat(brokerAdmin.created)
                 .withFailMessage(() -> "Topic 'orders' was not created on the broker")
                 .hasSize(1);
         assertThat(creation.visible())
@@ -251,21 +251,21 @@ class TopicServiceTest {
         governance = new GovernancePolicy(new GovernanceConfig(
                 Map.of("min-replication",
                         minReplicationRule())));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, topicAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
         var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null);
 
         // then
         assertThatThrownBy(() -> governedService.createPhysicalTopic(ADMIN, request))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("rejected by governance");
-        assertThat(topicAdmin.created).isEmpty();
+        assertThat(brokerAdmin.created).isEmpty();
     }
 
     @Test
     void rejectsVirtualTopicViolatingGovernance() {
         // given - virtual topics must be named after their physical topic
         governance = new GovernancePolicy(new GovernanceConfig(Map.of("aliases", virtualAliasRule())));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, topicAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
         var request = new TopicRequest("virtual", "orders", null, null, null, "payments-v2", null, null, null);
 
         // when / then
@@ -282,7 +282,7 @@ class TopicServiceTest {
         // given - the rule runs on create and alter
         repository.update(base -> base.upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1")));
         governance = new GovernancePolicy(new GovernanceConfig(Map.of("aliases", virtualAliasRule())));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, topicAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
 
         // when / then
         assertThatThrownBy(() -> governedService.updateVirtualTopic(ADMIN, "orders",
@@ -304,7 +304,7 @@ class TopicServiceTest {
                 rule.expression(),
                 List.of(new GovernanceRuleConfig.Exemption(
                         "ops", "Operators may create under-replicated topics.", Expression.cel("principal == 'admin'")))))));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, topicAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
         var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null);
 
         // when
@@ -312,13 +312,13 @@ class TopicServiceTest {
 
         // then
         assertThat(creation.spec().name()).isEqualTo("orders");
-        assertThat(topicAdmin.created).hasSize(1);
+        assertThat(brokerAdmin.created).hasSize(1);
     }
 
     @Test
     void throwsConflictExceptionWhenPhysicalTopicExists() {
         // given
-        topicAdmin.createError = new TopicExistsException("Topic 'orders' already exists.");
+        brokerAdmin.createError = new TopicExistsException("Topic 'orders' already exists.");
         var request = new TopicRequest("physical", "orders", 3, (short) 3, null, null, null, null, null);
 
         // then
@@ -352,7 +352,7 @@ class TopicServiceTest {
     private void showCreatedTopics() {
         Map<String, TopicMetadata> topics = new java.util.HashMap<>();
         cache.topics().forEach(topic -> topics.put(topic.name(), topic));
-        topicAdmin.created.forEach(spec -> topics.putIfAbsent(spec.name(), topic(spec.name(), 1, 1)));
+        brokerAdmin.created.forEach(spec -> topics.putIfAbsent(spec.name(), topic(spec.name(), 1, 1)));
         cacheWith(topics.values().toArray(TopicMetadata[]::new));
     }
 

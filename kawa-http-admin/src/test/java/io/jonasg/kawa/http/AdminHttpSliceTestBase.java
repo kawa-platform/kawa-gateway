@@ -15,7 +15,7 @@ import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
 import io.jonasg.kawa.http.authentication.builtin.BuiltInAuthenticationPlugin;
 import io.jonasg.kawa.plugin.KawaPlugin;
-import io.jonasg.kawa.test.FakeTopicAdmin;
+import io.jonasg.kawa.test.FakeBrokerAdmin;
 import io.jonasg.kawa.test.TestSigningKeys;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.jspecify.annotations.Nullable;
@@ -54,10 +54,10 @@ public abstract class AdminHttpSliceTestBase {
     protected MetadataCache cache = new MetadataCache();
     protected FakeDynamicConfigRepository repository = new FakeDynamicConfigRepository(DynamicConfig.empty());
     protected GovernancePolicy governance = new GovernancePolicy(new GovernanceConfig(null));
-    protected FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
+    protected FakeBrokerAdmin brokerAdmin = new FakeBrokerAdmin();
     /// How long a topic creation waits for the created topic to show in [#cache].
     protected Duration topicVisibilityTimeout = Duration.ofSeconds(5);
-    /// Refreshes [#cache] like the broker would: afterwards it also holds every topic [#topicAdmin]
+    /// Refreshes [#cache] like the broker would: afterwards it also holds every topic [#brokerAdmin]
     /// created.
     protected MetadataRefresher metadataRefresher = () -> {
         showCreatedTopics();
@@ -94,7 +94,7 @@ public abstract class AdminHttpSliceTestBase {
     /// Boots the server with the current fakes. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
         services = AdminServices.create(virtualTopics, cache, metadataRefresher, topicVisibilityTimeout, repository,
-                governance, topicAdmin, auth.bootstrapUser(), publicUrl, env::get);
+                governance, brokerAdmin, auth.bootstrapUser(), publicUrl, env::get);
         server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, cors, auth, publicUrl), services, authenticationProviders);
         server.start();
     }
@@ -273,11 +273,11 @@ public abstract class AdminHttpSliceTestBase {
         return Map.of("Authorization", "Bearer " + token);
     }
 
-    /// Adds every topic [#topicAdmin] created to [#cache], keeping what it already holds.
+    /// Adds every topic [#brokerAdmin] created to [#cache], keeping what it already holds.
     private void showCreatedTopics() {
         Map<String, TopicMetadata> topics = new HashMap<>();
         cache.topics().forEach(topic -> topics.put(topic.name(), topic));
-        topicAdmin.created.forEach(spec -> topics.putIfAbsent(spec.name(),
+        brokerAdmin.created.forEach(spec -> topics.putIfAbsent(spec.name(),
                 topic(spec.name(), Math.max(spec.partitions(), 1), Math.max(spec.replicationFactor(), 1))));
         cache.update(MetadataSnapshot.of(
                 topics,

@@ -71,7 +71,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /// The gateway reaching a broker over TLS: SSL with mutual TLS, and SASL_SSL. Every connection the
 /// gateway opens to the cluster (the config-topic consumer and writer, the metadata and broker
-/// connections, and the topic admin) must speak TLS, or a TLS-only cluster is unreachable.
+/// connections, and the broker admin) must speak TLS, or a TLS-only cluster is unreachable.
 ///
 /// The broker (`cp-kafka`, as in [BrokerAuthIT]) uses the test certificates from
 /// [TestTls]: its certificate names `localhost`, which is where the gateway reaches it.

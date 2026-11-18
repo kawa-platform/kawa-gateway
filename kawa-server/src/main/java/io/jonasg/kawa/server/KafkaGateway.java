@@ -18,7 +18,7 @@ import io.jonasg.kawa.protocol.kafka.KafkaBodyCodec;
 import io.jonasg.kawa.protocol.kafka.SupportedVersions;
 import io.jonasg.kawa.governance.GovernanceInterceptor;
 import io.jonasg.kawa.governance.TopicDescriber;
-import io.jonasg.kawa.broker.KafkaTopicAdmin;
+import io.jonasg.kawa.broker.KafkaBrokerAdmin;
 import io.jonasg.kawa.rbac.AuthorizationInterceptor;
 import io.jonasg.kawa.server.broker.BrokerConnectionSettings;
 import io.jonasg.kawa.server.broker.ClusterConnections;
@@ -66,7 +66,7 @@ public final class KafkaGateway implements Gateway {
     private KafkaListener listener;
     private ClusterConnections connections;
     private AdminSurface admin;
-    private KafkaTopicAdmin topicDescriber;
+    private KafkaBrokerAdmin topicDescriber;
     private @Nullable HttpClient schemaRegistryClient;
 
     private final AuthenticationProviderRegistry authenticationProviders;
@@ -143,7 +143,7 @@ public final class KafkaGateway implements Gateway {
         AdvertisedListener advertised = resolveAdvertised(config.advertised(), boundPort);
 
         // Interceptor pipeline, built before the config load so every applied snapshot switches its modules
-        topicDescriber = new KafkaTopicAdmin(bootstrapServers, brokerSecurity);
+        topicDescriber = new KafkaBrokerAdmin(bootstrapServers, brokerSecurity);
         RequestPipeline requestPipeline = buildPipeline(dynamicState, advertised, topicDescriber, schemaRegistries);
 
         // Dynamic config from the config topic (blocks until caught up)

@@ -211,7 +211,7 @@ class DescribeTopicMcpToolSliceTest extends McpSliceTestBase {
     void describesAVirtualTopicThatShadowsAPhysicalTopic() throws Exception {
         // given
         ordersV2ExistsOnTheBroker();
-        topicAdmin.states.put("orders", new TopicState(1, 1, Map.of()));
+        brokerAdmin.states.put("orders", new TopicState(1, 1, Map.of()));
         virtualTopics = ordersVirtualTopic();
         cache = cacheWith(topic("orders-v2", 4, 2));
         startServer();
@@ -255,7 +255,7 @@ class DescribeTopicMcpToolSliceTest extends McpSliceTestBase {
 
     /// The broker holds `orders-v2` with 3 partitions, replication factor 2 and `retention.ms` 60000.
     private void ordersV2ExistsOnTheBroker() {
-        topicAdmin.states.put("orders-v2", new TopicState(3, 2, Map.of("retention.ms", "60000")));
+        brokerAdmin.states.put("orders-v2", new TopicState(3, 2, Map.of("retention.ms", "60000")));
     }
 
     /// The virtual topic `orders`, which maps to `orders-v2` and keeps only records with `region` = `eu`.
