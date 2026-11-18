@@ -41,6 +41,9 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
 - Test methods use `// given` / `// when` / `// then` comment blocks and AssertJ.
 - Test method names state the expected behavior under test, not the input or a bug (`addsTwoNumbers`,
   not `givenANumberOrAnother` or `whenAddingTwoNumbersTheyAreSummed`). Prefer small tests that each cover one behavior.
+- Name and assert a test from the point of view of the client application (the Kafka client, the admin API or MCP caller),
+  never the broker or the gateway's internals: what the client sends and gets back, under the names it used
+  (`answersEachVirtualTopicAProduceNamed`, not `produceAnswersPhysicalTopicUnderEachVirtualTopicName`).
 - use `junit` to run tests, `assertj` for assertions, and `mockito` for mocks.
 - AssertJ assertions carry a custom fail message stating what did not happen, e.g.
   `.withFailMessage(() -> "Client 'alice' was not removed from group 'producers'")`.

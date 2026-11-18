@@ -21,6 +21,7 @@ import io.jonasg.kawa.virtualtopic.transform.DescribeTopicPartitionsVirtualTopic
 import io.jonasg.kawa.virtualtopic.transform.DescribeTransactionsVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.FetchVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.IncrementalAlterConfigsVirtualTopicTransform;
+import io.jonasg.kawa.virtualtopic.transform.JoinGroupVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.ListOffsetsVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.MetadataVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.OffsetCommitVirtualTopicTransform;
@@ -74,6 +75,7 @@ public final class VirtualTopicInterceptor implements Interceptor {
                 new ListOffsetsVirtualTopicTransform(virtualTopics),
                 new OffsetCommitVirtualTopicTransform(virtualTopics),
                 new OffsetFetchVirtualTopicTransform(virtualTopics),
+                new JoinGroupVirtualTopicTransform(virtualTopics),
                 new CreateTopicVirtualTopicTransform(virtualTopics),
                 new CreatePartitionsVirtualTopicTransform(virtualTopics),
                 new DeleteTopicVirtualTopicTransform(virtualTopics),

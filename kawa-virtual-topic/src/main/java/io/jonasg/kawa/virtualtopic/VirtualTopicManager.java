@@ -5,12 +5,15 @@ import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /// Maintains the virtual-to-physical virtual-topic map, along with each virtual topic's
 /// optional consume filter configuration.
@@ -68,6 +71,23 @@ public final class VirtualTopicManager {
     public List<String> toVirtual(String physical) {
         List<VirtualTopic> virtualTopics = snapshot.byPhysical().get(physical);
         return virtualTopics == null ? List.of(physical) : virtualTopics.stream().map(VirtualTopic::name).toList();
+    }
+
+    /// The virtual topics among `names` that share their physical topic with another of them, keyed by that
+    /// physical topic, in the order the names came. A request or consumer group may use at most one virtual topic
+    /// per physical topic: the broker keeps records, fetch positions and committed offsets per physical partition,
+    /// so two such names would collide. Empty when none collide; names that are not virtual topics never do.
+    public Map<String, Set<String>> sharedPhysicalTopics(Collection<String> names) {
+        Snapshot snap = snapshot;
+        Map<String, Set<String>> byPhysical = new LinkedHashMap<>();
+        for (String name : names) {
+            VirtualTopic virtualTopic = snap.byVirtual().get(name);
+            if (virtualTopic != null) {
+                byPhysical.computeIfAbsent(virtualTopic.physical(), _ -> new LinkedHashSet<>()).add(name);
+            }
+        }
+        byPhysical.values().removeIf(virtual -> virtual.size() < 2);
+        return byPhysical;
     }
 
     public boolean hasVirtualTopic(String physical) {
