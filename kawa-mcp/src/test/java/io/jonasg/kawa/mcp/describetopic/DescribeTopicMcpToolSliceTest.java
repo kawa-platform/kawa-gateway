@@ -158,7 +158,7 @@ class DescribeTopicMcpToolSliceTest extends McpSliceTestBase {
         assertThatJson(describeResp.body()).inPath("result.content[0].text").isString()
                 .satisfies(text -> assertThat(text)
                         .withFailMessage(() -> "describe_topic of a missing topic did not explain the failure: " + text)
-                        .isEqualTo("Unable to describe an non existing topic: does-not-exist"));
+                        .isEqualTo("topic 'does-not-exist' not found"));
     }
 
     @Test
@@ -222,9 +222,32 @@ class DescribeTopicMcpToolSliceTest extends McpSliceTestBase {
         // then
         assertThat(describeResp).withFailMessage(() -> "describe_topic of 'orders' was not answered with 200")
                 .hasStatusCode(200);
-        assertThatJson(describeResp.body()).inPath("result.structuredContent.shadowsPhysicalTopic")
-                .withFailMessage(() -> "describe_topic of 'orders' did not report the physical topic it hides")
-                .isEqualTo(true);
+        assertThatJson(describeResp.body()).inPath("result.isError")
+                .withFailMessage(() -> "describe_topic of 'orders' was a tool error").isEqualTo(false);
+        assertThatJson(describeResp.body()).inPath("result.structuredContent")
+                .withFailMessage(() -> "describe_topic of 'orders' did not answer the virtual topic and report the physical topic it hides")
+                .isEqualTo("""
+                {
+                   "topicName": "orders",
+                   "virtualTopic": {
+                     "topicName": "orders",
+                     "filter": {
+                       "type": "headerEquals",
+                       "description": "header 'region' equals 'eu'"
+                     },
+                     "valueFormat": "json",
+                     "exposesPhysicalTopic": true
+                   },
+                   "physicalTopic": {
+                     "name": "orders-v2",
+                     "partitions": 3,
+                     "replicationFactor": 2,
+                     "settings": {
+                       "retention.ms": "60000"
+                     }
+                   },
+                   "shadowsPhysicalTopic": true
+                }""");
     }
 
     @Test

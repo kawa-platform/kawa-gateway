@@ -141,7 +141,7 @@ public final class TopicService implements AutoCloseable {
                 );
             }
 
-            throw new TopicNotFoundException("Unable to describe an non existing topic: %s".formatted(name));
+            throw new NotFoundException("topic '" + name + "' not found");
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
         }

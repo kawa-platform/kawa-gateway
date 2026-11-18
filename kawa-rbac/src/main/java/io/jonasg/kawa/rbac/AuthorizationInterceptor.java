@@ -72,7 +72,7 @@ public final class AuthorizationInterceptor implements Interceptor {
                 new DeleteRecordsAuthorizationCheck(authorizer),
                 new OffsetForLeaderEpochAuthorizationCheck(authorizer),
                 new OffsetCommitAuthorizationCheck(authorizer),
-                new OffsetFetchAuthorizationCheck(authorizer),
+                new OffsetFetchAuthorizationCheck(authorizer, virtualTopics),
                 new DescribeConfigsAuthorizationCheck(authorizer),
                 new AlterConfigsAuthorizationCheck<>(
                         ApiKeys.ALTER_CONFIGS.id, authorizer,

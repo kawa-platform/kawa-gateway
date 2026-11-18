@@ -1,9 +1,7 @@
 package io.jonasg.kawa.mcp.describetopic;
 
-import io.jonasg.kawa.http.topics.TopicNotFoundException;
 import io.jonasg.kawa.http.topics.TopicService;
 import io.jonasg.kawa.mcp.McpTool;
-import io.jonasg.kawa.mcp.McpToolException;
 import io.jonasg.kawa.mcp.VirtualTopicViews;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
@@ -58,14 +56,7 @@ public final class DescribeTopicMcpTool extends McpTool {
 
     @Override
     protected TopicDescriptionView call(CallToolRequest request) {
-        TopicService.TopicDescription description;
-        String topicName = getRequiredArg(request, "topicName");
-        try {
-            description = topicService.describeTopic(topicName);
-        } catch (TopicNotFoundException ex) {
-            throw new McpToolException(ex.getMessage());
-        }
-        return view(description);
+        return view(topicService.describeTopic(getRequiredArg(request, "topicName")));
     }
 
     /// The view of a described topic: its virtual topic details when the name is virtual, and the physical topic
