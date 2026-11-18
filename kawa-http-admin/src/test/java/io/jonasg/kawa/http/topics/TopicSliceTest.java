@@ -344,7 +344,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                   "configs": {"cleanup.policy": "compact"}
                 }
                 """);
-        assertThat(topicAdmin.created)
+        assertThat(brokerAdmin.created)
                 .containsExactly(new TopicSpec("orders", 3, 3, Map.of("cleanup.policy", "compact")));
     }
 
@@ -380,10 +380,10 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body()).isEqualTo("""
                 {"message": "topic 'orders' was created but is not yet visible in the gateway's metadata"}
                 """);
-        assertThat(topicAdmin.created).extracting(TopicSpec::name).containsExactly("orders");
+        assertThat(brokerAdmin.created).extracting(TopicSpec::name).containsExactly("orders");
 
         // when - the caller creates it again, the broker now knowing it
-        topicAdmin.createError = new TopicExistsException("Topic 'orders' already exists.");
+        brokerAdmin.createError = new TopicExistsException("Topic 'orders' already exists.");
         var retry = send("POST", "/topics", "{\"type\":\"physical\",\"name\":\"orders\"}");
 
         // then
@@ -400,7 +400,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(400);
-        assertThat(topicAdmin.created).isEmpty();
+        assertThat(brokerAdmin.created).isEmpty();
     }
 
     @Test
@@ -413,7 +413,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(400);
-        assertThat(topicAdmin.created).isEmpty();
+        assertThat(brokerAdmin.created).isEmpty();
     }
 
     @Test
@@ -426,7 +426,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(400);
-        assertThat(topicAdmin.created).isEmpty();
+        assertThat(brokerAdmin.created).isEmpty();
     }
 
     @Test
@@ -455,7 +455,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response).hasStatusCode(403);
         assertThat(response.body()).contains("[min-replication] replication factor must be at least 3");
-        assertThat(topicAdmin.created).isEmpty();
+        assertThat(brokerAdmin.created).isEmpty();
     }
 
     @Test
@@ -474,13 +474,13 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response).hasStatusCode(201);
-        assertThat(topicAdmin.created).hasSize(1);
+        assertThat(brokerAdmin.created).hasSize(1);
     }
 
     @Test
     void returnsConflictWhenTopicExists() throws Exception {
         // given
-        topicAdmin.createError = new TopicExistsException("Topic 'orders' already exists.");
+        brokerAdmin.createError = new TopicExistsException("Topic 'orders' already exists.");
         startServer();
 
         // when
@@ -489,7 +489,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(409);
-        assertThat(topicAdmin.created).isEmpty();
+        assertThat(brokerAdmin.created).isEmpty();
     }
 
     @Test
@@ -505,7 +505,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body()).inPath("topic").isEqualTo("orders-v2");
         assertThat(repository.getActiveConfig().virtualTopics())
                 .containsEntry("orders", new VirtualTopicConfig("orders-v2"));
-        assertThat(topicAdmin.created).isEmpty();
+        assertThat(brokerAdmin.created).isEmpty();
     }
 
     @Test
@@ -894,7 +894,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(204);
-        assertThat(topicAdmin.deleted).containsExactly("orders");
+        assertThat(brokerAdmin.deleted).containsExactly("orders");
     }
 
     @Test
@@ -910,7 +910,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(204);
         assertThat(repository.getActiveConfig().virtualTopics()).isEmpty();
-        assertThat(topicAdmin.deleted).isEmpty();
+        assertThat(brokerAdmin.deleted).isEmpty();
     }
 
     @Test
@@ -952,7 +952,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(response.statusCode()).isEqualTo(404);
-        assertThat(topicAdmin.deleted).isEmpty();
+        assertThat(brokerAdmin.deleted).isEmpty();
     }
 
     @Test
@@ -969,7 +969,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(response.statusCode()).isEqualTo(204);
         assertThat(repository.getActiveConfig().virtualTopics()).isEmpty();
-        assertThat(topicAdmin.deleted).isEmpty();
+        assertThat(brokerAdmin.deleted).isEmpty();
     }
 
     @Test

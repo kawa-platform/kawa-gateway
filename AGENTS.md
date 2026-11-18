@@ -70,7 +70,7 @@ core/config/virtual-topic; `kawa-governance` depends on core/config; `kawa-broke
 topic port and its Kafka AdminClient implementation); `kawa-http-admin` depends on
 core/config/governance/broker/virtual-topic; `kawa-mcp` depends on http-admin; `kawa-server` assembles the runtime modules; and
 `kawa-integration-tests` depends on `kawa-server`. `kawa-test-support` is consumed with `test` scope only; it may
-depend on production modules such as `kawa-config` or `kawa-broker` (for `FakeTopicAdmin`), but never on a module that uses it.
+depend on production modules such as `kawa-config` or `kawa-broker` (for `FakeBrokerAdmin`), but never on a module that uses it.
 `kawa-broker`'s own tests must not use `kawa-test-support`, or the two would form a cycle.
 
 - `kawa-config`: `BootstrapConfig` (the startup YAML, loaded by `ConfigLoader`, which rejects unknown keys and

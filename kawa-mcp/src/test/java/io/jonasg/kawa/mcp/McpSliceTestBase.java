@@ -17,7 +17,7 @@ import io.jonasg.kawa.http.AdminServices;
 import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
 import io.jonasg.kawa.http.authentication.builtin.BuiltInAuthenticationPlugin;
 import io.jonasg.kawa.http.topics.TopicService;
-import io.jonasg.kawa.test.FakeTopicAdmin;
+import io.jonasg.kawa.test.FakeBrokerAdmin;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -51,7 +51,7 @@ public abstract class McpSliceTestBase {
     /// Replaces the real topic service when set, e.g. with a mock that fails.
     protected @Nullable TopicService topicService;
     /// The broker the topic service talks to: topics in here exist on the broker, as `states`.
-    protected FakeTopicAdmin topicAdmin = new FakeTopicAdmin();
+    protected FakeBrokerAdmin brokerAdmin = new FakeBrokerAdmin();
 
     private final HttpClient client = HttpClient.newHttpClient();
     private @Nullable AdminServices services;
@@ -80,13 +80,14 @@ public abstract class McpSliceTestBase {
                 Duration.ofSeconds(5),
                 new InMemoryConfigRepository(config),
                 new GovernancePolicy(new GovernanceConfig(null)),
-                topicAdmin,
+                brokerAdmin,
                 null,
                 PUBLIC_URL,
                 _ -> null
         );
         services = topicService == null ? adminServices : new AdminServices(
                 topicService,
+                adminServices.consumerGroups(),
                 adminServices.roles(),
                 adminServices.groups(),
                 adminServices.clients(),

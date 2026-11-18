@@ -6,12 +6,12 @@ import io.jonasg.kawa.core.cluster.MetadataRefresher;
 import io.jonasg.kawa.http.AdminHttpServer;
 import io.jonasg.kawa.http.AdminServices;
 import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
-import io.jonasg.kawa.broker.KafkaTopicAdmin;
+import io.jonasg.kawa.broker.KafkaBrokerAdmin;
 import io.jonasg.kawa.mcp.KawaMcpServer;
 
 import java.util.Properties;
 
-/// The admin HTTP surface: the [KafkaTopicAdmin] that creates/deletes physical topics on the
+/// The admin HTTP surface: the [KafkaBrokerAdmin] that creates/deletes physical topics on the
 /// broker and the [AdminHttpServer] that exposes the gateway's state and dynamic config to a
 /// UI, plus the [KawaMcpServer] served at `/mcp` on the same port. Config writes go through the
 /// [DynamicGatewayState]'s config manager to the config topic.
@@ -24,10 +24,10 @@ public final class AdminSurface implements AutoCloseable {
     public AdminSurface(AdminConfig config, DynamicGatewayState state, MetadataCache cache,
                         MetadataRefresher metadataRefresher, String bootstrapServers, Properties brokerSecurity,
                         AuthenticationProviderRegistry authenticationProviders) {
-        var topicAdmin = new KafkaTopicAdmin(bootstrapServers, brokerSecurity);
+        var brokerAdmin = new KafkaBrokerAdmin(bootstrapServers, brokerSecurity);
         services = AdminServices.create(state.virtualTopics(), cache, metadataRefresher,
                 DynamicConfigManager.DEFAULT_APPLY_WAIT_TIMEOUT, state.configManager(),
-                state.governance(), topicAdmin, config.auth().bootstrapUser(), config.publicUrl(), System::getenv);
+                state.governance(), brokerAdmin, config.auth().bootstrapUser(), config.publicUrl(), System::getenv);
         server = new AdminHttpServer(config, services, authenticationProviders);
         mcp = new KawaMcpServer(server.router(), services, config.cors());
     }
@@ -44,6 +44,6 @@ public final class AdminSurface implements AutoCloseable {
     public void close() {
         mcp.close();
         server.stop();
-        services.close(); // closes the TopicAdmin
+        services.close(); // closes the BrokerAdmin
     }
 }

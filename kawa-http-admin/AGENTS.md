@@ -11,7 +11,8 @@ Code is grouped by what the admin API manages. `io.jonasg.kawa.http` is the comp
 
 | Package          | Holds                                                                                |
 |------------------|--------------------------------------------------------------------------------------|
-| `topics`         | `/topics`: `TopicService` (the broker port, `TopicAdmin`, lives in `kawa-broker`)     |
+| `topics`         | `/topics`: `TopicService` (the broker port, `BrokerAdmin`, lives in `kawa-broker`)     |
+| `consumergroups` | consumer group listing and lag, `ConsumerGroupService`; read from `BrokerAdmin`, no route yet |
 | `rbac`           | `/rbac/roles`, `/rbac/groups`: `RbacRoleService`, `RbacGroupService`                 |
 | `clients`        | `/auth/clients`: `AuthClientService`                                                 |
 | `governance`     | `/governance`: `GovernanceService`, `GovernanceConfigMapper`                         |

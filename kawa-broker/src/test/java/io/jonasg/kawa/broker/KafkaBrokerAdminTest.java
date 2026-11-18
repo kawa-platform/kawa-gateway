@@ -6,7 +6,7 @@ import java.util.Properties;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class KafkaTopicAdminTest {
+class KafkaBrokerAdminTest {
 
     @Test
     void addsTheBootstrapServersToTheBrokerSecuritySettings() {
@@ -16,7 +16,7 @@ class KafkaTopicAdminTest {
         security.put("ssl.truststore.location", "/etc/kawa/truststore.p12");
 
         // when
-        var props = KafkaTopicAdmin.props("localhost:9092", security);
+        var props = KafkaBrokerAdmin.props("localhost:9092", security);
 
         // then
         assertThat(props)

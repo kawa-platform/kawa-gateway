@@ -24,7 +24,7 @@ public final class BrokerSecurity {
     }
 
     /// The Kafka client settings (`security.protocol`, `sasl.*`, `ssl.*`) for the gateway's own
-    /// Kafka clients: the config-topic consumer and writer, and the topic admin.
+    /// Kafka clients: the config-topic consumer and writer, and the broker admin.
     public static Properties clientProperties(@Nullable TlsConfig tls, @Nullable BrokerAuthConfig auth) {
         var props = new Properties();
         props.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, protocol(tls, auth).name);

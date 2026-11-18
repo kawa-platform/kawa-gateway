@@ -4,7 +4,9 @@ import io.jonasg.kawa.config.CorsConfig;
 import io.jonasg.kawa.http.AdminServices;
 import io.jonasg.kawa.http.modules.ModuleService;
 import io.jonasg.kawa.http.web.Router;
+import io.jonasg.kawa.mcp.describeconsumergroup.DescribeConsumerGroupMcpTool;
 import io.jonasg.kawa.mcp.describetopic.DescribeTopicMcpTool;
+import io.jonasg.kawa.mcp.listconsumergroups.ListConsumerGroupsMcpTool;
 import io.jonasg.kawa.mcp.listtopics.ListTopicsMcpTool;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
@@ -44,7 +46,9 @@ public final class KawaMcpServer implements AutoCloseable {
                 mapper,
                 List.of(
                         new ListTopicsMcpTool(mapper, services.topics()),
-                        new DescribeTopicMcpTool(mapper, services.topics())
+                        new DescribeTopicMcpTool(mapper, services.topics()),
+                        new ListConsumerGroupsMcpTool(mapper, services.consumerGroups()),
+                        new DescribeConsumerGroupMcpTool(mapper, services.consumerGroups())
                 )
         );
     }
