@@ -16,7 +16,6 @@ import org.junit.jupiter.api.TestInstance;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
-import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -46,7 +45,7 @@ class ConfigReplicasIT {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @Container
-    static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("apache/kafka-native:3.8.0"));
+    static KafkaContainer kafka = new KafkaContainer(KafkaImage.KAFKA_NATIVE);
 
     private final HttpClient http = HttpClient.newHttpClient();
     private KafkaGateway first;

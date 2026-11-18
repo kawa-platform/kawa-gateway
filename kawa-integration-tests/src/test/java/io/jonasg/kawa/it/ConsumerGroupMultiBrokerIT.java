@@ -196,10 +196,12 @@ class ConsumerGroupMultiBrokerIT {
                 .isNotNull();
     }
 
-    /// Describing a group and initializing a transaction create `__consumer_offsets` and
-    /// `__transaction_state`, so the gateway's first metadata load already knows the coordinators.
+    /// Fetching a group's offsets and initializing a transaction create `__consumer_offsets` and
+    /// `__transaction_state`, so the gateway's first metadata load already knows the coordinators. The
+    /// offset fetch finds the group's coordinator without the group having to exist; describing an
+    /// unknown group fails with `GROUP_ID_NOT_FOUND` since Kafka 4.0 (KIP-1043).
     private void createCoordinatorTopics() throws Exception {
-        brokerAdmin.describeConsumerGroups(List.of("warm-up")).all().get(30, TimeUnit.SECONDS);
+        brokerAdmin.listConsumerGroupOffsets("warm-up").partitionsToOffsetAndMetadata().get(30, TimeUnit.SECONDS);
         var props = new Properties();
         props.put("bootstrap.servers", cluster.bootstrapServers());
         props.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, "warm-up");
@@ -210,28 +212,24 @@ class ConsumerGroupMultiBrokerIT {
         }
     }
 
-    /// The first `<prefix>-<n>` group the brokers themselves coordinate on a broker other than 1.
-    private String groupNotCoordinatedByTheLowestBroker(String prefix) {
-        return IntStream.range(0, 100).mapToObj(n -> prefix + "-" + n)
-                .filter(group -> coordinatorOf(group) != 1)
-                .findFirst().orElseThrow();
+    /// The first `<prefix>-<n>` group whose `__consumer_offsets` partition is led by a broker other than 1.
+    private String groupNotCoordinatedByTheLowestBroker(String prefix) throws Exception {
+        return idNotCoordinatedByTheLowestBroker("__consumer_offsets", prefix);
     }
 
-    private int coordinatorOf(String group) {
-        try {
-            return brokerAdmin.describeConsumerGroups(List.of(group)).all().get(30, TimeUnit.SECONDS)
-                    .get(group).coordinator().id();
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-    }
-
-    /// The first `txn-<n>` id whose `__transaction_state` partition is led by a broker other than 1,
-    /// with Kafka's own mapping (`TransactionStateManager.partitionFor`).
+    /// The first `txn-<n>` id whose `__transaction_state` partition is led by a broker other than 1.
     private String transactionalIdNotCoordinatedByTheLowestBroker() throws Exception {
-        List<TopicPartitionInfo> partitions = brokerAdmin.describeTopics(List.of("__transaction_state"))
-                .allTopicNames().get(30, TimeUnit.SECONDS).get("__transaction_state").partitions();
-        return IntStream.range(0, 100).mapToObj(n -> "txn-" + n)
+        return idNotCoordinatedByTheLowestBroker("__transaction_state", "txn");
+    }
+
+    /// The first `<prefix>-<n>` id whose partition of the coordinator topic is led by a broker other than 1, with
+    /// Kafka's own mapping (`GroupCoordinator.partitionFor`, `TransactionStateManager.partitionFor`): that leader
+    /// is the id's coordinator. Asking the brokers instead (`describeConsumerGroups`) fails for a group that does
+    /// not exist yet since Kafka 4.0.
+    private String idNotCoordinatedByTheLowestBroker(String coordinatorTopic, String prefix) throws Exception {
+        List<TopicPartitionInfo> partitions = brokerAdmin.describeTopics(List.of(coordinatorTopic))
+                .allTopicNames().get(30, TimeUnit.SECONDS).get(coordinatorTopic).partitions();
+        return IntStream.range(0, 100).mapToObj(n -> prefix + "-" + n)
                 .filter(id -> {
                     Node leader = partitions.get(Utils.abs(id.hashCode()) % partitions.size()).leader();
                     return leader.id() != 1;

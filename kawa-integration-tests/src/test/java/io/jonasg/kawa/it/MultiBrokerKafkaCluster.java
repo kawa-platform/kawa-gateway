@@ -5,7 +5,6 @@ import org.awaitility.Awaitility;
 import org.testcontainers.containers.Network;
 import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.lifecycle.Startables;
-import org.testcontainers.utility.DockerImageName;
 
 import java.time.Duration;
 import java.util.List;
@@ -22,7 +21,6 @@ import java.util.stream.IntStream;
 /// group or transactional id whose coordinator is not the lowest broker id.
 final class MultiBrokerKafkaCluster implements AutoCloseable {
 
-    private static final DockerImageName IMAGE = DockerImageName.parse("apache/kafka-native:3.8.0");
     private static final String INTERNAL_TOPIC_PARTITIONS = "6";
 
     private final Network network = Network.newNetwork();
@@ -38,7 +36,7 @@ final class MultiBrokerKafkaCluster implements AutoCloseable {
     }
 
     private KafkaContainer node(int id, String voters) {
-        return new KafkaContainer(IMAGE)
+        return new KafkaContainer(KafkaImage.KAFKA_NATIVE)
                 .withNetwork(network)
                 .withNetworkAliases(alias(id))
                 // brokers advertise each other by container hostname: make it the network alias

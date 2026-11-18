@@ -17,7 +17,6 @@ import org.junit.jupiter.api.TestInstance;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
-import org.testcontainers.utility.DockerImageName;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -43,7 +42,7 @@ class AdminConfigApiIT {
     static final String CONFIG_TOPIC = "__kawa";
 
     @Container
-    static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("apache/kafka-native:3.8.0"));
+    static KafkaContainer kafka = new KafkaContainer(KafkaImage.KAFKA_NATIVE);
 
     private static KafkaGateway gateway;
 
