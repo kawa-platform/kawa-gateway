@@ -38,7 +38,6 @@ import org.junit.jupiter.api.TestInstance;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
-import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
@@ -85,7 +84,7 @@ abstract class GatewayTestSupport {
     protected static final String DEFAULT_PASSWORD = "gateway-it-secret";
 
     @Container
-    static KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("apache/kafka-native:3.8.0"))
+    static KafkaContainer kafka = new KafkaContainer(KafkaImage.KAFKA_NATIVE)
             .withEnv("KAFKA_AUTHORIZER_CLASS_NAME", "org.apache.kafka.metadata.authorizer.StandardAuthorizer")
             .withEnv("KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND", "true")
             .withEnv("KAFKA_SUPER_USERS", "User:ANONYMOUS");

@@ -19,13 +19,10 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.serialization.StringDeserializer;
-import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -57,8 +54,6 @@ import static org.assertj.core.api.Assertions.tuple;
 /// (unfiltered, `orders-v2`) and to `orders-acme` (filtered, `orders-acme-v2`).
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ConsumerGroupsIT extends GatewayTestSupport {
-
-    private static final Logger log = LoggerFactory.getLogger(ConsumerGroupsIT.class);
 
     private static final int RECORDS = 10;
     private static final long COMMITTED = 4;
@@ -227,7 +222,7 @@ class ConsumerGroupsIT extends GatewayTestSupport {
         try (var consumer = joinThroughGateway(classic, ORDERS)) {
             consumer.commitSync(Map.of(new TopicPartition(ORDERS, 0), new OffsetAndMetadata(COMMITTED)));
 
-            // and a KIP-848 group started directly on the broker, if the broker supports the protocol
+            // and a KIP-848 group started directly on the broker
             String consumerProtocol = freshGroup();
             try (var kip848 = joinKip848OnBroker(consumerProtocol)) {
                 // when / then
@@ -238,13 +233,11 @@ class ConsumerGroupsIT extends GatewayTestSupport {
                             .filteredOn(group -> group.groupId().equals(classic))
                             .extracting(ConsumerGroupSummary::type, ConsumerGroupSummary::totalLag)
                             .containsExactly(tuple("CLASSIC", LAG));
-                    if (kip848 != null) {
-                        assertThat(listed)
-                                .withFailMessage(() -> "The listing did not show KIP-848 group '" + consumerProtocol + "' as CONSUMER: " + listed)
-                                .filteredOn(group -> group.groupId().equals(consumerProtocol))
-                                .extracting(ConsumerGroupSummary::type)
-                                .containsExactly("CONSUMER");
-                    }
+                    assertThat(listed)
+                            .withFailMessage(() -> "The listing did not show KIP-848 group '" + consumerProtocol + "' as CONSUMER: " + listed)
+                            .filteredOn(group -> group.groupId().equals(consumerProtocol))
+                            .extracting(ConsumerGroupSummary::type)
+                            .containsExactly("CONSUMER");
                 });
             }
         }
@@ -285,8 +278,7 @@ class ConsumerGroupsIT extends GatewayTestSupport {
     }
 
     /// A consumer that uses KIP-848's `consumer` group protocol, directly on the broker, subscribed to
-    /// `orders-v2`. Returns `null` when the broker does not support the protocol, in which case the
-    /// KIP-848 assertion is skipped.
+    /// `orders-v2` and assigned a partition.
     private KafkaConsumer<String, String> joinKip848OnBroker(String group) {
         Properties props = new Properties();
         props.put(BOOTSTRAP_SERVERS_CONFIG, brokerBootstrap);
@@ -297,18 +289,14 @@ class ConsumerGroupsIT extends GatewayTestSupport {
         props.put(KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         props.put(VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         var consumer = new KafkaConsumer<String, String>(props);
-        try {
-            consumer.subscribe(List.of(ORDERS_V2));
-            Awaitility.await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(500)).until(() -> {
-                consumer.poll(Duration.ofMillis(200));
-                return !consumer.assignment().isEmpty();
-            });
-            return consumer;
-        } catch (RuntimeException e) {
-            log.warn("Skipping the KIP-848 assertion: the broker did not assign a 'consumer' protocol group: {}", e.toString());
-            consumer.close();
-            return null;
-        }
+        consumer.subscribe(List.of(ORDERS_V2));
+        eventually(() -> {
+            consumer.poll(Duration.ofMillis(200));
+            assertThat(consumer.assignment())
+                    .withFailMessage(() -> "KIP-848 consumer of group '" + group + "' was not assigned a partition of '" + ORDERS_V2 + "'")
+                    .isNotEmpty();
+        });
+        return consumer;
     }
 
     private static PartitionLag partition0(TopicLag topic) {
