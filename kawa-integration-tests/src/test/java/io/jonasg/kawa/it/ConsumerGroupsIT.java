@@ -10,12 +10,16 @@ import io.jonasg.kawa.http.consumergroups.ConsumerGroupService.ConsumerGroupSumm
 import io.jonasg.kawa.http.consumergroups.ConsumerGroupService.PartitionLag;
 import io.jonasg.kawa.http.consumergroups.ConsumerGroupService.TopicLag;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import org.apache.kafka.clients.admin.AlterConfigOp;
+import org.apache.kafka.clients.admin.ConfigEntry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.KafkaShareConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.config.ConfigResource;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -62,6 +66,14 @@ class ConsumerGroupsIT extends GatewayTestSupport {
     private static final String ORDERS_ACME = "orders-acme";
     private static final String ORDERS_V2 = "orders-v2";
     private static final String ORDERS_ACME_V2 = "orders-acme-v2";
+
+    // Share groups are on by default in Kafka 4.3, but their coordinator keeps state in `__share_group_state`, which
+    // defaults to replication factor 3 and min ISR 2. Testcontainers lowers these for the offsets and transaction
+    // topics only, so on its single broker a share consumer never gets records. The broker starts after this runs.
+    static {
+        kafka.withEnv("KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR", "1")
+                .withEnv("KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR", "1");
+    }
 
     private ConsumerGroupService groups;
     private KafkaBrokerAdmin brokerAdmin;
@@ -243,6 +255,97 @@ class ConsumerGroupsIT extends GatewayTestSupport {
         }
     }
 
+    @Test
+    void listsAShareGroupWithLagNotApplicable() throws Exception {
+        // given
+        String share = freshGroup();
+
+        try (var consumer = joinShareGroupOnBroker(share)) {
+            // when / then
+            eventually(() -> {
+                List<ConsumerGroupSummary> listed = groups.list();
+                assertThat(listed)
+                        .withFailMessage(() -> "The listing did not show share group '" + share + "' as a Stable SHARE group without lag: " + listed)
+                        .filteredOn(group -> group.groupId().equals(share))
+                        .extracting(ConsumerGroupSummary::type, ConsumerGroupSummary::state, ConsumerGroupSummary::lagApplicable,
+                                ConsumerGroupSummary::totalLag, ConsumerGroupSummary::uncommittedPartitions)
+                        .containsExactly(tuple("SHARE", "Stable", false, 0L, 0));
+            });
+        }
+    }
+
+    @Test
+    void listsTheLagOfConsumerGroupsWhenTheClusterAlsoHasAShareGroup() throws Exception {
+        // given: a share group directly on the broker
+        String share = freshGroup();
+        try (var shareConsumer = joinShareGroupOnBroker(share)) {
+
+            // and a classic group through the gateway, with a commit and its consumer still alive
+            String classic = freshGroup();
+            try (var consumer = joinThroughGateway(classic, ORDERS)) {
+                consumer.commitSync(Map.of(new TopicPartition(ORDERS, 0), new OffsetAndMetadata(COMMITTED)));
+
+                // when / then
+                eventually(() -> {
+                    List<ConsumerGroupSummary> listed = groups.list();
+                    assertThat(listed)
+                            .withFailMessage(() -> "The listing did not show classic group '" + classic + "' with lag 6 next to share group '"
+                                                   + share + "': " + listed)
+                            .filteredOn(group -> group.groupId().equals(classic))
+                            .extracting(ConsumerGroupSummary::type, ConsumerGroupSummary::lagApplicable, ConsumerGroupSummary::totalLag)
+                            .containsExactly(tuple("CLASSIC", true, LAG));
+                    assertThat(listed)
+                            .withFailMessage(() -> "The listing did not show share group '" + share + "': " + listed)
+                            .extracting(ConsumerGroupSummary::groupId)
+                            .contains(share);
+                });
+            }
+        }
+    }
+
+    @Test
+    void describesAShareGroupWithItsStateAndLagNotApplicable() throws Exception {
+        // given
+        String share = freshGroup();
+
+        try (var consumer = joinShareGroupOnBroker(share)) {
+            // when / then
+            eventually(() -> {
+                ConsumerGroupDetail detail = groups.describe(share);
+                assertThat(detail)
+                        .withFailMessage(() -> "Share group '" + share + "' was not described as a Stable SHARE group without lag: " + detail)
+                        .isEqualTo(new ConsumerGroupDetail(share, "SHARE", "Stable", false, List.of(), List.of(), 0, 0));
+            });
+        }
+    }
+
+    @Test
+    void describesAKip848ConsumerGroupWithItsLag() throws Exception {
+        // given
+        String group = freshGroup();
+
+        try (var consumer = joinKip848OnBroker(group)) {
+            consumer.commitSync(Map.of(new TopicPartition(ORDERS_V2, 0), new OffsetAndMetadata(COMMITTED)));
+
+            // when / then
+            eventually(() -> {
+                ConsumerGroupDetail detail = groups.describe(group);
+                assertThat(detail.type())
+                        .withFailMessage(() -> "KIP-848 group '" + group + "' was not described as CONSUMER: " + detail)
+                        .isEqualTo("CONSUMER");
+                assertThat(detail.lagApplicable())
+                        .withFailMessage(() -> "KIP-848 group '" + group + "' was not described with lag applicable: " + detail)
+                        .isTrue();
+                assertThat(partition0(detail.topics().getFirst()))
+                        .withFailMessage(() -> "Partition 0 did not show committed 4, end 10 and lag 6: " + detail)
+                        .isEqualTo(new PartitionLag(0, COMMITTED, (long) RECORDS, LAG));
+                assertThat(detail.totalLag())
+                        .withFailMessage(() -> "Total lag of KIP-848 group '" + group + "' was not 6: " + detail)
+                        .isEqualTo(LAG);
+            });
+        }
+    }
+
     /// The gateway's virtual topic configuration, as the service needs it: the same mapping the gateway starts with.
     private VirtualTopicManager virtualTopicManager() {
         Map<String, VirtualTopicConfig> configs = new HashMap<>();
@@ -296,6 +399,33 @@ class ConsumerGroupsIT extends GatewayTestSupport {
                     .withFailMessage(() -> "KIP-848 consumer of group '" + group + "' was not assigned a partition of '" + ORDERS_V2 + "'")
                     .isNotEmpty();
         });
+        return consumer;
+    }
+
+    /// A share consumer (KIP-932) of `group`, directly on the broker, subscribed to `orders-v2` and having read
+    /// every fixture record, which it then acknowledges. A share group starts at the latest offset by default, so
+    /// the group is set to start at the earliest before the consumer joins.
+    private KafkaShareConsumer<String, String> joinShareGroupOnBroker(String group) throws Exception {
+        GatewayTestSupport.brokerAdmin.incrementalAlterConfigs(Map.of(
+                new ConfigResource(ConfigResource.Type.GROUP, group),
+                List.of(new AlterConfigOp(new ConfigEntry("share.auto.offset.reset", "earliest"), AlterConfigOp.OpType.SET))))
+                .all().get();
+        Properties props = new Properties();
+        props.put(BOOTSTRAP_SERVERS_CONFIG, brokerBootstrap);
+        props.put(GROUP_ID_CONFIG, group);
+        props.put(KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        var consumer = new KafkaShareConsumer<String, String>(props);
+        consumer.subscribe(List.of(ORDERS_V2));
+        List<ConsumerRecord<String, String>> read = new ArrayList<>();
+        eventually(() -> {
+            consumer.poll(Duration.ofMillis(200)).forEach(read::add);
+            assertThat(read)
+                    .withFailMessage(() -> "Share consumer of group '" + group + "' read " + read.size() + " of " + RECORDS
+                                           + " records from '" + ORDERS_V2 + "'")
+                    .hasSize(RECORDS);
+        });
+        consumer.commitSync();
         return consumer;
     }
 
