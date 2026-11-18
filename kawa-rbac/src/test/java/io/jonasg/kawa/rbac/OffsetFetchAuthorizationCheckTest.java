@@ -5,7 +5,10 @@ import io.jonasg.kawa.config.GroupConfig;
 import io.jonasg.kawa.config.RbacConfig;
 import io.jonasg.kawa.config.ResourceConfig;
 import io.jonasg.kawa.config.RoleConfig;
+import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.core.GatewayContext;
+import io.jonasg.kawa.core.InterceptorPipeline;
+import io.jonasg.kawa.virtualtopic.VirtualTopicInterceptor;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.core.Response;
@@ -61,6 +64,14 @@ class OffsetFetchAuthorizationCheckTest {
                 .setPartitionIndex(0).setErrorCode((short) 0).setCommittedOffset(42L));
         body.topics().add(topicResponse);
         return body;
+    }
+
+    /// RBAC and virtual topics in the order `KafkaGateway` runs them, so a test sees the OffsetFetch
+    /// response the client receives.
+    private static InterceptorPipeline gateway(RbacAuthorizer authorizer, VirtualTopicManager virtualTopics) {
+        return new InterceptorPipeline(List.of(
+                new AuthorizationInterceptor(authorizer, virtualTopics),
+                new VirtualTopicInterceptor(virtualTopics)));
     }
 
     @Test
@@ -190,6 +201,34 @@ class OffsetFetchAuthorizationCheckTest {
         assertThat(ctx.isShortCircuited()).isTrue();
         var response = (OffsetFetchResponseData) ctx.shortCircuitResult().body();
         assertThat(response.topics()).isEmpty();
+    }
+
+    @Test
+    void fetchingAllOffsetsOfAGroupLeavesOutVirtualTopicsTheUserMayNotDescribe() {
+        // given
+        var gateway = gateway(
+                authorizer(
+                        acl(ResourceType.GROUP, "g1", AclOperation.DESCRIBE),
+                        acl(ResourceType.TOPIC, "orders-eu", AclOperation.DESCRIBE)),
+                new VirtualTopicManager(Map.of(
+                        "orders-eu", new VirtualTopicConfig("orders-v2"),
+                        "orders-us", new VirtualTopicConfig("orders-v2"))));
+        var ctx = context("alice");
+        var body = new OffsetFetchRequestData().setGroupId("g1").setTopics(null);
+        gateway.onRequest(ctx, new TestRequest(ApiKeys.OFFSET_FETCH.id, (short) 5, body));
+
+        // when
+        var response = offsetFetchResponse(brokerResponse("orders-v2"));
+        gateway.onResponse(ctx, response);
+
+        // then
+        var answered = ((OffsetFetchResponseData) response.body()).topics().stream()
+                .map(topic -> topic.name() + "@" + topic.partitions().iterator().next().committedOffset())
+                .toList();
+        assertThat(answered)
+                .withFailMessage(() -> "Alice may describe 'orders-eu' but did not get only 'orders-eu@42' (both on 'orders-v2'), got %s"
+                        .formatted(answered))
+                .containsExactly("orders-eu@42");
     }
 
     private record TestRequest(int apiKey, short apiVersion, Object body) implements Request {

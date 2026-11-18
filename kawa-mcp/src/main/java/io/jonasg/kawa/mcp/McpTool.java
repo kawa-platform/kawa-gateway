@@ -83,10 +83,6 @@ public abstract class McpTool {
         } catch (NotFoundException | ConflictException | ForbiddenException | IllegalArgumentException e) {
             result = error(e.getMessage());
             outcome = "error";
-        } catch (McpToolException e) {
-            log.warn("MCP tool exception", e);
-            result = error(e.getMessage());
-            outcome = "failed";
         } catch (RuntimeException e) {
             log.warn("MCP tool {} failed", toolName, e);
             result = error(INTERNAL_ERROR);

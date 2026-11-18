@@ -63,7 +63,14 @@ public final class OffsetFetchVirtualTopicTransform
             if (virtual != null) {
                 topic.setName(virtual);
             } else if (state.offsetFetchAllTopics()) {
-                List<String> names = virtualTopics.toVirtual(topic.name());
+                // Authorization hides the virtual topics the principal may not describe.
+                List<String> names = virtualTopics.toVirtual(topic.name()).stream()
+                        .filter(name -> !state.isHidden(name))
+                        .toList();
+                if (names.isEmpty()) {
+                    data.topics().remove(topic);
+                    continue;
+                }
                 for (String name : names.subList(1, names.size())) {
                     data.topics().add(topic.duplicate().setName(name));
                 }
