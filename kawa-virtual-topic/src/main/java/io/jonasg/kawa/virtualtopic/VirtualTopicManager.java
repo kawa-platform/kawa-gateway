@@ -103,45 +103,28 @@ public final class VirtualTopicManager {
         return snapshot.virtualToPhysical();
     }
 
-    /// The configured consume filter for a virtual topic, looked up by either its virtual or
-    /// physical name, or [Optional#empty] if the topic isn't virtualized or has no
-    /// filter configured.
-    public Optional<VirtualTopicFilterConfig> filterFor(String virtualOrPhysical) {
-        return entryFor(virtualOrPhysical).map(VirtualTopic::filter);
+    /// The configured consume filter for the virtual topic `virtual`, or [Optional#empty] if it has no filter
+    /// configured. A physical or unknown name has none: a filter belongs to the virtual topic, never to the
+    /// physical topic it reads.
+    public Optional<VirtualTopicFilterConfig> filterFor(String virtual) {
+        return entryFor(virtual).map(VirtualTopic::filter);
     }
 
-    /// The configured value encoding for a virtual topic, looked up by either its virtual or
-    /// physical name, or [Optional#empty] if the topic isn't virtualized or has no format
-    /// configured (values are then treated as raw strings).
-    public Optional<PayloadFormatConfig> valueFormatFor(String virtualOrPhysical) {
-        return entryFor(virtualOrPhysical).map(VirtualTopic::valueFormat);
+    /// The configured value encoding for the virtual topic `virtual`, or [Optional#empty] if it has no format
+    /// configured (values are then treated as raw strings). A physical or unknown name has none.
+    public Optional<PayloadFormatConfig> valueFormatFor(String virtual) {
+        return entryFor(virtual).map(VirtualTopic::valueFormat);
     }
 
-    private Optional<VirtualTopic> entryFor(String virtualOrPhysical) {
-        Snapshot snap = snapshot;
-        VirtualTopic virtualTopic = snap.byVirtual().get(virtualOrPhysical);
-        if (virtualTopic == null) {
-            virtualTopic = firstOnPhysical(snap, virtualOrPhysical);
-        }
-        return Optional.ofNullable(virtualTopic);
+    /// Whether the virtual topic `virtual` also lists its physical topic under the physical name in Metadata
+    /// responses. `false` (physical renamed to virtual in place) for virtual topics that don't opt in and for
+    /// names that are not virtual topics.
+    public boolean exposesPhysicalTopic(String virtual) {
+        return entryFor(virtual).map(VirtualTopic::exposePhysicalTopic).orElse(false);
     }
 
-    /// Whether this virtual topic's physical name should still be listed alongside its virtual
-    /// name in Metadata responses. `false` (hidden - physical renamed to virtual in place)
-    /// for non-virtualized topics and for virtual topics that don't opt in.
-    public boolean exposesPhysicalTopic(String virtualOrPhysical) {
-        Snapshot snap = snapshot;
-        VirtualTopic virtualTopic = snap.byVirtual().get(virtualOrPhysical);
-        if (virtualTopic == null) {
-            virtualTopic = firstOnPhysical(snap, virtualOrPhysical);
-        }
-        return virtualTopic != null && virtualTopic.exposePhysicalTopic();
-    }
-
-    /// The first virtual topic on `physical`, or `null` when none points at it.
-    private static VirtualTopic firstOnPhysical(Snapshot snap, String physical) {
-        List<VirtualTopic> virtualTopics = snap.byPhysical().get(physical);
-        return virtualTopics == null ? null : virtualTopics.getFirst();
+    private Optional<VirtualTopic> entryFor(String virtual) {
+        return Optional.ofNullable(snapshot.byVirtual().get(virtual));
     }
 
     public record VirtualTopic(
