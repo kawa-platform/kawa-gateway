@@ -44,11 +44,15 @@ class VirtualTopicManagerTest {
     }
 
     @Test
-    void filterForReturnsConfiguredFilterByVirtualOrPhysicalName() {
+    void filterForReturnsConfiguredFilterOnlyByVirtualName() {
         var expected = new HeaderEqualsFilterConfig("tenant", "acme");
 
-        assertThat(virtualTopics.filterFor("customers")).contains(expected);
-        assertThat(virtualTopics.filterFor("crm.customers")).contains(expected);
+        assertThat(virtualTopics.filterFor("customers"))
+                .withFailMessage(() -> "Filter configured on virtual topic 'customers' was not returned for that name")
+                .contains(expected);
+        assertThat(virtualTopics.filterFor("crm.customers"))
+                .withFailMessage(() -> "Physical topic 'crm.customers' unexpectedly carried a filter")
+                .isEmpty();
     }
 
     @Test
@@ -70,8 +74,12 @@ class VirtualTopicManagerTest {
 
     @Test
     void exposesPhysicalTopicWhenOptedIn() {
-        assertThat(virtualTopics.exposesPhysicalTopic("legacy")).isTrue();
-        assertThat(virtualTopics.exposesPhysicalTopic("legacy-v1")).isTrue();
+        assertThat(virtualTopics.exposesPhysicalTopic("legacy"))
+                .withFailMessage(() -> "Virtual topic 'legacy' opted in to exposing its physical topic but was not exposed")
+                .isTrue();
+        assertThat(virtualTopics.exposesPhysicalTopic("legacy-v1"))
+                .withFailMessage(() -> "Physical topic 'legacy-v1' was exposed although only the virtual name 'legacy' opted in")
+                .isFalse();
     }
 
     @Test

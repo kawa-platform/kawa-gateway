@@ -73,6 +73,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -533,6 +534,42 @@ class VirtualTopicInterceptorTest {
     }
 
     @Test
+    void fetchesEveryRecordOfThePhysicalTopicWhenItsVirtualTopicsFilter() {
+        // given orders-eu exposes the physical topic, and both virtual topics on it filter by region
+        var virtualTopics = new LinkedHashMap<String, VirtualTopicConfig>();
+        virtualTopics.put("orders-eu", new VirtualTopicConfig("orders-v2", new HeaderEqualsFilterConfig("region", "eu"), true));
+        virtualTopics.put("orders-us", new VirtualTopicConfig("orders-v2", new HeaderEqualsFilterConfig("region", "us")));
+        var regionalInterceptor = new VirtualTopicInterceptor(new VirtualTopicManager(virtualTopics));
+        GatewayContext requestContext = freshContext();
+        var requestData = new FetchRequestData();
+        requestData.topics().add(new FetchRequestData.FetchTopic().setTopic("orders-v2"));
+        regionalInterceptor.onRequest(requestContext, request(FETCH, requestData));
+        var eu = new SimpleRecord(
+                1000L, "k1".getBytes(StandardCharsets.UTF_8), "v1".getBytes(StandardCharsets.UTF_8),
+                new Header[]{new RecordHeader("region", "eu".getBytes(StandardCharsets.UTF_8))});
+        var us = new SimpleRecord(
+                2000L, "k2".getBytes(StandardCharsets.UTF_8), "v2".getBytes(StandardCharsets.UTF_8),
+                new Header[]{new RecordHeader("region", "us".getBytes(StandardCharsets.UTF_8))});
+        var responseData = new FetchResponseData();
+        responseData.responses().add(new FetchResponseData.FetchableTopicResponse()
+                .setTopic("orders-v2")
+                .setPartitions(List.of(new FetchResponseData.PartitionData()
+                        .setPartitionIndex(0)
+                        .setRecords(MemoryRecords.withRecords(Compression.NONE, eu, us)))));
+
+        // when
+        regionalInterceptor.onResponse(requestContext, response(FETCH, responseData));
+
+        // then
+        var received = (MemoryRecords) first(responseData.responses()).partitions().get(0).records();
+        List<String> keys = new ArrayList<>();
+        received.records().forEach(record -> keys.add(StandardCharsets.UTF_8.decode(record.key()).toString()));
+        assertThat(keys)
+                .withFailMessage(() -> "Client fetching 'orders-v2' did not receive every record, got keys %s".formatted(keys))
+                .containsExactly("k1", "k2");
+    }
+
+    @Test
     void unfilteredFetchResponseRecordsPassThroughUntouched() {
         var record = new SimpleRecord(
                 1000L,
@@ -554,7 +591,10 @@ class VirtualTopicInterceptorTest {
 
     @Test
     void filteredFetchResponseKeepsOriginalOffsetsOfSurvivors() {
-        // given a batch whose FIRST record does not match the filter
+        // given a client fetching the virtual topic events, and a batch whose FIRST record does not match the filter
+        var requestData = new FetchRequestData();
+        requestData.topics().add(new FetchRequestData.FetchTopic().setTopic("events"));
+        interceptor.onRequest(context, request(FETCH, requestData));
         var nonMatching = new SimpleRecord(
                 1000L, "k1".getBytes(StandardCharsets.UTF_8), "v1".getBytes(StandardCharsets.UTF_8),
                 new Header[]{new RecordHeader("tenant", "other".getBytes(StandardCharsets.UTF_8))});
@@ -586,7 +626,10 @@ class VirtualTopicInterceptorTest {
 
     @Test
     void fullyFilteredFetchResponseStillReturnsValidEmptyRecords() {
-        // given a partition whose only record does not match the filter
+        // given a client fetching the virtual topic events, and a partition whose only record does not match the filter
+        var requestData = new FetchRequestData();
+        requestData.topics().add(new FetchRequestData.FetchTopic().setTopic("events"));
+        interceptor.onRequest(context, request(FETCH, requestData));
         var nonMatching = new SimpleRecord(
                 1000L, "k1".getBytes(StandardCharsets.UTF_8), "v1".getBytes(StandardCharsets.UTF_8),
                 new Header[]{new RecordHeader("tenant", "other".getBytes(StandardCharsets.UTF_8))});
@@ -1624,6 +1667,39 @@ class VirtualTopicInterceptorTest {
         // exposePhysicalTopic: true, so it keeps its physical entry AND gets a virtual one added
         assertThat(data.topics()).extracting("name")
                 .containsExactly("orders", "legacy-v1", "legacy");
+    }
+
+    @Test
+    void listsThePhysicalTopicWhenAnyVirtualTopicOnItExposesIt() {
+        // given orders-us alone exposes the physical topic, configured after and before orders-eu
+        var euFirst = new LinkedHashMap<String, VirtualTopicConfig>();
+        euFirst.put("orders-eu", new VirtualTopicConfig("orders-v2"));
+        euFirst.put("orders-us", new VirtualTopicConfig("orders-v2", null, true));
+        var usFirst = new LinkedHashMap<String, VirtualTopicConfig>();
+        usFirst.put("orders-us", new VirtualTopicConfig("orders-v2", null, true));
+        usFirst.put("orders-eu", new VirtualTopicConfig("orders-v2"));
+
+        // when an all-topics Metadata request is answered
+        var euFirstTopics = allTopicsMetadataNames(euFirst);
+        var usFirstTopics = allTopicsMetadataNames(usFirst);
+
+        // then the physical topic is listed in both orders
+        assertThat(euFirstTopics)
+                .withFailMessage(() -> "Metadata did not list 'orders-v2' when 'orders-eu' was configured first, got %s".formatted(euFirstTopics))
+                .contains("orders-v2");
+        assertThat(usFirstTopics)
+                .withFailMessage(() -> "Metadata did not list 'orders-v2' when 'orders-us' was configured first, got %s".formatted(usFirstTopics))
+                .contains("orders-v2");
+    }
+
+    private static List<String> allTopicsMetadataNames(Map<String, VirtualTopicConfig> virtualTopics) {
+        var metadataInterceptor = new VirtualTopicInterceptor(new VirtualTopicManager(virtualTopics));
+        GatewayContext requestContext = freshContext();
+        metadataInterceptor.onRequest(requestContext, request(METADATA, new MetadataRequestData()));
+        var responseData = new MetadataResponseData();
+        addTopic(responseData, "orders-v2");
+        metadataInterceptor.onResponse(requestContext, response(METADATA, responseData));
+        return responseData.topics().stream().map(MetadataResponseData.MetadataResponseTopic::name).toList();
     }
 
     @Test
