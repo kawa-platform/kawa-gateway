@@ -44,6 +44,11 @@ import org.apache.kafka.common.message.DescribeTransactionsRequestData;
 import org.apache.kafka.common.message.DescribeTransactionsResponseData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsRequestData;
 import org.apache.kafka.common.message.IncrementalAlterConfigsResponseData;
+import org.apache.kafka.common.message.JoinGroupRequestData;
+import org.apache.kafka.common.message.JoinGroupResponseData;
+import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
+import org.apache.kafka.clients.consumer.internals.ConsumerProtocol;
+import org.apache.kafka.common.utils.Utils;
 import org.apache.kafka.common.message.OffsetDeleteRequestData;
 import org.apache.kafka.common.message.OffsetDeleteResponseData;
 import org.apache.kafka.common.message.DescribeTopicPartitionsRequestData;
@@ -100,6 +105,7 @@ class VirtualTopicInterceptorTest {
     private static final int DESCRIBE_ACLS = 29;
     private static final int DESCRIBE_TRANSACTIONS = 65;
     private static final int TXN_OFFSET_COMMIT = 28;
+    private static final int JOIN_GROUP = 11;
 
     private final VirtualTopicManager virtualTopics = new VirtualTopicManager(Map.of(
             "orders", new VirtualTopicConfig("orders-v2"),
@@ -390,6 +396,53 @@ class VirtualTopicInterceptorTest {
     }
 
     @Test
+    void refusesProduceNamingTwoVirtualTopicsOnOnePhysicalTopic() {
+        // given
+        var sharedInterceptor = sharedOrdersInterceptor();
+        GatewayContext requestContext = freshContext();
+        var records = MemoryRecords.withRecords(Compression.NONE,
+                new SimpleRecord(1000L, "k1".getBytes(StandardCharsets.UTF_8), "v1".getBytes(StandardCharsets.UTF_8)));
+        var requestData = new ProduceRequestData();
+        requestData.topicData().add(new ProduceRequestData.TopicProduceData()
+                .setName("orders-eu")
+                .setPartitionData(List.of(new ProduceRequestData.PartitionProduceData().setIndex(0).setRecords(records))));
+        requestData.topicData().add(new ProduceRequestData.TopicProduceData()
+                .setName("orders-us")
+                .setPartitionData(List.of(new ProduceRequestData.PartitionProduceData().setIndex(0).setRecords(records))));
+
+        // when
+        sharedInterceptor.onRequest(requestContext, request(PRODUCE, requestData));
+
+        // then
+        Object shortCircuit = requestContext.shortCircuitResult();
+        assertThat(shortCircuit)
+                .withFailMessage(() -> "Produce naming 'orders-eu' and 'orders-us' on one physical topic was forwarded to the broker")
+                .isNotNull();
+
+        Object body = invokeNoArg(shortCircuit, "body");
+        assertThat(body).isInstanceOf(ProduceResponseData.class);
+        var responseData = (ProduceResponseData) body;
+        var names = responseData.responses().stream().map(ProduceResponseData.TopicProduceResponse::name).toList();
+        assertThat(names)
+                .withFailMessage(() -> "Produce naming 'orders-eu' and 'orders-us' was not refused under both names, got %s".formatted(names))
+                .containsExactlyInAnyOrder("orders-eu", "orders-us");
+
+        var partitions = responseData.responses().stream()
+                .flatMap(topic -> topic.partitionResponses().stream())
+                .toList();
+        assertThat(partitions)
+                .withFailMessage(() -> "Produce naming 'orders-eu' and 'orders-us' was not refused with INVALID_REQUEST on every partition")
+                .extracting(ProduceResponseData.PartitionProduceResponse::errorCode)
+                .containsOnly(Errors.INVALID_REQUEST.code());
+        assertThat(partitions)
+                .withFailMessage(() -> "Produce refusal did not name 'orders-eu', 'orders-us' and 'orders-v2' in every partition error message")
+                .allMatch(partition -> partition.errorMessage() != null
+                        && partition.errorMessage().contains("orders-eu")
+                        && partition.errorMessage().contains("orders-us")
+                        && partition.errorMessage().contains("orders-v2"));
+    }
+
+    @Test
     void rewritesFetchRequestAndResponse() {
         var data = new FetchRequestData();
         data.topics().add(new FetchRequestData.FetchTopic().setTopic("customers"));
@@ -402,6 +455,45 @@ class VirtualTopicInterceptorTest {
 
         interceptor.onResponse(context, response(FETCH, responseData));
         assertThat(first(responseData.responses()).topic()).isEqualTo("customers");
+    }
+
+    @Test
+    void refusesFetchNamingTwoVirtualTopicsOnOnePhysicalTopic() {
+        // given
+        var sharedInterceptor = sharedOrdersInterceptor();
+        GatewayContext requestContext = freshContext();
+        var requestData = new FetchRequestData();
+        requestData.topics().add(new FetchRequestData.FetchTopic()
+                .setTopic("orders-eu")
+                .setPartitions(List.of(new FetchRequestData.FetchPartition().setPartition(0).setFetchOffset(5L))));
+        requestData.topics().add(new FetchRequestData.FetchTopic()
+                .setTopic("orders-us")
+                .setPartitions(List.of(new FetchRequestData.FetchPartition().setPartition(0).setFetchOffset(9L))));
+
+        // when
+        sharedInterceptor.onRequest(requestContext, request(FETCH, requestData));
+
+        // then
+        Object shortCircuit = requestContext.shortCircuitResult();
+        assertThat(shortCircuit)
+                .withFailMessage(() -> "Fetch naming 'orders-eu' and 'orders-us' on one physical topic was forwarded to the broker")
+                .isNotNull();
+
+        Object body = invokeNoArg(shortCircuit, "body");
+        assertThat(body).isInstanceOf(FetchResponseData.class);
+        var responseData = (FetchResponseData) body;
+        var names = responseData.responses().stream().map(FetchResponseData.FetchableTopicResponse::topic).toList();
+        assertThat(names)
+                .withFailMessage(() -> "Fetch naming 'orders-eu' and 'orders-us' was not refused under exactly those names, got %s".formatted(names))
+                .containsExactlyInAnyOrder("orders-eu", "orders-us");
+
+        var partitions = responseData.responses().stream()
+                .flatMap(topic -> topic.partitions().stream())
+                .toList();
+        assertThat(partitions)
+                .withFailMessage(() -> "Fetch naming 'orders-eu' and 'orders-us' was not refused with INVALID_REQUEST on every partition")
+                .extracting(FetchResponseData.PartitionData::errorCode)
+                .containsOnly(Errors.INVALID_REQUEST.code());
     }
 
     @Test
@@ -669,6 +761,45 @@ class VirtualTopicInterceptorTest {
     }
 
     @Test
+    void refusesListOffsetsNamingTwoVirtualTopicsOnOnePhysicalTopic() {
+        // given
+        var sharedInterceptor = sharedOrdersInterceptor();
+        GatewayContext requestContext = freshContext();
+        var requestData = new ListOffsetsRequestData();
+        requestData.topics().add(new ListOffsetsRequestData.ListOffsetsTopic()
+                .setName("orders-eu")
+                .setPartitions(List.of(new ListOffsetsRequestData.ListOffsetsPartition().setPartitionIndex(0).setTimestamp(-1L))));
+        requestData.topics().add(new ListOffsetsRequestData.ListOffsetsTopic()
+                .setName("orders-us")
+                .setPartitions(List.of(new ListOffsetsRequestData.ListOffsetsPartition().setPartitionIndex(0).setTimestamp(-2L))));
+
+        // when
+        sharedInterceptor.onRequest(requestContext, request(LIST_OFFSETS, requestData));
+
+        // then
+        Object shortCircuit = requestContext.shortCircuitResult();
+        assertThat(shortCircuit)
+                .withFailMessage(() -> "ListOffsets naming 'orders-eu' and 'orders-us' on one physical topic was forwarded to the broker")
+                .isNotNull();
+
+        Object body = invokeNoArg(shortCircuit, "body");
+        assertThat(body).isInstanceOf(ListOffsetsResponseData.class);
+        var responseData = (ListOffsetsResponseData) body;
+        var names = responseData.topics().stream().map(ListOffsetsResponseData.ListOffsetsTopicResponse::name).toList();
+        assertThat(names)
+                .withFailMessage(() -> "ListOffsets naming 'orders-eu' and 'orders-us' was not refused under exactly those names, got %s".formatted(names))
+                .containsExactlyInAnyOrder("orders-eu", "orders-us");
+
+        var partitions = responseData.topics().stream()
+                .flatMap(topic -> topic.partitions().stream())
+                .toList();
+        assertThat(partitions)
+                .withFailMessage(() -> "ListOffsets naming 'orders-eu' and 'orders-us' was not refused with INVALID_REQUEST on every partition")
+                .extracting(ListOffsetsResponseData.ListOffsetsPartitionResponse::errorCode)
+                .containsOnly(Errors.INVALID_REQUEST.code());
+    }
+
+    @Test
     void rewritesOffsetCommitRequestAndResponse() {
         var data = new OffsetCommitRequestData().setGroupId("g1");
         data.topics().add(new OffsetCommitRequestData.OffsetCommitRequestTopic().setName("orders"));
@@ -681,6 +812,47 @@ class VirtualTopicInterceptorTest {
 
         interceptor.onResponse(context, response(OFFSET_COMMIT, responseData));
         assertThat(first(responseData.topics()).name()).isEqualTo("orders");
+    }
+
+    @Test
+    void refusesOffsetCommitNamingTwoVirtualTopicsOnOnePhysicalTopic() {
+        // given one group committing to both virtual topics
+        var sharedInterceptor = sharedOrdersInterceptor();
+        GatewayContext requestContext = freshContext();
+        var requestData = new OffsetCommitRequestData().setGroupId("g1");
+        requestData.topics().add(new OffsetCommitRequestData.OffsetCommitRequestTopic()
+                .setName("orders-eu")
+                .setPartitions(List.of(new OffsetCommitRequestData.OffsetCommitRequestPartition()
+                        .setPartitionIndex(0).setCommittedOffset(5L))));
+        requestData.topics().add(new OffsetCommitRequestData.OffsetCommitRequestTopic()
+                .setName("orders-us")
+                .setPartitions(List.of(new OffsetCommitRequestData.OffsetCommitRequestPartition()
+                        .setPartitionIndex(0).setCommittedOffset(9L))));
+
+        // when
+        sharedInterceptor.onRequest(requestContext, request(OFFSET_COMMIT, requestData));
+
+        // then
+        Object shortCircuit = requestContext.shortCircuitResult();
+        assertThat(shortCircuit)
+                .withFailMessage(() -> "OffsetCommit naming 'orders-eu' and 'orders-us' on one physical topic was forwarded to the broker")
+                .isNotNull();
+
+        Object body = invokeNoArg(shortCircuit, "body");
+        assertThat(body).isInstanceOf(OffsetCommitResponseData.class);
+        var responseData = (OffsetCommitResponseData) body;
+        var names = responseData.topics().stream().map(OffsetCommitResponseData.OffsetCommitResponseTopic::name).toList();
+        assertThat(names)
+                .withFailMessage(() -> "OffsetCommit naming 'orders-eu' and 'orders-us' was not refused under exactly those names, got %s".formatted(names))
+                .containsExactlyInAnyOrder("orders-eu", "orders-us");
+
+        var partitions = responseData.topics().stream()
+                .flatMap(topic -> topic.partitions().stream())
+                .toList();
+        assertThat(partitions)
+                .withFailMessage(() -> "OffsetCommit naming 'orders-eu' and 'orders-us' was not refused with INVALID_REQUEST on every partition")
+                .extracting(OffsetCommitResponseData.OffsetCommitResponsePartition::errorCode)
+                .containsOnly(Errors.INVALID_REQUEST.code());
     }
 
     @Test
@@ -721,6 +893,45 @@ class VirtualTopicInterceptorTest {
     }
 
     @Test
+    void refusesOffsetFetchNamingTwoVirtualTopicsOnOnePhysicalTopic() {
+        // given one group fetching committed offsets for both virtual topics
+        var sharedInterceptor = sharedOrdersInterceptor();
+        GatewayContext requestContext = freshContext();
+        var requestData = new OffsetFetchRequestData().setGroupId("g1");
+        requestData.topics().add(new OffsetFetchRequestData.OffsetFetchRequestTopic()
+                .setName("orders-eu")
+                .setPartitionIndexes(List.of(0)));
+        requestData.topics().add(new OffsetFetchRequestData.OffsetFetchRequestTopic()
+                .setName("orders-us")
+                .setPartitionIndexes(List.of(0)));
+
+        // when
+        sharedInterceptor.onRequest(requestContext, request(OFFSET_FETCH, requestData));
+
+        // then
+        Object shortCircuit = requestContext.shortCircuitResult();
+        assertThat(shortCircuit)
+                .withFailMessage(() -> "OffsetFetch naming 'orders-eu' and 'orders-us' on one physical topic was forwarded to the broker")
+                .isNotNull();
+
+        Object body = invokeNoArg(shortCircuit, "body");
+        assertThat(body).isInstanceOf(OffsetFetchResponseData.class);
+        var responseData = (OffsetFetchResponseData) body;
+        var names = responseData.topics().stream().map(OffsetFetchResponseData.OffsetFetchResponseTopic::name).toList();
+        assertThat(names)
+                .withFailMessage(() -> "OffsetFetch naming 'orders-eu' and 'orders-us' was not refused under exactly those names, got %s".formatted(names))
+                .containsExactlyInAnyOrder("orders-eu", "orders-us");
+
+        var partitions = responseData.topics().stream()
+                .flatMap(topic -> topic.partitions().stream())
+                .toList();
+        assertThat(partitions)
+                .withFailMessage(() -> "OffsetFetch naming 'orders-eu' and 'orders-us' was not refused with INVALID_REQUEST on every partition")
+                .extracting(OffsetFetchResponseData.OffsetFetchResponsePartition::errorCode)
+                .containsOnly(Errors.INVALID_REQUEST.code());
+    }
+
+    @Test
     void nullOffsetFetchTopicsIsIgnored() {
         var data = new OffsetFetchRequestData().setGroupId("g1");
         data.setTopics(null);
@@ -745,7 +956,7 @@ class VirtualTopicInterceptorTest {
     }
 
     @Test
-    void offsetFetchAllTopicsAnswersPhysicalTopicOncePerVirtualTopic() {
+    void answersCommittedOffsetUnderEveryVirtualTopicWhenOffsetFetchAsksForAllTopics() {
         // given
         var sharedInterceptor = new VirtualTopicInterceptor(new VirtualTopicManager(Map.of(
                 "orders-eu", new VirtualTopicConfig("orders-v2"),
@@ -1575,6 +1786,34 @@ class VirtualTopicInterceptorTest {
     }
 
     @Test
+    void refusesJoinGroupSubscribingToTwoVirtualTopicsOnOnePhysicalTopic() {
+        // given a consumer in group g1 subscribing to both virtual topics on orders-v2
+        var sharedInterceptor = sharedOrdersInterceptor();
+        GatewayContext requestContext = freshContext();
+        var subscription = ConsumerProtocol.serializeSubscription(
+                new ConsumerPartitionAssignor.Subscription(List.of("orders-eu", "orders-us")));
+        var requestData = new JoinGroupRequestData().setGroupId("g1").setProtocolType("consumer");
+        requestData.protocols().add(new JoinGroupRequestData.JoinGroupRequestProtocol()
+                .setName("range")
+                .setMetadata(Utils.toArray(subscription)));
+
+        // when
+        sharedInterceptor.onRequest(requestContext, request(JOIN_GROUP, requestData));
+
+        // then
+        Object shortCircuit = requestContext.shortCircuitResult();
+        assertThat(shortCircuit)
+                .withFailMessage(() -> "JoinGroup subscribing to 'orders-eu' and 'orders-us' on one physical topic was forwarded to the broker")
+                .isNotNull();
+
+        Object body = invokeNoArg(shortCircuit, "body");
+        assertThat(body).isInstanceOf(JoinGroupResponseData.class);
+        assertThat(((JoinGroupResponseData) body).errorCode())
+                .withFailMessage(() -> "JoinGroup subscribing to 'orders-eu' and 'orders-us' was not refused with INVALID_REQUEST")
+                .isEqualTo(Errors.INVALID_REQUEST.code());
+    }
+
+    @Test
     void nullBodyIsIgnored() {
         interceptor.onRequest(context, request(METADATA, null));
         interceptor.onResponse(context, response(METADATA, null));
@@ -1598,5 +1837,11 @@ class VirtualTopicInterceptorTest {
 
     private static GatewayContext freshContext() {
         return new GatewayContext("test", System.nanoTime());
+    }
+
+    private static VirtualTopicInterceptor sharedOrdersInterceptor() {
+        return new VirtualTopicInterceptor(new VirtualTopicManager(Map.of(
+                "orders-eu", new VirtualTopicConfig("orders-v2"),
+                "orders-us", new VirtualTopicConfig("orders-v2"))));
     }
 }

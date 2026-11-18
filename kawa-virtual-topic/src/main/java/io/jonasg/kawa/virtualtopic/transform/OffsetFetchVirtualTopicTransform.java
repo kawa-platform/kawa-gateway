@@ -1,10 +1,12 @@
 package io.jonasg.kawa.virtualtopic.transform;
 
 import io.jonasg.kawa.core.GatewayContext;
+import io.jonasg.kawa.core.ShortCircuitResult;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.virtualtopic.VirtualTopicState;
 import org.apache.kafka.common.message.OffsetFetchRequestData;
 import org.apache.kafka.common.message.OffsetFetchResponseData;
+import org.apache.kafka.common.protocol.Errors;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -32,6 +34,10 @@ public final class OffsetFetchVirtualTopicTransform
         VirtualTopicState state = VirtualTopicState.from(context);
         state.offsetFetchAllTopics(data.topics() == null);
         if (data.topics() == null) {
+            return;
+        }
+        if (!virtualTopics.sharedPhysicalTopics(data.topics().stream().map(OffsetFetchRequestData.OffsetFetchRequestTopic::name).toList()).isEmpty()) {
+            context.shortCircuit(new ShortCircuitResult(apiKey(), state.apiVersion(), refusal(data)));
             return;
         }
         for (OffsetFetchRequestData.OffsetFetchRequestTopic topic : data.topics()) {
@@ -64,5 +70,21 @@ public final class OffsetFetchVirtualTopicTransform
                 topic.setName(names.getFirst());
             }
         }
+    }
+
+    /// Answers every topic and partition the request named, under the client's names, with [Errors#INVALID_REQUEST].
+    private static OffsetFetchResponseData refusal(OffsetFetchRequestData data) {
+        var response = new OffsetFetchResponseData();
+        for (OffsetFetchRequestData.OffsetFetchRequestTopic topic : data.topics()) {
+            var topicResponse = new OffsetFetchResponseData.OffsetFetchResponseTopic().setName(topic.name());
+            for (Integer partitionIndex : topic.partitionIndexes()) {
+                topicResponse.partitions().add(new OffsetFetchResponseData.OffsetFetchResponsePartition()
+                        .setPartitionIndex(partitionIndex)
+                        .setCommittedOffset(-1L)
+                        .setErrorCode(Errors.INVALID_REQUEST.code()));
+            }
+            response.topics().add(topicResponse);
+        }
+        return response;
     }
 }

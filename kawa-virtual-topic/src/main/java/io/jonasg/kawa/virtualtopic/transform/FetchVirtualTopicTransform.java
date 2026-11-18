@@ -2,6 +2,7 @@ package io.jonasg.kawa.virtualtopic.transform;
 
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import io.jonasg.kawa.core.GatewayContext;
+import io.jonasg.kawa.core.ShortCircuitResult;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
@@ -45,6 +46,10 @@ public final class FetchVirtualTopicTransform
             FetchRequestData data
     ) {
         VirtualTopicState state = VirtualTopicState.from(context);
+        if (!virtualTopics.sharedPhysicalTopics(data.topics().stream().map(FetchRequestData.FetchTopic::topic).toList()).isEmpty()) {
+            context.shortCircuit(new ShortCircuitResult(apiKey(), state.apiVersion(), refusal(data)));
+            return;
+        }
         for (FetchRequestData.FetchTopic topic : data.topics()) {
             String physical = virtualTopics.toPhysical(topic.topic());
             if (!Objects.equals(physical, topic.topic())) {
@@ -120,5 +125,20 @@ public final class FetchVirtualTopicTransform
                 partition.setRecords(recordFilter.apply(physical, filter.get(), valueFormat, partition.records()));
             }
         }
+    }
+
+    /// Answers every topic and partition the request named, under the client's names, with [Errors#INVALID_REQUEST].
+    private static FetchResponseData refusal(FetchRequestData data) {
+        var response = new FetchResponseData();
+        for (FetchRequestData.FetchTopic topic : data.topics()) {
+            var topicResponse = new FetchResponseData.FetchableTopicResponse().setTopic(topic.topic());
+            for (FetchRequestData.FetchPartition partition : topic.partitions()) {
+                topicResponse.partitions().add(new FetchResponseData.PartitionData()
+                        .setPartitionIndex(partition.partition())
+                        .setErrorCode(Errors.INVALID_REQUEST.code()));
+            }
+            response.responses().add(topicResponse);
+        }
+        return response;
     }
 }
