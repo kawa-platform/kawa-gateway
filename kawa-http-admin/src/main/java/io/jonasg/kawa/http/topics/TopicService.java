@@ -222,9 +222,9 @@ public final class TopicService implements AutoCloseable {
         var updated = virtualTopic(
                 newName,
                 topic,
-                patch.filter(),
+                patch.filterOr(current.filter()),
                 patch.exposePhysicalTopic() == null ? current.exposePhysicalTopic() : patch.exposePhysicalTopic(),
-                patch.valueFormat(),
+                patch.valueFormatOr(current.valueFormat()),
                 patch.transformations() == null ? current.transformations() : TopicTransformations.parse(patch.transformations()),
                 Ownership.stamp(caller));
         admit(newName, GovernanceRequest.virtualTopic(principal, SERVICE, Operation.ALTER, newName, topic));

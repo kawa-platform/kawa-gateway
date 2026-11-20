@@ -150,7 +150,7 @@ paths:
       summary: Update a virtual topic config
       description: |
         Partially updates the virtual topic identified by `name`. Omitted fields retain their
-        current values; an omitted or null `filter` produces no filter, and likewise `valueFormat`.
+        current values; an explicit null `filter` removes the filter, and likewise `valueFormat`.
         An omitted or null `transformations` keeps the current steps, `[]` removes them. The
         optional `name` field atomically renames the virtual topic and must not collide with an
         existing topic.
@@ -1780,7 +1780,7 @@ components:
           allOf:
             - $ref: '#/components/schemas/VirtualTopicFilter'
           nullable: true
-          description: Optional filter; omitted or null means no filter.
+          description: Optional filter; omitted keeps the current filter, null removes it.
         exposePhysicalTopic:
           type: boolean
           description: Optional physical-topic exposure setting.
@@ -1788,7 +1788,7 @@ components:
           allOf:
             - $ref: '#/components/schemas/PayloadFormat'
           nullable: true
-          description: Optional value format; omitted or null means raw values. Replaced together with filter.
+          description: Optional value format; omitted keeps the current format, null means raw values.
         transformations:
           type: array
           nullable: true
