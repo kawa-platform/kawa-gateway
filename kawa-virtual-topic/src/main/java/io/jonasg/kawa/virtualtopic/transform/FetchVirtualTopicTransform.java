@@ -4,18 +4,29 @@ import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.ShortCircuitResult;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager.VirtualTopic;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
+import io.jonasg.kawa.virtualtopic.mapping.VirtualTopicRecordTransformer;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicState;
 import org.apache.kafka.common.message.FetchRequestData;
 import org.apache.kafka.common.message.FetchResponseData;
 import org.apache.kafka.common.protocol.Errors;
+import org.apache.kafka.common.record.internal.BaseRecords;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+/// Renames fetched topics between their virtual and physical names, and rewrites the records a
+/// virtual topic delivers: its consume filter first, on the stored values, then its
+/// transformations on the records that remain.
+///
+/// Records are rewritten per response from the configuration current at that moment, and each
+/// record on its own, so a fetch session needs no knowledge of formats: one response may hold
+/// records stored in different formats, and a configuration change applies from the next response
+/// of a session on.
 public final class FetchVirtualTopicTransform
         implements VirtualTopicTransform<FetchRequestData, FetchResponseData> {
 
@@ -24,15 +35,18 @@ public final class FetchVirtualTopicTransform
     private final VirtualTopicManager virtualTopics;
     private final FetchSessionRegistry fetchSessions;
     private final VirtualTopicRecordFilter recordFilter;
+    private final VirtualTopicRecordTransformer recordTransformer;
 
     public FetchVirtualTopicTransform(
             VirtualTopicManager virtualTopics,
             FetchSessionRegistry fetchSessions,
-            VirtualTopicRecordFilter recordFilter
+            VirtualTopicRecordFilter recordFilter,
+            VirtualTopicRecordTransformer recordTransformer
     ) {
         this.virtualTopics = virtualTopics;
         this.fetchSessions = fetchSessions;
         this.recordFilter = recordFilter;
+        this.recordTransformer = recordTransformer;
     }
 
     @Override
@@ -100,7 +114,7 @@ public final class FetchVirtualTopicTransform
                     topic.setTopic(virtual);
                 }
             }
-            applyConsumeFilters(data);
+            rewriteRecords(data);
             return;
         }
         for (FetchResponseData.FetchableTopicResponse topic : data.responses()) {
@@ -110,19 +124,29 @@ public final class FetchVirtualTopicTransform
             }
         }
 
-        applyConsumeFilters(data);
+        rewriteRecords(data);
     }
 
-    private void applyConsumeFilters(FetchResponseData data) {
+    private void rewriteRecords(FetchResponseData data) {
         for (FetchResponseData.FetchableTopicResponse topic : data.responses()) {
             Optional<VirtualTopicFilterConfig> filter = virtualTopics.filterFor(topic.topic());
-            if (filter.isEmpty()) {
+            // Only a topic fetched by its virtual name is transformed: an exposed physical topic
+            // delivers its records as they are stored.
+            Optional<VirtualTopic> transformed = virtualTopics.virtualTopic(topic.topic()).filter(VirtualTopic::transformsValues);
+            if (filter.isEmpty() && transformed.isEmpty()) {
                 continue;
             }
             var valueFormat = virtualTopics.valueFormatFor(topic.topic()).orElse(null);
             String physical = virtualTopics.toPhysical(topic.topic());
             for (FetchResponseData.PartitionData partition : topic.partitions()) {
-                partition.setRecords(recordFilter.apply(physical, filter.get(), valueFormat, partition.records()));
+                BaseRecords records = partition.records();
+                if (filter.isPresent()) {
+                    records = recordFilter.apply(physical, filter.get(), valueFormat, records);
+                }
+                if (transformed.isPresent()) {
+                    records = recordTransformer.apply(transformed.get(), records);
+                }
+                partition.setRecords(records);
             }
         }
     }

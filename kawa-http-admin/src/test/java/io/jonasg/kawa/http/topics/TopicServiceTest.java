@@ -1,11 +1,10 @@
 package io.jonasg.kawa.http.topics;
 
-import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
+import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Selector;
-import io.jonasg.kawa.config.GovernanceRuleConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
@@ -19,7 +18,9 @@ import io.jonasg.kawa.http.FakeDynamicConfigRepository;
 import io.jonasg.kawa.http.configchange.ConflictException;
 import io.jonasg.kawa.http.configchange.Consistency;
 import io.jonasg.kawa.http.configchange.ForbiddenException;
+import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.test.FakeBrokerAdmin;
+import io.jonasg.kawa.test.FakeSchemaRegistries;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.resource.ResourceType;
@@ -51,14 +52,16 @@ class TopicServiceTest {
     private final FakeDynamicConfigRepository repository = new FakeDynamicConfigRepository(DynamicConfig.empty());
     private final FakeBrokerAdmin brokerAdmin = new FakeBrokerAdmin();
     private GovernancePolicy governance = new GovernancePolicy(new GovernanceConfig(null));
-    private final TopicService service = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
+    private final TopicService service = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance,
+            VISIBILITY_TIMEOUT, FakeSchemaRegistries.PRESENT);
 
     @Test
     void listsVirtualAndPhysicalTopics() {
         // given
         var virtualTopicsWithOrders = new VirtualTopicManager(Map.of(
                 "orders", new VirtualTopicConfig("orders-v2")));
-        var serviceWithVirtual = new TopicService(virtualTopicsWithOrders, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
+        var serviceWithVirtual = new TopicService(virtualTopicsWithOrders, cache, metadataRefresher, repository, brokerAdmin, governance,
+                VISIBILITY_TIMEOUT, FakeSchemaRegistries.PRESENT);
         cacheWith(topic("orders-v2", 3, 2));
 
         // when
@@ -142,7 +145,8 @@ class TopicServiceTest {
         cacheWith(topic("orders", 1, 1));
         brokerAdmin.states.put("orders", new TopicState(1, 1, Map.of("cleanup.policy", "compact")));
         governance = new GovernancePolicy(new GovernanceConfig(Map.of("keep-compacted", keepCompactedRule())));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance,
+                VISIBILITY_TIMEOUT, FakeSchemaRegistries.PRESENT);
 
         // when / then
         assertThatThrownBy(() -> governedService.deleteTopic(ADMIN, "orders", Consistency.PERSISTED))
@@ -159,7 +163,8 @@ class TopicServiceTest {
                 "keep-views", "views of orders are kept", null,
                 new Selector(ResourceType.TOPIC, null, GovernanceRuleConfig.TopicScope.VIRTUAL, Set.of(GovernanceRuleConfig.Operation.DELETE)),
                 Expression.cel("topic.physicalTopic != 'orders'")))));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance,
+                VISIBILITY_TIMEOUT, FakeSchemaRegistries.PRESENT);
 
         // when / then
         assertThatThrownBy(() -> governedService.deleteTopic(ADMIN, "orders-view", Consistency.PERSISTED))
@@ -210,8 +215,8 @@ class TopicServiceTest {
             return CompletableFuture.completedFuture(null);
         };
         var slowService = new TopicService(virtualTopics, cache, slowBroker, repository, brokerAdmin, governance,
-                Duration.ofSeconds(5));
-        var request = new TopicRequest("physical", "orders", 1, (short) 1, null, null, null, null, null);
+                Duration.ofSeconds(5), FakeSchemaRegistries.PRESENT);
+        var request = new TopicRequest("physical", "orders", 1, (short) 1, null, null, null, null, null, null);
 
         // when
         var creation = slowService.createPhysicalTopic(ADMIN, request);
@@ -230,8 +235,8 @@ class TopicServiceTest {
         // given - every metadata refresh fails
         MetadataRefresher brokenRefresh = () -> CompletableFuture.failedFuture(new IllegalStateException("connection down"));
         var impatientService = new TopicService(virtualTopics, cache, brokenRefresh, repository, brokerAdmin, governance,
-                Duration.ofMillis(300));
-        var request = new TopicRequest("physical", "orders", 1, (short) 1, null, null, null, null, null);
+                Duration.ofMillis(300), FakeSchemaRegistries.PRESENT);
+        var request = new TopicRequest("physical", "orders", 1, (short) 1, null, null, null, null, null, null);
 
         // when
         var creation = impatientService.createPhysicalTopic(ADMIN, request);
@@ -251,7 +256,8 @@ class TopicServiceTest {
         governance = new GovernancePolicy(new GovernanceConfig(
                 Map.of("min-replication",
                         minReplicationRule())));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance,
+                VISIBILITY_TIMEOUT, FakeSchemaRegistries.PRESENT);
         var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null, null);
 
         // then
@@ -265,7 +271,8 @@ class TopicServiceTest {
     void rejectsVirtualTopicViolatingGovernance() {
         // given - virtual topics must be named after their physical topic
         governance = new GovernancePolicy(new GovernanceConfig(Map.of("aliases", virtualAliasRule())));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance,
+                VISIBILITY_TIMEOUT, FakeSchemaRegistries.PRESENT);
         var request = new TopicRequest("virtual", "orders", null, null, null, "payments-v2", null, null, null, null);
 
         // when / then
@@ -282,7 +289,8 @@ class TopicServiceTest {
         // given - the rule runs on create and alter
         repository.update(base -> base.upsertVirtualTopic("orders", new VirtualTopicConfig("orders-v1")));
         governance = new GovernancePolicy(new GovernanceConfig(Map.of("aliases", virtualAliasRule())));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance,
+                VISIBILITY_TIMEOUT, FakeSchemaRegistries.PRESENT);
 
         // when / then
         assertThatThrownBy(() -> governedService.updateVirtualTopic(ADMIN, "orders",
@@ -304,7 +312,8 @@ class TopicServiceTest {
                 rule.expression(),
                 List.of(new GovernanceRuleConfig.Exemption(
                         "ops", "Operators may create under-replicated topics.", Expression.cel("principal == 'admin'")))))));
-        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance, VISIBILITY_TIMEOUT);
+        TopicService governedService = new TopicService(virtualTopics, cache, metadataRefresher, repository, brokerAdmin, governance,
+                VISIBILITY_TIMEOUT, FakeSchemaRegistries.PRESENT);
         var request = new TopicRequest("physical", "orders", 3, (short) 1, null, null, null, null, null, null);
 
         // when

@@ -1,0 +1,358 @@
+package io.jonasg.kawa.virtualtopic.mapping;
+
+import io.jonasg.kawa.config.AvroFormatConfig;
+import io.jonasg.kawa.config.CelTransformationConfig;
+import io.jonasg.kawa.config.ConvertTransformationConfig;
+import io.jonasg.kawa.config.DecodeErrorPolicy;
+import io.jonasg.kawa.config.DropFieldsTransformationConfig;
+import io.jonasg.kawa.config.JsonFormatConfig;
+import io.jonasg.kawa.config.PayloadFormatConfig;
+import io.jonasg.kawa.config.RenameFieldTransformationConfig;
+import io.jonasg.kawa.config.TransformationConfig;
+import io.jonasg.kawa.config.VirtualTopicConfig;
+import io.jonasg.kawa.config.XmlFormatConfig;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.VirtualTopicManager.VirtualTopic;
+import io.jonasg.kawa.virtualtopic.filter.AvroPayloadDecoder;
+import io.jonasg.kawa.virtualtopic.filter.PayloadDecodeException;
+import io.jonasg.kawa.virtualtopic.filter.RegisteredAvroSchema;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
+import org.apache.avro.Schema;
+import org.apache.kafka.common.compress.Compression;
+import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.header.internals.RecordHeader;
+import org.apache.kafka.common.record.TimestampType;
+import org.apache.kafka.common.record.internal.BaseRecords;
+import org.apache.kafka.common.record.internal.ControlRecordType;
+import org.apache.kafka.common.record.internal.EndTransactionMarker;
+import org.apache.kafka.common.record.internal.MemoryRecords;
+import org.apache.kafka.common.record.internal.MutableRecordBatch;
+import org.apache.kafka.common.record.internal.Record;
+import org.apache.kafka.common.record.internal.RecordBatch;
+import org.apache.kafka.common.record.internal.SimpleRecord;
+import org.junit.jupiter.api.Test;
+
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/// Batch-level tests for [VirtualTopicRecordTransformer#apply], the transform pass of the fetch path.
+class VirtualTopicRecordTransformerTest {
+
+    private final VirtualTopicRecordTransformer transformer = new VirtualTopicRecordTransformer(SchemaRegistries.NONE);
+
+    @Test
+    void transformsJsonValuesIntoXmlWithTheMappingApplied() {
+        // given JSON orders, exposed as XML without the risk score and with order_id renamed to id
+        VirtualTopic topic = topic(new JsonFormatConfig(),
+                new DropFieldsTransformationConfig(List.of("internal_risk_score")),
+                new RenameFieldTransformationConfig("order_id", "id"),
+                new ConvertTransformationConfig(new XmlFormatConfig(DecodeErrorPolicy.SKIP, "order")));
+        var records = MemoryRecords.withRecords(Compression.NONE,
+                json("{\"order_id\":\"o-1\",\"status\":\"PAID\",\"internal_risk_score\":7}"),
+                json("{\"order_id\":\"o-2\",\"status\":\"OPEN\",\"internal_risk_score\":1}"));
+
+        // when
+        List<Record> transformed = records(transformer.apply(topic, records));
+
+        // then
+        assertThat(transformed).extracting(VirtualTopicRecordTransformerTest::value)
+                .withFailMessage(() -> "Values were not exposed as mapped XML: " + transformed.stream().map(VirtualTopicRecordTransformerTest::value).toList())
+                .containsExactly("<order><id>o-1</id><status>PAID</status></order>", "<order><id>o-2</id><status>OPEN</status></order>");
+    }
+
+    @Test
+    void keepsOffsetsKeysTimestampsAndHeadersOfEveryRecord() {
+        // given records with keys, timestamps and headers, starting at offset 100
+        VirtualTopic topic = topic(new JsonFormatConfig(), new RenameFieldTransformationConfig("a", "b"));
+        Header[] headers = {new RecordHeader("content-type", "application/json".getBytes(StandardCharsets.UTF_8))};
+        var records = MemoryRecords.withRecords(100L, Compression.NONE,
+                new SimpleRecord(1_000L, bytes("k1"), bytes("{\"a\":1}"), headers),
+                new SimpleRecord(2_000L, bytes("k2"), bytes("{\"a\":2}"), headers));
+
+        // when
+        List<Record> transformed = records(transformer.apply(topic, records));
+
+        // then
+        assertThat(transformed).extracting(Record::offset)
+                .withFailMessage(() -> "Records were renumbered instead of keeping their offsets")
+                .containsExactly(100L, 101L);
+        assertThat(transformed).extracting(record -> StandardCharsets.UTF_8.decode(record.key()).toString())
+                .withFailMessage(() -> "Record keys were not kept")
+                .containsExactly("k1", "k2");
+        assertThat(transformed).extracting(Record::timestamp)
+                .withFailMessage(() -> "Record timestamps were not kept")
+                .containsExactly(1_000L, 2_000L);
+        assertThat(transformed).allSatisfy(record -> assertThat(record.headers())
+                .withFailMessage(() -> "Record headers were not kept")
+                .containsExactly(headers));
+        assertThat(transformed).extracting(VirtualTopicRecordTransformerTest::value)
+                .containsExactly("{\"b\":1}", "{\"b\":2}");
+    }
+
+    @Test
+    void keepsTheMetadataOfATransactionalCompressedBatch() {
+        // given a gzip-compressed transactional batch
+        VirtualTopic topic = topic(new JsonFormatConfig(), new RenameFieldTransformationConfig("a", "b"));
+        var records = MemoryRecords.withTransactionalRecords(40L, Compression.gzip().build(), 77L, (short) 3, 12, 5,
+                json("{\"a\":1}"), json("{\"a\":2}"));
+        RecordBatch original = records.batches().iterator().next();
+
+        // when
+        MutableRecordBatch batch = batches(transformer.apply(topic, records)).getFirst();
+
+        // then
+        assertThat(batch.isTransactional()).withFailMessage(() -> "Batch is no longer transactional").isTrue();
+        assertThat(batch.producerId()).withFailMessage(() -> "Producer id was not kept").isEqualTo(77L);
+        assertThat(batch.producerEpoch()).withFailMessage(() -> "Producer epoch was not kept").isEqualTo((short) 3);
+        assertThat(batch.baseSequence()).withFailMessage(() -> "Base sequence was not kept").isEqualTo(12);
+        assertThat(batch.partitionLeaderEpoch()).withFailMessage(() -> "Partition leader epoch was not kept").isEqualTo(5);
+        assertThat(batch.compressionType()).withFailMessage(() -> "Compression was not kept").isEqualTo(original.compressionType());
+        assertThat(batch.baseOffset()).withFailMessage(() -> "Base offset was not kept").isEqualTo(40L);
+        assertThat(batch.lastOffset()).withFailMessage(() -> "Last offset was not kept").isEqualTo(41L);
+        batch.ensureValid();
+    }
+
+    @Test
+    void copiesControlBatchesUnchanged() {
+        // given a transactional batch followed by its commit marker
+        VirtualTopic topic = topic(new JsonFormatConfig(), new RenameFieldTransformationConfig("a", "b"));
+        var data = MemoryRecords.withTransactionalRecords(0L, Compression.NONE, 77L, (short) 3, 0, 5, json("{\"a\":1}"));
+        var marker = MemoryRecords.withEndTransactionMarker(1L, 5_000L, 5, 77L, (short) 3,
+                new EndTransactionMarker(ControlRecordType.COMMIT, 0));
+
+        // when
+        List<MutableRecordBatch> batches = batches(transformer.apply(topic, concat(data, marker)));
+
+        // then
+        assertThat(batches).hasSize(2);
+        MutableRecordBatch control = batches.get(1);
+        assertThat(control.isControlBatch()).withFailMessage(() -> "The commit marker is no longer a control batch").isTrue();
+        assertThat(control.baseOffset()).withFailMessage(() -> "The commit marker moved").isEqualTo(1L);
+        assertThat(ControlRecordType.parse(control.iterator().next().key()))
+                .withFailMessage(() -> "The commit marker was changed")
+                .isEqualTo(ControlRecordType.COMMIT);
+    }
+
+    @Test
+    void passesTombstonesThrough() {
+        // given a tombstone between two values
+        VirtualTopic topic = topic(new JsonFormatConfig(), new RenameFieldTransformationConfig("a", "b"));
+        var records = MemoryRecords.withRecords(Compression.NONE,
+                json("{\"a\":1}"), new SimpleRecord(bytes("k"), null), json("{\"a\":2}"));
+
+        // when
+        List<Record> transformed = records(transformer.apply(topic, records));
+
+        // then
+        assertThat(transformed).hasSize(3);
+        assertThat(transformed.get(1).hasValue()).withFailMessage(() -> "The tombstone got a value").isFalse();
+    }
+
+    @Test
+    void skipsARecordThatCannotBeTransformedAndKeepsTheOffsetsOfTheOthers() {
+        // given a batch with a value that is not JSON, under the default skip policy
+        VirtualTopic topic = topic(new JsonFormatConfig(), new RenameFieldTransformationConfig("a", "b"));
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("not json"), json("{\"a\":3}"));
+
+        // when
+        List<Record> transformed = records(transformer.apply(topic, records));
+
+        // then
+        assertThat(transformed).extracting(Record::offset)
+                .withFailMessage(() -> "The undecodable record was not dropped, or the others were renumbered")
+                .containsExactly(0L, 2L);
+    }
+
+    @Test
+    void keepsTheOffsetsOfABatchWhoseRecordsAreAllSkipped() {
+        // given a batch in which no value can be transformed
+        VirtualTopic topic = topic(new JsonFormatConfig(), new RenameFieldTransformationConfig("a", "b"));
+        var records = MemoryRecords.withRecords(10L, Compression.NONE, json("nope"), json("nope either"));
+
+        // when
+        BaseRecords result = transformer.apply(topic, records);
+
+        // then an empty batch is left, so the consumer still moves past offsets 10 and 11
+        assertThat(records(result)).withFailMessage(() -> "Records that cannot be transformed were delivered").isEmpty();
+        assertThat(batches(result)).singleElement()
+                .extracting(RecordBatch::lastOffset)
+                .withFailMessage(() -> "The empty batch does not end at the original last offset")
+                .isEqualTo(11L);
+    }
+
+    @Test
+    void deliversTheStoredValueOfARecordThatCannotBeTransformedUnderIncludePolicy() {
+        // given a value that is not JSON, under the include policy
+        VirtualTopic topic = topic(new JsonFormatConfig(DecodeErrorPolicy.INCLUDE), new RenameFieldTransformationConfig("a", "b"));
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("not json"));
+
+        // when
+        List<Record> transformed = records(transformer.apply(topic, records));
+
+        // then
+        assertThat(transformed).extracting(VirtualTopicRecordTransformerTest::value)
+                .withFailMessage(() -> "The undecodable value was not delivered as stored")
+                .containsExactly("{\"b\":1}", "not json");
+    }
+
+    @Test
+    void failsTheFetchOnARecordThatCannotBeTransformedUnderFailPolicy() {
+        // given a value that is not JSON, under the fail policy
+        VirtualTopic topic = topic(new JsonFormatConfig(DecodeErrorPolicy.FAIL), new RenameFieldTransformationConfig("a", "b"));
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("not json"));
+
+        // when / then
+        assertThatThrownBy(() -> transformer.apply(topic, records))
+                .withFailMessage(() -> "The fetch did not fail on an undecodable value")
+                .isInstanceOf(PayloadDecodeException.class);
+    }
+
+    @Test
+    void appliesThePolicyWhenTheMappingFails() {
+        // given a cel step that fails on a record without the field it reads
+        VirtualTopic topic = topic(new JsonFormatConfig(DecodeErrorPolicy.INCLUDE), new CelTransformationConfig("{\"id\": value.order.id}"));
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"order\":{\"id\":\"o-1\"}}"), json("{\"order\":5}"));
+
+        // when
+        List<Record> transformed = records(transformer.apply(topic, records));
+
+        // then
+        assertThat(transformed).extracting(VirtualTopicRecordTransformerTest::value)
+                .withFailMessage(() -> "The value the mapping failed on was not delivered as stored")
+                .containsExactly("{\"id\":\"o-1\"}", "{\"order\":5}");
+    }
+
+    @Test
+    void appliesThePolicyWhenTheValueCannotBeEncoded() {
+        // given an Avro output format on a cluster without a schema registry
+        VirtualTopic topic = topic(new JsonFormatConfig(), new ConvertTransformationConfig(new AvroFormatConfig(DecodeErrorPolicy.SKIP, "orders-value", null)));
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"id\":\"o-1\"}"));
+
+        // when
+        List<Record> transformed = records(transformer.apply(topic, records));
+
+        // then
+        assertThat(transformed).withFailMessage(() -> "The record that cannot be encoded was not skipped").isEmpty();
+    }
+
+    @Test
+    void encodesTransformedValuesWithTheRegisteredAvroSchema() {
+        // given a registry with an Order schema registered under id 7
+        Schema order = new Schema.Parser().parse("""
+                {"type": "record", "name": "Order", "fields": [
+                  {"name": "id", "type": "string"},
+                  {"name": "status", "type": "string"}
+                ]}""");
+        var registry = SchemaRegistries.of(null, (subject, version) -> new RegisteredAvroSchema(7, order));
+        var avroTransformer = new VirtualTopicRecordTransformer(registry);
+        VirtualTopic topic = topic(new JsonFormatConfig(),
+                new RenameFieldTransformationConfig("order_id", "id"),
+                new ConvertTransformationConfig(new AvroFormatConfig(DecodeErrorPolicy.SKIP, "orders-value", null)));
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"order_id\":\"o-1\",\"status\":\"PAID\"}"));
+
+        // when
+        Record transformed = records(avroTransformer.apply(topic, records)).getFirst();
+
+        // then
+        Object decoded = new AvroPayloadDecoder(id -> order).decode(transformed.value());
+        assertThat(decoded)
+                .withFailMessage(() -> "The value was not encoded as the registered Avro schema, decoded: " + decoded)
+                .isEqualTo(Map.of("id", "o-1", "status", "PAID"));
+        assertThat(transformed.value().getInt(1)).withFailMessage(() -> "The value does not name schema id 7").isEqualTo(7);
+    }
+
+    @Test
+    void leavesOutATrailingBatchTheBrokerTruncated() {
+        // given a complete batch followed by the first bytes of another
+        VirtualTopic topic = topic(new JsonFormatConfig(), new RenameFieldTransformationConfig("a", "b"));
+        var complete = MemoryRecords.withRecords(0L, Compression.NONE, json("{\"a\":1}"));
+        var next = MemoryRecords.withRecords(1L, Compression.NONE, json("{\"a\":2}"));
+        ByteBuffer truncated = next.buffer().duplicate();
+        truncated.limit(truncated.limit() - 5);
+
+        // when
+        List<Record> transformed = records(transformer.apply(topic, concat(complete, MemoryRecords.readableRecords(truncated.slice()))));
+
+        // then
+        assertThat(transformed).extracting(Record::offset)
+                .withFailMessage(() -> "The truncated batch was not left out")
+                .containsExactly(0L);
+    }
+
+    @Test
+    void upConvertsLegacyBatches() {
+        // given a magic v1 batch
+        VirtualTopic topic = topic(new JsonFormatConfig(), new RenameFieldTransformationConfig("a", "b"));
+        var records = MemoryRecords.withRecords(RecordBatch.MAGIC_VALUE_V1, 3L, Compression.NONE, TimestampType.CREATE_TIME,
+                json("{\"a\":1}"), json("{\"a\":2}"));
+
+        // when
+        BaseRecords result = transformer.apply(topic, records);
+
+        // then
+        assertThat(batches(result)).extracting(RecordBatch::magic).containsOnly(RecordBatch.CURRENT_MAGIC_VALUE);
+        assertThat(records(result)).extracting(Record::offset)
+                .withFailMessage(() -> "Legacy records were renumbered")
+                .containsExactly(3L, 4L);
+    }
+
+    @Test
+    void returnsTheRecordsUnchangedForATopicWithoutTransformations() {
+        // given
+        VirtualTopic topic = topic(new JsonFormatConfig());
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"));
+
+        // when / then
+        assertThat(transformer.apply(topic, records))
+                .withFailMessage(() -> "Records of a topic without transformations were rewritten")
+                .isSameAs(records);
+    }
+
+    private static VirtualTopic topic(PayloadFormatConfig valueFormat, TransformationConfig... steps) {
+        var config = new VirtualTopicConfig("orders.raw", null, false, valueFormat, List.of(steps), null);
+        return new VirtualTopicManager(Map.of("orders", config)).virtualTopic("orders").orElseThrow();
+    }
+
+    private static SimpleRecord json(String value) {
+        return new SimpleRecord(bytes(value));
+    }
+
+    private static byte[] bytes(String text) {
+        return text.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String value(Record record) {
+        return StandardCharsets.UTF_8.decode(record.value()).toString();
+    }
+
+    private static List<Record> records(BaseRecords records) {
+        List<Record> all = new ArrayList<>();
+        ((MemoryRecords) records).records().forEach(all::add);
+        return all;
+    }
+
+    private static List<MutableRecordBatch> batches(BaseRecords records) {
+        List<MutableRecordBatch> all = new ArrayList<>();
+        ((MemoryRecords) records).batches().forEach(all::add);
+        return all;
+    }
+
+    private static MemoryRecords concat(MemoryRecords... parts) {
+        int size = 0;
+        for (MemoryRecords part : parts) {
+            size += part.sizeInBytes();
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(size);
+        for (MemoryRecords part : parts) {
+            buffer.put(part.buffer().duplicate());
+        }
+        buffer.flip();
+        return MemoryRecords.readableRecords(buffer);
+    }
+}

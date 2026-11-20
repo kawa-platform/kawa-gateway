@@ -18,6 +18,7 @@ import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
 import io.jonasg.kawa.http.authentication.builtin.BuiltInAuthenticationPlugin;
 import io.jonasg.kawa.http.topics.TopicService;
 import io.jonasg.kawa.test.FakeBrokerAdmin;
+import io.jonasg.kawa.test.FakeSchemaRegistries;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -81,6 +82,7 @@ public abstract class McpSliceTestBase {
                 new InMemoryConfigRepository(config),
                 new GovernancePolicy(new GovernanceConfig(null)),
                 brokerAdmin,
+                FakeSchemaRegistries.PRESENT,
                 null,
                 PUBLIC_URL,
                 _ -> null

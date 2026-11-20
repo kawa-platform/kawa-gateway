@@ -1,6 +1,7 @@
 package io.jonasg.kawa.http.topics;
 
 import io.jonasg.kawa.broker.BrokerAdmin;
+import io.jonasg.kawa.config.AvroFormatConfig;
 import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.config.ManagedBy;
@@ -25,6 +26,7 @@ import io.jonasg.kawa.http.configchange.NotFoundException;
 import io.jonasg.kawa.http.configchange.Ownership;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import io.jonasg.kawa.virtualtopic.mapping.ValueMappings;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
@@ -63,9 +65,13 @@ public final class TopicService implements AutoCloseable {
     private final ConsistencyAwareUpdater consistencyAwareUpdater;
     private final MetadataRefresher metadataRefresher;
     private final Duration visibilityTimeout;
+    private final SchemaRegistries schemaRegistries;
 
     /// @param visibilityTimeout how long a physical topic creation waits for the topic to reach the
     ///                          [MetadataCache]; the same limit the config writes wait for the gateway to apply them
+    /// @param schemaRegistries the schema registry of each physical topic's cluster, the same the
+    ///                         fetch path decodes and encodes Avro with: a virtual topic that needs
+    ///                         Avro on a cluster without one is refused
     public TopicService(
             VirtualTopicManager virtualTopicManager,
             MetadataCache cache,
@@ -73,8 +79,10 @@ public final class TopicService implements AutoCloseable {
             DynamicConfigRepository dynamicConfigRepository,
             BrokerAdmin brokerAdmin,
             GovernancePolicy governancePolicy,
-            Duration visibilityTimeout
+            Duration visibilityTimeout,
+            SchemaRegistries schemaRegistries
     ) {
+        this.schemaRegistries = schemaRegistries;
         this.virtualTopicManager = virtualTopicManager;
         this.cache = cache;
         this.metadataRefresher = metadataRefresher;
@@ -228,8 +236,10 @@ public final class TopicService implements AutoCloseable {
     }
 
     /// Builds the virtual topic config and compiles its transformations, so an invalid step is a
-    /// `400` before anything is written. Step errors start with `transformations[N]`.
-    private static VirtualTopicConfig virtualTopic(
+    /// `400` before anything is written. Step errors start with `transformations[N]`. Avro, as the
+    /// value format or the format transformed values are converted to, needs a schema registry on
+    /// the physical topic's cluster; without one every record would be skipped on fetch.
+    private VirtualTopicConfig virtualTopic(
             String name,
             String topic,
             @Nullable VirtualTopicFilterConfig filter,
@@ -246,6 +256,16 @@ public final class TopicService implements AutoCloseable {
             throw new IllegalArgumentException("virtual topic '" + name + "': " + e.getMessage(), e);
         }
         ValueMappings.compile(transformations);
+        if (schemaRegistries.avroSchemasFor(topic) == null) {
+            if (valueFormat instanceof AvroFormatConfig) {
+                throw new IllegalArgumentException("virtual topic '" + name
+                        + "': an 'avro' value format requires a schemaRegistry on the cluster of topic '" + topic + "'");
+            }
+            if (config.outputFormat() instanceof AvroFormatConfig) {
+                throw new IllegalArgumentException("virtual topic '" + name
+                        + "': a 'convert' to 'avro' requires a schemaRegistry on the cluster of topic '" + topic + "'");
+            }
+        }
         return config;
     }
 
