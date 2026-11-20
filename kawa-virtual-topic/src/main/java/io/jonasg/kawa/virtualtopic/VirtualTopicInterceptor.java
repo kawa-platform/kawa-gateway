@@ -6,6 +6,7 @@ import io.jonasg.kawa.core.Request;
 import io.jonasg.kawa.core.Response;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
+import io.jonasg.kawa.virtualtopic.mapping.VirtualTopicRecordTransformer;
 import io.jonasg.kawa.virtualtopic.transform.AddPartitionsToTxnVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.AlterConfigsVirtualTopicTransform;
 import io.jonasg.kawa.virtualtopic.transform.CreateAclsVirtualTopicTransform;
@@ -55,23 +56,26 @@ public final class VirtualTopicInterceptor implements Interceptor {
     }
 
     /// @param schemaRegistries finds the schema registry of a physical topic's cluster, to decode
-    ///                         Avro record values for consume filters
+    ///                         Avro record values for consume filters and transformations, and to
+    ///                         encode transformed values as Avro
     public VirtualTopicInterceptor(
             VirtualTopicManager virtualTopics,
             FetchSessionRegistry fetchSessions,
             SchemaRegistries schemaRegistries
     ) {
-        this.registry = defaultRegistry(virtualTopics, fetchSessions, new VirtualTopicRecordFilter(schemaRegistries));
+        this.registry = defaultRegistry(virtualTopics, fetchSessions, new VirtualTopicRecordFilter(schemaRegistries),
+                new VirtualTopicRecordTransformer(schemaRegistries));
     }
 
     private static VirtualTopicTransformRegistry defaultRegistry(
             VirtualTopicManager virtualTopics,
             FetchSessionRegistry fetchSessions,
-            VirtualTopicRecordFilter recordFilter) {
+            VirtualTopicRecordFilter recordFilter,
+            VirtualTopicRecordTransformer recordTransformer) {
         return new VirtualTopicTransformRegistry(List.of(
                 new MetadataVirtualTopicTransform(virtualTopics),
                 new ProduceVirtualTopicTransform(virtualTopics),
-                new FetchVirtualTopicTransform(virtualTopics, fetchSessions, recordFilter),
+                new FetchVirtualTopicTransform(virtualTopics, fetchSessions, recordFilter, recordTransformer),
                 new ListOffsetsVirtualTopicTransform(virtualTopics),
                 new OffsetCommitVirtualTopicTransform(virtualTopics),
                 new OffsetFetchVirtualTopicTransform(virtualTopics),

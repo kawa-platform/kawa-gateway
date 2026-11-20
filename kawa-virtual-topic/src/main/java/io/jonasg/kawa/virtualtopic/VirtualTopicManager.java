@@ -5,6 +5,7 @@ import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import io.jonasg.kawa.virtualtopic.mapping.ValueMapping;
 import io.jonasg.kawa.virtualtopic.mapping.ValueMappings;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -47,7 +48,7 @@ public final class VirtualTopicManager {
         Map<String, String> names = new LinkedHashMap<>();
         virtualTopics.forEach((v, config) -> {
             VirtualTopic virtualTopic = new VirtualTopic(v, config.topic(), config.filter(), config.exposePhysicalTopic(),
-                    config.valueFormat(), mapping(v, config));
+                    config.valueFormat(), mapping(v, config), config.outputFormat());
             virtual.put(v, virtualTopic);
             physical.computeIfAbsent(config.topic(), _ -> new ArrayList<>()).add(virtualTopic);
             names.put(v, config.topic());
@@ -129,35 +130,45 @@ public final class VirtualTopicManager {
     /// configured. A physical or unknown name has none: a filter belongs to the virtual topic, never to the
     /// physical topic it reads.
     public Optional<VirtualTopicFilterConfig> filterFor(String virtual) {
-        return entryFor(virtual).map(VirtualTopic::filter);
+        return virtualTopic(virtual).map(VirtualTopic::filter);
     }
 
     /// The configured value encoding for the virtual topic `virtual`, or [Optional#empty] if it has no format
     /// configured (values are then treated as raw strings). A physical or unknown name has none.
     public Optional<PayloadFormatConfig> valueFormatFor(String virtual) {
-        return entryFor(virtual).map(VirtualTopic::valueFormat);
+        return virtualTopic(virtual).map(VirtualTopic::valueFormat);
     }
 
     /// Whether the virtual topic `virtual` also lists its physical topic under the physical name in Metadata
     /// responses. `false` (physical renamed to virtual in place) for virtual topics that don't opt in and for
     /// names that are not virtual topics.
     public boolean exposesPhysicalTopic(String virtual) {
-        return entryFor(virtual).map(VirtualTopic::exposePhysicalTopic).orElse(false);
+        return virtualTopic(virtual).map(VirtualTopic::exposePhysicalTopic).orElse(false);
     }
 
-    private Optional<VirtualTopic> entryFor(String virtual) {
+    /// The virtual topic named `virtual`, or [Optional#empty] if no virtual topic has that name.
+    /// A map lookup, unlike [#findByName], so it suits the hot path.
+    public Optional<VirtualTopic> virtualTopic(String virtual) {
         return Optional.ofNullable(snapshot.byVirtual().get(virtual));
     }
 
-    /// @param mapping the compiled transformations, [ValueMapping#IDENTITY] when there are none
+    /// @param mapping      the compiled transformations, [ValueMapping#IDENTITY] when there are none
+    /// @param outputFormat the format transformed values are encoded in, `null` when there are no
+    ///                     transformations (values are then passed through unchanged)
     public record VirtualTopic(
             String name,
             String physical,
             VirtualTopicFilterConfig filter,
             boolean exposePhysicalTopic,
             PayloadFormatConfig valueFormat,
-            ValueMapping mapping
+            ValueMapping mapping,
+            @Nullable PayloadFormatConfig outputFormat
     ) {
+
+        /// Whether fetched record values are transformed before they reach the client.
+        public boolean transformsValues() {
+            return outputFormat != null;
+        }
     }
 
     /// Immutable snapshot of all three lookup maps. Published as a unit so a reload can never

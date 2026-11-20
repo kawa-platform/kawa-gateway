@@ -3,6 +3,7 @@ package io.jonasg.kawa.virtualtopic;
 import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
+import io.jonasg.kawa.config.RenameFieldTransformationConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.Request;
@@ -725,6 +726,96 @@ class VirtualTopicInterceptorTest {
         filtered.records().forEach(survivors::add);
         assertThat(survivors).hasSize(1);
         assertThat(StandardCharsets.UTF_8.decode(survivors.get(0).key()).toString()).isEqualTo("k1");
+    }
+
+    @Test
+    void filtersOnStoredValuesThenTransformsFetchedRecords() {
+        // given a virtual topic that filters on the stored status field and then renames it
+        var manager = new VirtualTopicManager(Map.of("paid", new VirtualTopicConfig("orders-raw",
+                new CelFilterConfig("value.status == \"PAID\""), false, new JsonFormatConfig(),
+                List.of(new RenameFieldTransformationConfig("status", "state")), null)));
+        var transforming = new VirtualTopicInterceptor(manager);
+        var requestData = new FetchRequestData();
+        requestData.topics().add(new FetchRequestData.FetchTopic().setTopic("paid"));
+        transforming.onRequest(context, request(FETCH, requestData));
+
+        // when the response carries a paid and an open order
+        var responseData = fetchResponse("orders-raw", MemoryRecords.withRecords(Compression.NONE,
+                new SimpleRecord("{\"status\":\"OPEN\"}".getBytes(StandardCharsets.UTF_8)),
+                new SimpleRecord("{\"status\":\"PAID\"}".getBytes(StandardCharsets.UTF_8))));
+        transforming.onResponse(context, response(FETCH, responseData));
+
+        // then only the paid order is delivered, at its own offset, with the field renamed
+        List<Record> delivered = fetchedRecords(responseData);
+        assertThat(delivered).extracting(Record::offset)
+                .withFailMessage(() -> "The filter did not run on the stored value before the transformation")
+                .containsExactly(1L);
+        assertThat(StandardCharsets.UTF_8.decode(delivered.getFirst().value()).toString())
+                .withFailMessage(() -> "The delivered record was not transformed")
+                .isEqualTo("{\"state\":\"PAID\"}");
+    }
+
+    @Test
+    void transformsIdleIncrementalFetchResponsesViaSession() {
+        // given a fetch session bound on a full fetch for a transformed virtual topic
+        var manager = new VirtualTopicManager(Map.of("orders", new VirtualTopicConfig("orders-raw", null, false,
+                new JsonFormatConfig(), List.of(new RenameFieldTransformationConfig("a", "b")), null)));
+        var sessions = new FetchSessionRegistry();
+        var sessionInterceptor = new VirtualTopicInterceptor(manager, sessions);
+        var create = new FetchRequestData();
+        create.topics().add(new FetchRequestData.FetchTopic().setTopic("orders"));
+        GatewayContext createContext = freshContext();
+        sessionInterceptor.onRequest(createContext, request(FETCH, create));
+        sessionInterceptor.onResponse(createContext, response(FETCH, new FetchResponseData().setSessionId(42)));
+
+        // when an incremental fetch without topics gets records back
+        sessionInterceptor.onRequest(freshContext(), request(FETCH, new FetchRequestData().setSessionId(42).setSessionEpoch(1)));
+        var incremental = fetchResponse("orders-raw", MemoryRecords.withRecords(Compression.NONE,
+                new SimpleRecord("{\"a\":1}".getBytes(StandardCharsets.UTF_8)))).setSessionId(42);
+        sessionInterceptor.onResponse(freshContext(), response(FETCH, incremental));
+
+        // then the topic is renamed via the session and its records are transformed
+        assertThat(first(incremental.responses()).topic()).isEqualTo("orders");
+        assertThat(StandardCharsets.UTF_8.decode(fetchedRecords(incremental).getFirst().value()).toString())
+                .withFailMessage(() -> "Records of an incremental session fetch were not transformed")
+                .isEqualTo("{\"b\":1}");
+    }
+
+    @Test
+    void deliversAnExposedPhysicalTopicAsStored() {
+        // given a transformed virtual topic whose physical topic stays exposed
+        var manager = new VirtualTopicManager(Map.of("orders", new VirtualTopicConfig("orders-raw", null, true,
+                new JsonFormatConfig(), List.of(new RenameFieldTransformationConfig("a", "b")), null)));
+        var transforming = new VirtualTopicInterceptor(manager);
+        var requestData = new FetchRequestData();
+        requestData.topics().add(new FetchRequestData.FetchTopic().setTopic("orders-raw"));
+        transforming.onRequest(context, request(FETCH, requestData));
+
+        // when the physical topic is fetched by its own name
+        var records = MemoryRecords.withRecords(Compression.NONE, new SimpleRecord("{\"a\":1}".getBytes(StandardCharsets.UTF_8)));
+        var responseData = fetchResponse("orders-raw", records);
+        transforming.onResponse(context, response(FETCH, responseData));
+
+        // then its records are delivered as stored
+        assertThat(first(responseData.responses()).partitions().getFirst().records())
+                .withFailMessage(() -> "Records fetched by the physical topic name were transformed")
+                .isSameAs(records);
+    }
+
+    private static FetchResponseData fetchResponse(String topic, MemoryRecords records) {
+        var responseData = new FetchResponseData();
+        responseData.responses().add(new FetchResponseData.FetchableTopicResponse()
+                .setTopic(topic)
+                .setPartitions(List.of(new FetchResponseData.PartitionData()
+                        .setPartitionIndex(0)
+                        .setRecords(records))));
+        return responseData;
+    }
+
+    private static List<Record> fetchedRecords(FetchResponseData responseData) {
+        List<Record> records = new ArrayList<>();
+        ((MemoryRecords) first(responseData.responses()).partitions().getFirst().records()).records().forEach(records::add);
+        return records;
     }
 
     @Test

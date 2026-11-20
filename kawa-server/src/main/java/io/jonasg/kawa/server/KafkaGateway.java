@@ -28,8 +28,8 @@ import io.jonasg.kawa.server.netty.KafkaListener;
 import io.jonasg.kawa.server.netty.ListenerTls;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicInterceptor;
-import io.jonasg.kawa.virtualtopic.filter.AvroSchemaResolver;
 import io.jonasg.kawa.virtualtopic.filter.CachingAvroSchemaResolver;
+import io.jonasg.kawa.virtualtopic.filter.CachingAvroSubjectResolver;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistryAvroSchemaResolver;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -127,7 +127,7 @@ public final class KafkaGateway implements Gateway {
         var listenerConfig = config.listeners().getFirst();
         var listenerTls = listenerConfig.tls() == null ? null : ListenerTls.from(listenerConfig.tls());
 
-        // Schema registries for decoding Avro record values in consume filters. Set up now, so an
+        // Schema registries for Avro record values in consume filters and transformations. Set up now, so an
         // unsupported registry config fails before anything connects.
         SchemaRegistries schemaRegistries = schemaRegistries(clusterCfg);
 
@@ -181,7 +181,7 @@ public final class KafkaGateway implements Gateway {
         if (config.admin().enabled()) {
             healthServer.stop();
             admin = new AdminSurface(config.admin(), dynamicState, cache, connections.metadataClient(), bootstrapServers,
-                    brokerSecurity, authenticationProviders, healthProbe);
+                    brokerSecurity, authenticationProviders, healthProbe, schemaRegistries);
             admin.start();
         }
         running = true;
@@ -232,7 +232,8 @@ public final class KafkaGateway implements Gateway {
     }
 
     /// The schema registry of each physical topic's cluster. The gateway forwards to a single
-    /// cluster, so every physical topic lives on it and uses its registry, caching each schema id.
+    /// cluster, so every physical topic lives on it and uses its registry, caching each schema id
+    /// (to decode with) and subject (to encode transformed values with).
     private SchemaRegistries schemaRegistries(ClusterConfig clusterCfg) {
         var registry = clusterCfg.schemaRegistry();
         if (registry == null) {
@@ -244,10 +245,9 @@ public final class KafkaGateway implements Gateway {
         schemaRegistryClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
-        log.info("decoding Avro record values with the schema registry at {}", registry.url());
-        AvroSchemaResolver avroSchemas = new CachingAvroSchemaResolver(
-                new SchemaRegistryAvroSchemaResolver(registry.url(), registry.basicAuth(), schemaRegistryClient));
-        return _ -> avroSchemas;
+        log.info("decoding and encoding Avro record values with the schema registry at {}", registry.url());
+        var resolver = new SchemaRegistryAvroSchemaResolver(registry.url(), registry.basicAuth(), schemaRegistryClient);
+        return SchemaRegistries.of(new CachingAvroSchemaResolver(resolver), new CachingAvroSubjectResolver(resolver));
     }
 
     private RequestPipeline buildPipeline(

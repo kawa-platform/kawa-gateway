@@ -50,7 +50,12 @@ public record VirtualTopicConfig(
         }
     }
 
-    /// The format transformed values are encoded in: the trailing `convert` step's, else `valueFormat`.
+    /// The format transformed values are encoded in: the trailing `convert` step's, else `valueFormat`;
+    /// `null` when there are no transformations.
+    public @Nullable PayloadFormatConfig outputFormat() {
+        return transformations.isEmpty() ? null : outputFormat(valueFormat, transformations);
+    }
+
     private static PayloadFormatConfig outputFormat(PayloadFormatConfig valueFormat, List<TransformationConfig> transformations) {
         return transformations.getLast() instanceof ConvertTransformationConfig convert ? convert.format() : valueFormat;
     }

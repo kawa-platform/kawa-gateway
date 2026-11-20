@@ -7,10 +7,8 @@ import io.jonasg.kawa.config.HeaderContainsFilterConfig;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.HeaderMatchesFilterConfig;
 import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
-import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
-import io.jonasg.kawa.config.XmlFormatConfig;
 import org.apache.kafka.common.record.internal.BaseRecords;
 import org.apache.kafka.common.record.internal.MemoryRecords;
 import org.apache.kafka.common.record.internal.Record;
@@ -146,20 +144,7 @@ public final class VirtualTopicRecordFilter {
         }
 
         private static PayloadDecoder decoderFor(PayloadFormatConfig valueFormat, @Nullable AvroSchemaResolver avroSchemas) {
-            return switch (valueFormat) {
-                case null -> null;
-                case JsonFormatConfig _ -> new JsonPayloadDecoder();
-                case XmlFormatConfig xml -> new XmlPayloadDecoder(xml.root());
-                case AvroFormatConfig _ when avroSchemas != null -> new AvroPayloadDecoder(avroSchemas);
-                case AvroFormatConfig _ -> {
-                    log.warn("A virtual topic has an Avro value format but the cluster of its physical topic has no"
-                            + " schemaRegistry; its records cannot be decoded and are handled per its onDecodeError policy");
-                    yield _ -> {
-                        throw new PayloadDecodeException(
-                                "record value is Avro but the cluster of its physical topic has no schemaRegistry configured");
-                    };
-                }
-            };
+            return valueFormat == null ? null : PayloadCodecs.decoder(valueFormat, avroSchemas);
         }
 
         private static RecordPredicate predicateFor(VirtualTopicFilterConfig filterCfg, PayloadDecoder valueDecoder) {

@@ -5,6 +5,7 @@ import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.http.health.HealthProbe;
 import io.jonasg.kawa.server.plugin.PluginLoader;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -40,7 +41,7 @@ class AdminSurfaceTest {
                     public Optional<Duration> timeSinceClusterRefresh() {
                         return Optional.empty();
                     }
-                });
+                }, SchemaRegistries.NONE);
 
         // when
         admin.start();

@@ -19,6 +19,7 @@ import io.jonasg.kawa.http.users.AdminUserAuthenticator;
 import io.jonasg.kawa.http.users.AdminUserService;
 import io.jonasg.kawa.http.users.BootstrapUserSeeder;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import org.jspecify.annotations.Nullable;
 
 import java.time.Clock;
@@ -52,6 +53,7 @@ public record AdminServices(
     ///
     /// @param metadataRefresher       refreshes `cache` on demand, so a created topic is listed at once
     /// @param topicVisibilityTimeout  how long a topic creation waits for the created topic to reach `cache`
+    /// @param schemaRegistries        the schema registry of each physical topic's cluster, see [TopicService]
     /// @param publicUrl               `admin.publicUrl`, or `null` when it is not set: then the mcp module cannot be switched on
     /// @param env                     looks up environment variables, such as the bootstrap user reset switch
     public static AdminServices create(
@@ -62,6 +64,7 @@ public record AdminServices(
             DynamicConfigRepository configRepository,
             GovernancePolicy governance,
             BrokerAdmin brokerAdmin,
+            SchemaRegistries schemaRegistries,
             @Nullable BootstrapUser bootstrapUser,
             @Nullable String publicUrl,
             Function<String, @Nullable String> env
@@ -70,7 +73,7 @@ public record AdminServices(
                 .seed(bootstrapUser, Boolean.parseBoolean(env.apply(BootstrapUserSeeder.RESET_ENV)));
         return new AdminServices(
                 new TopicService(virtualTopics, cache, metadataRefresher, configRepository, brokerAdmin, governance,
-                        topicVisibilityTimeout),
+                        topicVisibilityTimeout, schemaRegistries),
                 new ConsumerGroupService(virtualTopics, brokerAdmin),
                 new RbacRoleService(configRepository),
                 new RbacGroupService(configRepository),

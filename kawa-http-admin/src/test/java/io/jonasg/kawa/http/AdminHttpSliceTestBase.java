@@ -16,8 +16,10 @@ import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
 import io.jonasg.kawa.http.authentication.builtin.BuiltInAuthenticationPlugin;
 import io.jonasg.kawa.plugin.KawaPlugin;
 import io.jonasg.kawa.test.FakeBrokerAdmin;
+import io.jonasg.kawa.test.FakeSchemaRegistries;
 import io.jonasg.kawa.test.TestSigningKeys;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import tools.jackson.databind.json.JsonMapper;
@@ -63,6 +65,8 @@ public abstract class AdminHttpSliceTestBase {
         showCreatedTopics();
         return CompletableFuture.completedFuture(null);
     };
+    /// Present by default, so Avro virtual topics are accepted; [SchemaRegistries#NONE] for a cluster without one.
+    protected SchemaRegistries schemaRegistries = FakeSchemaRegistries.PRESENT;
     protected CorsConfig cors;
     protected AdminAuthConfig auth = AdminAuthConfig.none();
     /// The default `admin.publicUrl`, and so the `oauth` provider's token issuer.
@@ -94,7 +98,7 @@ public abstract class AdminHttpSliceTestBase {
     /// Boots the server with the current fakes. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
         services = AdminServices.create(virtualTopics, cache, metadataRefresher, topicVisibilityTimeout, repository,
-                governance, brokerAdmin, auth.bootstrapUser(), publicUrl, env::get);
+                governance, brokerAdmin, schemaRegistries, auth.bootstrapUser(), publicUrl, env::get);
         server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, cors, auth, publicUrl), services, authenticationProviders);
         server.start();
     }

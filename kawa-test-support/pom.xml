@@ -44,5 +44,11 @@
             <artifactId>kawa-governance</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- FakeSchemaRegistries implements the virtual-topic schema registry lookup. -->
+        <dependency>
+            <groupId>io.jonasg</groupId>
+            <artifactId>kawa-virtual-topic</artifactId>
+            <version>${project.version}</version>
+        </dependency>
     </dependencies>
 </project>

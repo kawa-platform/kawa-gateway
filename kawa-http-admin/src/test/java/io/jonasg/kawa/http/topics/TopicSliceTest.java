@@ -35,6 +35,7 @@ import io.jonasg.kawa.plugin.auth.AuthenticationProviderContext;
 import io.jonasg.kawa.plugin.auth.AuthenticationProviderFactory;
 import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import org.apache.kafka.common.errors.TopicExistsException;
 import org.apache.kafka.common.resource.ResourceType;
 import org.junit.jupiter.api.Test;
@@ -1541,4 +1542,86 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                 .doesNotContainKey("orders.public");
     }
 
+    @Test
+    void refusesAnAvroValueFormatWithoutASchemaRegistry() throws Exception {
+        // given a cluster without a schema registry
+        schemaRegistries = SchemaRegistries.NONE;
+        startServer();
+
+        // when
+        var putTopicResp = send("PUT", "/topics/orders.public", """
+                {"type": "virtual", "topic": "orders", "valueFormat": {"type": "avro"},
+                 "filter": {"type": "cel", "expression": "value.status == 'PAID'"}}
+                """);
+
+        // then
+        assertThat(putTopicResp).hasStatusCode(400);
+        assertThatJson(putTopicResp.body()).isEqualTo("""
+                {"error": "virtual topic 'orders.public': an 'avro' value format requires a schemaRegistry on the cluster of topic 'orders'"}
+                """);
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "A virtual topic that cannot decode Avro was persisted")
+                .doesNotContainKey("orders.public");
+    }
+
+    @Test
+    void refusesAnAvroConvertWithoutASchemaRegistry() throws Exception {
+        // given a cluster without a schema registry
+        schemaRegistries = SchemaRegistries.NONE;
+        startServer();
+
+        // when
+        var createTopicResp = send("POST", "/topics", """
+                {"type": "virtual", "name": "orders.public", "topic": "orders", "valueFormat": {"type": "json"},
+                 "transformations": [{"type": "convert", "format": {"type": "avro", "subject": "orders-value"}}]}
+                """);
+
+        // then
+        assertThat(createTopicResp).hasStatusCode(400);
+        assertThatJson(createTopicResp.body()).isEqualTo("""
+                {"error": "virtual topic 'orders.public': a 'convert' to 'avro' requires a schemaRegistry on the cluster of topic 'orders'"}
+                """);
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "A virtual topic that cannot encode Avro was persisted")
+                .doesNotContainKey("orders.public");
+    }
+
+    @Test
+    void refusesAPatchToAvroWithoutASchemaRegistry() throws Exception {
+        // given a JSON virtual topic on a cluster without a schema registry
+        schemaRegistries = SchemaRegistries.NONE;
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders.public",
+                new VirtualTopicConfig("orders", null, false, new JsonFormatConfig(),
+                        List.of(new DropFieldsTransformationConfig(List.of("secret"))), null)));
+        startServer();
+
+        // when
+        var patchTopicResp = send("PATCH", "/topics/orders.public", """
+                {"valueFormat": {"type": "avro"}}
+                """);
+
+        // then
+        assertThat(patchTopicResp).hasStatusCode(400);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders.public").valueFormat())
+                .withFailMessage(() -> "The value format was switched to Avro without a schema registry")
+                .isEqualTo(new JsonFormatConfig());
+    }
+
+    @Test
+    void acceptsAvroWhenTheClusterHasASchemaRegistry() throws Exception {
+        // given a cluster with a schema registry (the default of these tests)
+        startServer();
+
+        // when
+        var createTopicResp = send("POST", "/topics", """
+                {"type": "virtual", "name": "orders.public", "topic": "orders", "valueFormat": {"type": "avro"},
+                 "transformations": [{"type": "convert", "format": {"type": "avro", "subject": "orders-value"}}]}
+                """);
+
+        // then
+        assertThat(createTopicResp).hasStatusCode(201);
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "An Avro virtual topic on a cluster with a schema registry was not persisted")
+                .containsKey("orders.public");
+    }
 }

@@ -1734,8 +1734,9 @@ components:
           items:
             $ref: '#/components/schemas/Transformation'
           description: |
-            Virtual topics only; optional value transformation steps, applied in order to each record value on fetch.
-            Omitted or null means none (a PUT replaces the whole virtual topic). Requires `valueFormat`.
+            Virtual topics only; optional value transformation steps, applied in order to each record value on fetch,
+            after the `filter`. Omitted or null means none (a PUT replaces the whole virtual topic). Requires
+            `valueFormat`. With `exposePhysicalTopic`, the physical topic fetched by its own name is served as stored.
     VirtualTopicConfigView:
       type: object
       required:
@@ -1821,14 +1822,18 @@ components:
             - include
             - fail
           default: skip
-          description: What to do with a record whose value is not valid JSON - drop it, deliver it, or fail the fetch.
+          description: |
+            What to do with a record whose value is not valid JSON, or that a virtual topic's transformations cannot
+            transform (the mapping fails, or the result cannot be encoded): `skip` drops it (an offset gap),
+            `include` delivers it as stored (unfiltered, untransformed), `fail` fails the fetch.
     AvroFormat:
       type: object
       required:
         - type
       description: |
         Avro in the schema registry wire format (magic byte, schema id, Avro binary). Decoding uses the writer schema
-        named in each record; the cluster must have a schemaRegistry. When transformed values are encoded as Avro
+        named in each record; the cluster must have a schemaRegistry, or the write is refused with `400`. When
+        transformed values are encoded as Avro
         (this format is the output of `transformations`), `subject` names the schema to write with.
       properties:
         type:
@@ -1842,6 +1847,10 @@ components:
             - include
             - fail
           default: skip
+          description: |
+            What to do with a record whose value is not decodable Avro, or that a virtual topic's transformations cannot
+            transform (the mapping fails, or the result cannot be encoded): `skip` drops it (an offset gap),
+            `include` delivers it as stored (unfiltered, untransformed), `fail` fails the fetch.
         subject:
           type: string
           description: Registry subject of the schema transformed values are encoded with. Required when this format is a transformation output.
@@ -1869,6 +1878,10 @@ components:
             - include
             - fail
           default: skip
+          description: |
+            What to do with a record whose value is not decodable XML, or that a virtual topic's transformations cannot
+            transform (the mapping fails, or the result cannot be encoded): `skip` drops it (an offset gap),
+            `include` delivers it as stored (unfiltered, untransformed), `fail` fails the fetch.
         root:
           type: string
           description: Root element name. Required when this format is a transformation output; when set, decoding refuses another root.
@@ -1880,6 +1893,7 @@ components:
         - a virtual topic with steps needs a `valueFormat`
         - `convert` may only be the last step
         - the output format (the `convert` step's, else `valueFormat`) needs `subject` when Avro and `root` when XML
+        - Avro, as the `valueFormat` or a `convert` format, needs a `schemaRegistry` on the cluster
         - paths are non-blank without empty segments (`a..b`, `.a`, `a.` are refused)
         - a `cel` expression must compile
 
@@ -1979,11 +1993,17 @@ components:
     VirtualTopicFilter:
       oneOf:
         - $ref: '#/components/schemas/HeaderEqualsFilter'
+        - $ref: '#/components/schemas/HeaderContainsFilter'
+        - $ref: '#/components/schemas/HeaderStartsWithFilter'
+        - $ref: '#/components/schemas/HeaderMatchesFilter'
         - $ref: '#/components/schemas/CelFilter'
       discriminator:
         propertyName: type
         mapping:
           headerEquals: '#/components/schemas/HeaderEqualsFilter'
+          headerContains: '#/components/schemas/HeaderContainsFilter'
+          headerStartsWith: '#/components/schemas/HeaderStartsWithFilter'
+          headerMatches: '#/components/schemas/HeaderMatchesFilter'
           cel: '#/components/schemas/CelFilter'
     HeaderEqualsFilter:
       type: object
@@ -2002,6 +2022,57 @@ components:
         value:
           type: string
           description: Expected header value.
+    HeaderContainsFilter:
+      type: object
+      required:
+        - type
+        - header
+        - value
+      properties:
+        type:
+          type: string
+          enum:
+            - headerContains
+        header:
+          type: string
+          description: Header key to compare.
+        value:
+          type: string
+          description: Substring the header value must contain.
+    HeaderStartsWithFilter:
+      type: object
+      required:
+        - type
+        - header
+        - value
+      properties:
+        type:
+          type: string
+          enum:
+            - headerStartsWith
+        header:
+          type: string
+          description: Header key to compare.
+        value:
+          type: string
+          description: Prefix the header value must start with.
+    HeaderMatchesFilter:
+      type: object
+      required:
+        - type
+        - header
+        - value
+      properties:
+        type:
+          type: string
+          enum:
+            - headerMatches
+        header:
+          type: string
+          description: Header key to compare.
+        value:
+          type: string
+          description: Regular expression the header value must fully match.
     CelFilter:
       type: object
       required:
