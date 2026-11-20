@@ -126,6 +126,38 @@ class BrokerSaslAuthenticatorTest {
         handshakeFrame.release();
     }
 
+    @Test
+    void keepsPlainHandshakeAndCredentialsWhenMechanismIsPlain() {
+        // given a channel that accepts PLAIN
+        var channel = embeddedChannelWithBrokerSasl(
+                new SaslHandshakeResponseData().setErrorCode(Errors.NONE.code()),
+                new SaslAuthenticateResponseData().setErrorCode(Errors.NONE.code()));
+        var config = new BrokerAuthConfig("PLAIN", "gateway", "secret");
+        var authenticator = new BrokerSaslAuthenticator(config, codec);
+
+        // when
+        boolean success = authenticator.authenticate(channel);
+
+        // then the handshake names PLAIN, not the IAM mechanism, and the username and password are sent
+        ByteBuf handshakeFrame = channel.readOutbound();
+        String handshake = handshakeFrame.toString(java.nio.charset.StandardCharsets.ISO_8859_1);
+        handshakeFrame.release();
+        ByteBuf authFrame = channel.readOutbound();
+        String authenticate = authFrame.toString(java.nio.charset.StandardCharsets.ISO_8859_1);
+        authFrame.release();
+        assertThat(success)
+                .withFailMessage(() -> "PLAIN sign-in was refused when the broker accepted it")
+                .isTrue();
+        assertThat(handshake)
+                .withFailMessage(() -> "PLAIN sign-in did not ask the broker for the PLAIN mechanism")
+                .contains("PLAIN")
+                .doesNotContain("AWS_MSK_IAM");
+        assertThat(authenticate)
+                .withFailMessage(() -> "PLAIN sign-in did not send the username and password")
+                .contains("gateway")
+                .contains("secret");
+    }
+
     /// Creates an [EmbeddedChannel] that automatically responds to SASL handshake
     /// and authenticate requests with the given responses, simulating a SASL-enabled broker.
     ///

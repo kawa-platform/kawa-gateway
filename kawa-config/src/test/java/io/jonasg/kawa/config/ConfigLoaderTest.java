@@ -128,6 +128,69 @@ class ConfigLoaderTest {
     }
 
     @Test
+    void loadsAwsMskIamBrokerAuthWithRegionAndProfile() {
+        // when
+        BootstrapConfig config = loader.loadFromYaml("""
+                auth:
+                  brokerAuth:
+                    mechanism: AWS_MSK_IAM
+                    region: eu-west-1
+                    profile: gateway
+                listeners:
+                  - port: 9092
+                """);
+
+        // then
+        assertThat(config.auth().brokerAuth()).isNotNull();
+        assertThat(config.auth().brokerAuth().mechanism())
+                .withFailMessage(() -> "The AWS_MSK_IAM mechanism was not loaded from auth.brokerAuth")
+                .isEqualTo("AWS_MSK_IAM");
+        assertThat(config.auth().brokerAuth().region())
+                .withFailMessage(() -> "The region of auth.brokerAuth was not loaded")
+                .isEqualTo("eu-west-1");
+        assertThat(config.auth().brokerAuth().profile())
+                .withFailMessage(() -> "The profile of auth.brokerAuth was not loaded")
+                .isEqualTo("gateway");
+    }
+
+    @Test
+    void acceptsAwsMskIamBrokerAuthWithoutUsernameOrPasswordOrRegionOrProfile() {
+        // when
+        BootstrapConfig config = loader.loadFromYaml("""
+                auth:
+                  brokerAuth:
+                    mechanism: AWS_MSK_IAM
+                listeners:
+                  - port: 9092
+                """);
+
+        // then
+        assertThat(config.auth().brokerAuth())
+                .withFailMessage(() -> "An AWS_MSK_IAM brokerAuth without credentials was refused")
+                .isNotNull();
+        assertThat(config.auth().brokerAuth().username()).isNull();
+        assertThat(config.auth().brokerAuth().password()).isNull();
+        assertThat(config.auth().brokerAuth().region()).isNull();
+        assertThat(config.auth().brokerAuth().profile()).isNull();
+    }
+
+    @Test
+    void rejectsASeparateTlsSettingForAwsMskIamBrokerAuth() {
+        assertThatThrownBy(() -> loader.loadFromYaml("""
+                auth:
+                  brokerAuth:
+                    mechanism: AWS_MSK_IAM
+                    tls:
+                      verifyHostname: false
+                listeners:
+                  - port: 9092
+                """))
+                .withFailMessage(() -> "A TLS setting under AWS_MSK_IAM brokerAuth was accepted; the cluster's tls applies")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unrecognized property");
+    }
+
+    @Test
     void loadsAdminConfiguration() {
         // when
         BootstrapConfig config = loader.loadFromYaml("""
