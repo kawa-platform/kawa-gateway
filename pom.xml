@@ -39,6 +39,9 @@
 
         <netty.version>4.1.137.Final</netty.version>
         <kafka.version>4.3.1</kafka.version>
+        <aws-msk-iam-auth.version>2.3.9</aws-msk-iam-auth.version>
+        <!-- the SDK version aws-msk-iam-auth 2.3.9 is built against -->
+        <aws-sdk.version>2.51.2</aws-sdk.version>
         <micrometer.version>1.17.2</micrometer.version>
         <jackson.version>3.2.4</jackson.version>
         <slf4j.version>2.0.20</slf4j.version>
@@ -83,6 +86,13 @@
                 <scope>import</scope>
             </dependency>
             <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws-sdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
                 <groupId>tools.jackson</groupId>
                 <artifactId>jackson-bom</artifactId>
                 <version>${jackson.version}</version>
@@ -102,6 +112,12 @@
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
                 <version>${kafka.version}</version>
+            </dependency>
+            <dependency>
+                <!-- AWS_MSK_IAM sign-in for the broker connections; brings the AWS SDK signer it uses -->
+                <groupId>software.amazon.msk</groupId>
+                <artifactId>aws-msk-iam-auth</artifactId>
+                <version>${aws-msk-iam-auth.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.micrometer</groupId>

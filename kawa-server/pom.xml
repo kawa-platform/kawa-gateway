@@ -71,6 +71,23 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>software.amazon.msk</groupId>
+            <artifactId>aws-msk-iam-auth</artifactId>
+        </dependency>
+        <dependency>
+            <!-- the signer of the AWS_MSK_IAM sign-in (AwsMskIam) compiles against these; the library only has them at runtime -->
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>auth</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>regions</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>http-client-spi</artifactId>
+        </dependency>
+        <dependency>
             <groupId>io.netty</groupId>
             <artifactId>netty-codec</artifactId>
         </dependency>

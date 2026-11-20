@@ -55,7 +55,8 @@ public record BrokerConnectionSettings(@Nullable BrokerAuthConfig auth, @Nullabl
         }
         if (auth != null && !new BrokerSaslAuthenticator(auth, codec).authenticate(channel)) {
             channel.close();
-            throw new IllegalStateException("SASL authentication to " + broker + " failed");
+            String mechanism = auth.isAwsMskIam() ? " " + BrokerAuthConfig.AWS_MSK_IAM : "";
+            throw new IllegalStateException("SASL" + mechanism + " authentication to " + broker + " failed");
         }
     }
 
