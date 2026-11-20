@@ -92,6 +92,10 @@ element (see below), `G` and `P` are the same type.
 The suffix says which side of the boundary a type sits on, and the set is stable: `*Request` and `*Patch` are bodies
 a client sends, and `*View` a response body mirroring the config record it is named after.
 
+A `*Patch` keeps every field it omits: an omitted field never changes or clears the stored value. Clearing a field
+takes an explicit value (`null`, or `[]` for a list). Where `null` clears, the field must be read so that omitted and
+`null` stay distinguishable (e.g. as a raw `JsonNode`: Java `null` when omitted, `NullNode` when `null`).
+
 Every view of a named entry includes its `name`, including the one a `PUT /{name}` endpoint writes back: a response
 must be self-describing without the request path next to it. A `PUT /{name}` therefore returns the same `*View` as
 that entry's element in the `GET` list — `ClientConfigView` for both `GET /auth/clients` and
