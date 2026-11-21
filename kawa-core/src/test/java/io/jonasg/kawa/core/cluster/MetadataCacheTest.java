@@ -2,6 +2,7 @@ package io.jonasg.kawa.core.cluster;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -56,5 +57,30 @@ class MetadataCacheTest {
         assertThat(cache.replicationFactor("orders-v2")).isEqualTo(1);
         assertThat(cache.replicationFactor("replicated")).isEqualTo(2);
         assertThat(cache.replicationFactor("unknown")).isZero();
+    }
+
+    @Test
+    void hasNoRefreshTimeBeforeTheFirstUpdate() {
+        // given
+        // a fresh cache
+
+        // when
+        var age = cache.timeSinceLastRefresh();
+
+        // then
+        assertThat(age).withFailMessage(() -> "Cache reported a refresh before any metadata was received").isEmpty();
+    }
+
+    @Test
+    void reportsTheAgeOfTheLastUpdate() {
+        // given
+        cache.update(snapshot());
+
+        // when
+        var age = cache.timeSinceLastRefresh();
+
+        // then
+        assertThat(age).withFailMessage(() -> "Cache did not report the refresh of received metadata").isPresent();
+        assertThat(age.get()).withFailMessage(() -> "Cache reported a negative refresh age").isGreaterThanOrEqualTo(Duration.ZERO);
     }
 }

@@ -8,6 +8,7 @@ import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.ModuleId;
 import io.jonasg.kawa.core.Gateway;
 import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
+import io.jonasg.kawa.http.health.HealthServer;
 import io.jonasg.kawa.server.plugin.PluginLoader;
 import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.cluster.MetadataCache;
@@ -65,7 +66,8 @@ public final class KafkaGateway implements Gateway {
     private DynamicGatewayState dynamicState;
     private KafkaListener listener;
     private ClusterConnections connections;
-    private AdminSurface admin;
+    private @Nullable HealthServer health;
+    private @Nullable AdminSurface admin;
     private KafkaBrokerAdmin topicDescriber;
     private @Nullable HttpClient schemaRegistryClient;
 
@@ -142,6 +144,13 @@ public final class KafkaGateway implements Gateway {
         int boundPort = listener.bind(listenerConfig.host(), listenerConfig.port());
         AdvertisedListener advertised = resolveAdvertised(config.advertised(), boundPort);
 
+        // Health probes on the admin address, bound before the blocking config load below so that
+        // /health/ready answers 503 while the gateway starts. The admin server takes this port over when enabled.
+        var healthProbe = new GatewayHealth(listener, dynamicState, cache);
+        var healthServer = new HealthServer(config.admin().host(), config.admin().port(), healthProbe);
+        healthServer.start();
+        health = healthServer;
+
         // Interceptor pipeline, built before the config load so every applied snapshot switches its modules
         topicDescriber = new KafkaBrokerAdmin(bootstrapServers, brokerSecurity);
         RequestPipeline requestPipeline = buildPipeline(dynamicState, advertised, topicDescriber, schemaRegistries);
@@ -166,10 +175,11 @@ public final class KafkaGateway implements Gateway {
                 metrics, requestPipeline.fetchSessions(), dynamicState.saslAuthenticator());
         listener.installDispatcher(dispatcher);
 
-        //  Admin surface
+        //  Admin surface, which serves the same health routes on the port the health server holds
         if (config.admin().enabled()) {
+            healthServer.stop();
             admin = new AdminSurface(config.admin(), dynamicState, cache, connections.metadataClient(), bootstrapServers,
-                    brokerSecurity, authenticationProviders);
+                    brokerSecurity, authenticationProviders, healthProbe);
             admin.start();
         }
         running = true;
@@ -187,6 +197,9 @@ public final class KafkaGateway implements Gateway {
     }
 
     private void closeComponents() {
+        if (health != null) {
+            health.close();
+        }
         if (admin != null) {
             admin.close();
         }

@@ -6,6 +6,8 @@ import io.jonasg.kawa.core.cluster.MetadataRefresher;
 import io.jonasg.kawa.http.AdminHttpServer;
 import io.jonasg.kawa.http.AdminServices;
 import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
+import io.jonasg.kawa.http.health.HealthProbe;
+import io.jonasg.kawa.http.health.HealthRoutes;
 import io.jonasg.kawa.broker.KafkaBrokerAdmin;
 import io.jonasg.kawa.mcp.KawaMcpServer;
 
@@ -23,12 +25,13 @@ public final class AdminSurface implements AutoCloseable {
 
     public AdminSurface(AdminConfig config, DynamicGatewayState state, MetadataCache cache,
                         MetadataRefresher metadataRefresher, String bootstrapServers, Properties brokerSecurity,
-                        AuthenticationProviderRegistry authenticationProviders) {
+                        AuthenticationProviderRegistry authenticationProviders, HealthProbe health) {
         var brokerAdmin = new KafkaBrokerAdmin(bootstrapServers, brokerSecurity);
         services = AdminServices.create(state.virtualTopics(), cache, metadataRefresher,
                 DynamicConfigManager.DEFAULT_APPLY_WAIT_TIMEOUT, state.configManager(),
                 state.governance(), brokerAdmin, config.auth().bootstrapUser(), config.publicUrl(), System::getenv);
         server = new AdminHttpServer(config, services, authenticationProviders);
+        HealthRoutes.register(server.router(), health);
         mcp = new KawaMcpServer(server.router(), services, config.cors());
     }
 

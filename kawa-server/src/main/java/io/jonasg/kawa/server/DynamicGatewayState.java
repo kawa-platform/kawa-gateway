@@ -32,7 +32,7 @@ public final class DynamicGatewayState implements AutoCloseable {
     private final RbacAuthorizer authorizer;
     private final SaslAuthenticator saslAuthenticator;
     private final GovernancePolicy governance;
-    private @Nullable DynamicConfigManager configManager;
+    private volatile @Nullable DynamicConfigManager configManager;
 
     /// @param brokerSecurity the Kafka client settings for reaching the brokers (`security.protocol`,
     ///                       `sasl.*`, `ssl.*`), see [io.jonasg.kawa.config.BrokerSecurity#clientProperties]
@@ -92,6 +92,12 @@ public final class DynamicGatewayState implements AutoCloseable {
             throw new IllegalStateException("the dynamic gateway state has not been started");
         }
         return configManager;
+    }
+
+    /// Whether the initial config load has been applied. False until [#start] has created the config manager.
+    public boolean isConfigLoaded() {
+        DynamicConfigManager manager = configManager;
+        return manager != null && manager.initialLoadComplete();
     }
 
     @Override

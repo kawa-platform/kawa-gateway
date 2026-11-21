@@ -207,6 +207,11 @@ public final class DynamicConfigManager implements DynamicConfigRepository, Auto
         consumer.awaitInitialLoad();
     }
 
+    /// Whether the config topic has been caught up from the earliest offset.
+    public boolean initialLoadComplete() {
+        return consumer.initialLoadComplete();
+    }
+
     @Override
     public @Nullable DynamicConfig getActiveConfig() {
         Committed committed = lastCommitted;
