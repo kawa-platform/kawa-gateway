@@ -1,7 +1,11 @@
 package io.jonasg.kawa.core.cluster;
 
+import org.jspecify.annotations.Nullable;
+
+import java.time.Duration;
 import java.util.Collection;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /// Thread-safe cache of the physical cluster topology, populated from decoded broker
@@ -11,6 +15,7 @@ public final class MetadataCache {
     private final Map<String, TopicMetadata> topics = new ConcurrentHashMap<>();
     private final Map<Integer, BrokerNode> brokers = new ConcurrentHashMap<>();
     private volatile String clusterId;
+    private volatile @Nullable Long refreshedAtNanos;
 
     public void update(MetadataSnapshot snapshot) {
         topics.clear();
@@ -18,6 +23,13 @@ public final class MetadataCache {
         brokers.clear();
         brokers.putAll(snapshot.brokers());
         clusterId = snapshot.clusterId();
+        refreshedAtNanos = System.nanoTime();
+    }
+
+    /// Time since the last [#update], or empty if the cache has never been updated.
+    public Optional<Duration> timeSinceLastRefresh() {
+        Long refreshedAt = refreshedAtNanos;
+        return refreshedAt == null ? Optional.empty() : Optional.of(Duration.ofNanos(System.nanoTime() - refreshedAt));
     }
 
     /// Broker id leading `partition` of `physicalTopic`, or `-1` if unknown.
