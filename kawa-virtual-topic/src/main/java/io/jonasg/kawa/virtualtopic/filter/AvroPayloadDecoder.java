@@ -15,6 +15,9 @@ import java.nio.ByteBuffer;
 /// The decoded record is not copied into a value tree: it is wrapped in an [AvroValues] view
 /// that converts a field only when a filter reads it, so a filter that reads one field of a
 /// wide record does not pay for converting the rest.
+///
+/// A [SchemaRegistryUnavailableException] of the resolver passes through unwrapped: a registry
+/// outage is not a record error. Any other resolver failure is a [PayloadDecodeException].
 public final class AvroPayloadDecoder implements PayloadDecoder {
 
     private final AvroSchemaResolver schemaResolver;
@@ -53,6 +56,9 @@ public final class AvroPayloadDecoder implements PayloadDecoder {
     private Schema schema(int schemaId) {
         try {
             return schemaResolver.resolve(schemaId);
+        } catch (SchemaRegistryUnavailableException e) {
+            // An outage, not a bad record: never handled per the onDecodeError policy.
+            throw e;
         } catch (RuntimeException e) {
             throw new PayloadDecodeException(
                     "could not resolve Avro schema id " + schemaId + ": " + e.getMessage(), e);

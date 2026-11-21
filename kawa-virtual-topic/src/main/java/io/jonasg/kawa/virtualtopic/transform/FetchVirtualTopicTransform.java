@@ -5,6 +5,7 @@ import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.ShortCircuitResult;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager.VirtualTopic;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
 import io.jonasg.kawa.virtualtopic.mapping.VirtualTopicRecordTransformer;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
@@ -13,6 +14,9 @@ import org.apache.kafka.common.message.FetchRequestData;
 import org.apache.kafka.common.message.FetchResponseData;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.record.internal.BaseRecords;
+import org.apache.kafka.common.record.internal.MemoryRecords;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,9 +31,15 @@ import java.util.Optional;
 /// record on its own, so a fetch session needs no knowledge of formats: one response may hold
 /// records stored in different formats, and a configuration change applies from the next response
 /// of a session on.
+///
+/// A schema registry outage ([SchemaRegistryUnavailableException]) is not a record error: the
+/// partition it hits comes back with `UNKNOWN_SERVER_ERROR` and no records, so the consumer does
+/// not move past them and fetches them again once the registry is back. The other partitions of
+/// the response are delivered as usual.
 public final class FetchVirtualTopicTransform
         implements VirtualTopicTransform<FetchRequestData, FetchResponseData> {
 
+    private static final Logger log = LoggerFactory.getLogger(FetchVirtualTopicTransform.class);
     private static final int FINAL_EPOCH = -1;
 
     private final VirtualTopicManager virtualTopics;
@@ -140,11 +150,18 @@ public final class FetchVirtualTopicTransform
             String physical = virtualTopics.toPhysical(topic.topic());
             for (FetchResponseData.PartitionData partition : topic.partitions()) {
                 BaseRecords records = partition.records();
-                if (filter.isPresent()) {
-                    records = recordFilter.apply(physical, filter.get(), valueFormat, records);
-                }
-                if (transformed.isPresent()) {
-                    records = recordTransformer.apply(transformed.get(), records);
+                try {
+                    if (filter.isPresent()) {
+                        records = recordFilter.apply(physical, filter.get(), valueFormat, records);
+                    }
+                    if (transformed.isPresent()) {
+                        records = recordTransformer.apply(transformed.get(), records);
+                    }
+                } catch (SchemaRegistryUnavailableException e) {
+                    log.warn("Failing fetch of {}-{}, the schema registry is unavailable: {}",
+                            topic.topic(), partition.partitionIndex(), e.getMessage());
+                    partition.setErrorCode(Errors.UNKNOWN_SERVER_ERROR.code());
+                    records = MemoryRecords.EMPTY;
                 }
                 partition.setRecords(records);
             }

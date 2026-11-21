@@ -9,7 +9,9 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -132,16 +134,100 @@ class SchemaRegistryAvroSchemaResolverTest {
     }
 
     @Test
-    void reportsAnUnreachableRegistry() {
+    void reportsAnUnreachableRegistryAsUnavailable() {
         // given
         var resolver = resolver(null);
         registry.stop(0);
 
         // when / then
         assertThatThrownBy(() -> resolver.resolve(1))
-                .withFailMessage(() -> "An unreachable registry did not fail the lookup")
-                .isInstanceOf(IllegalStateException.class)
+                .withFailMessage(() -> "An unreachable registry was not reported as unavailable")
+                .isInstanceOf(SchemaRegistryUnavailableException.class)
                 .hasMessageContaining("unreachable");
+    }
+
+    @Test
+    void reportsATimedOutRegistryAsUnavailable() throws IOException {
+        // given a registry that accepts the connection but never answers
+        try (var silent = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            var resolver = new SchemaRegistryAvroSchemaResolver(
+                    "http://127.0.0.1:" + silent.getLocalPort(), null, HttpClient.newHttpClient());
+
+            // when / then
+            assertThatThrownBy(() -> resolver.resolve(1))
+                    .withFailMessage(() -> "A registry that did not answer in time was not reported as unavailable")
+                    .isInstanceOf(SchemaRegistryUnavailableException.class);
+        }
+    }
+
+    @Test
+    void reportsAServerErrorAsUnavailable() {
+        // given
+        status = 503;
+        body = "{\"error_code\":50301,\"message\":\"Service Unavailable\"}";
+        var resolver = resolver(null);
+
+        // when / then
+        assertThatThrownBy(() -> resolver.resolve(1))
+                .withFailMessage(() -> "An HTTP 503 from the registry was not reported as unavailable")
+                .isInstanceOf(SchemaRegistryUnavailableException.class)
+                .hasMessageContaining("HTTP 503");
+    }
+
+    @Test
+    void reportsAServerErrorWithoutAJsonBodyAsUnavailable() {
+        // given a proxy in front of the registry answering with an HTML error page
+        status = 502;
+        body = "<html><body>Bad Gateway</body></html>";
+        var resolver = resolver(null);
+
+        // when / then
+        assertThatThrownBy(() -> resolver.resolve(1))
+                .withFailMessage(() -> "An HTTP 502 with an HTML body was not reported as unavailable")
+                .isInstanceOf(SchemaRegistryUnavailableException.class)
+                .hasMessageContaining("HTTP 502");
+    }
+
+    @Test
+    void reportsAServerErrorForASubjectAsUnavailable() {
+        // given
+        status = 500;
+        body = "{\"error_code\":50001,\"message\":\"Error in the backend datastore\"}";
+        var resolver = resolver(null);
+
+        // when / then
+        assertThatThrownBy(() -> resolver.resolve("orders-value", null))
+                .withFailMessage(() -> "An HTTP 500 for a subject lookup was not reported as unavailable")
+                .isInstanceOf(SchemaRegistryUnavailableException.class)
+                .hasMessageContaining("HTTP 500");
+    }
+
+    @Test
+    void doesNotReportAnUnknownSchemaAsUnavailable() {
+        // given
+        status = 404;
+        body = "{\"error_code\":40403,\"message\":\"Schema 9 not found\"}";
+        var resolver = resolver(null);
+
+        // when / then
+        assertThatThrownBy(() -> resolver.resolve(9))
+                .withFailMessage(() -> "An unknown schema id was reported as a registry outage")
+                .isNotInstanceOf(SchemaRegistryUnavailableException.class);
+        assertThatThrownBy(() -> resolver.resolve("nope", null))
+                .withFailMessage(() -> "An unknown subject was reported as a registry outage")
+                .isNotInstanceOf(SchemaRegistryUnavailableException.class);
+    }
+
+    @Test
+    void doesNotReportAnInvalidSchemaAsUnavailable() {
+        // given
+        body = "{\"schema\":\"{not avro\"}";
+        var resolver = resolver(null);
+
+        // when / then
+        assertThatThrownBy(() -> resolver.resolve(3))
+                .withFailMessage(() -> "An invalid Avro schema was reported as a registry outage")
+                .isNotInstanceOf(SchemaRegistryUnavailableException.class);
     }
 
     @Test

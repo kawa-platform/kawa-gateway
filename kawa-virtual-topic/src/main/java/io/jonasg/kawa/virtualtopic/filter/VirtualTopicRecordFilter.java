@@ -29,6 +29,11 @@ import java.util.concurrent.ConcurrentHashMap;
 /// ByteBuffer, int, BufferSupplier)], the same decode-filter-reencode
 /// mechanism the broker's log cleaner (compaction) and client-side down-conversion use to drop
 /// records from a batch and re-emit a valid one - rather than hand-rolling batch encoding.
+///
+/// A record whose value does not decode is handled per the format's [DecodeErrorPolicy]. A schema
+/// registry outage ([SchemaRegistryUnavailableException]) is not a record error and bypasses the
+/// policy: it is thrown whatever the policy, so the partition fails instead of records being
+/// dropped or included.
 /// Surviving records keep their original offsets (this is what makes offset gaps in a fetch
 /// response safe for consumers, the same property compacted topics already rely on).
 public final class VirtualTopicRecordFilter {
@@ -128,6 +133,7 @@ public final class VirtualTopicRecordFilter {
             return matches(record);
         }
 
+        /// A [SchemaRegistryUnavailableException] is not caught: it is no record error.
         boolean matches(Record record) {
             try {
                 return predicate.test(record);

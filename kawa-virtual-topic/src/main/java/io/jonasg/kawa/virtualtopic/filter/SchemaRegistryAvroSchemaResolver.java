@@ -14,6 +14,7 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
@@ -23,6 +24,11 @@ import java.util.Base64;
 ///
 /// Every call goes to the registry; wrap it in a [CachingAvroSchemaResolver] or
 /// [CachingAvroSubjectResolver]. Schemas that use schema references are rejected for now.
+///
+/// A registry that is unreachable, does not answer within [#REQUEST_TIMEOUT] or answers with an
+/// HTTP 5xx error fails with a [SchemaRegistryUnavailableException]: an outage, not a record
+/// error. Any other failure (an unknown id or subject, an invalid schema) is an
+/// [IllegalStateException].
 public final class SchemaRegistryAvroSchemaResolver implements AvroSchemaResolver, AvroSubjectResolver {
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
@@ -65,6 +71,11 @@ public final class SchemaRegistryAvroSchemaResolver implements AvroSchemaResolve
     /// GETs `path` and returns the JSON body of a `200` response.
     private JsonNode fetch(String path, String what) {
         HttpResponse<String> response = get(path, what);
+        if (response.statusCode() >= 500 && response.statusCode() < 600) {
+            // Checked before parsing: a proxy in front of a failing registry answers with HTML.
+            throw new SchemaRegistryUnavailableException("schema registry at " + baseUrl + " returned HTTP " + response.statusCode()
+                    + " for " + what);
+        }
         JsonNode body = parse(what, response.body());
         if (response.statusCode() != 200) {
             throw new IllegalStateException("schema registry returned HTTP " + response.statusCode()
@@ -104,11 +115,15 @@ public final class SchemaRegistryAvroSchemaResolver implements AvroSchemaResolve
         }
         try {
             return httpClient.send(request.build(), HttpResponse.BodyHandlers.ofString());
+        } catch (HttpTimeoutException e) {
+            throw new SchemaRegistryUnavailableException("schema registry at " + baseUrl + " is unreachable: no answer for " + what
+                    + " within " + REQUEST_TIMEOUT.toSeconds() + "s", e);
         } catch (IOException e) {
-            throw new IllegalStateException("schema registry at " + baseUrl + " is unreachable: " + e.getMessage(), e);
+            throw new SchemaRegistryUnavailableException("schema registry at " + baseUrl + " is unreachable: " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("interrupted while fetching " + what, e);
+            throw new SchemaRegistryUnavailableException("interrupted while fetching " + what
+                    + " from the schema registry at " + baseUrl + ", so it is treated as unreachable", e);
         }
     }
 

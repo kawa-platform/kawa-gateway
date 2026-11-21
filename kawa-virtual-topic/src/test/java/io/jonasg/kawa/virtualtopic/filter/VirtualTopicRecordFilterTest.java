@@ -1,13 +1,17 @@
 package io.jonasg.kawa.virtualtopic.filter;
 
+import io.jonasg.kawa.config.AvroFormatConfig;
 import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.JsonFormatConfig;
+import org.apache.avro.Schema;
 import org.apache.kafka.common.compress.Compression;
 import org.apache.kafka.common.record.internal.MemoryRecords;
 import org.apache.kafka.common.record.internal.Record;
 import org.apache.kafka.common.record.internal.SimpleRecord;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -190,6 +194,28 @@ class VirtualTopicRecordFilterTest {
         assertThat(value(survivors.get(0)))
                 .withFailMessage(() -> "Raw string value containing PAID was not matched without a value format")
                 .isEqualTo("{\"status\":\"PAID\"}");
+    }
+
+    @ParameterizedTest
+    @EnumSource(DecodeErrorPolicy.class)
+    void failsTheBatchWhenTheRegistryIsUnavailableWhateverThePolicy(DecodeErrorPolicy policy) {
+        // given an Avro topic whose registry is down
+        var outage = new SchemaRegistryUnavailableException("schema registry is unreachable");
+        var avroFilter = new VirtualTopicRecordFilter(SchemaRegistries.of(id -> {
+            throw outage;
+        }, null));
+        Schema string = Schema.create(Schema.Type.STRING);
+        var records = MemoryRecords.withRecords(Compression.NONE,
+                new SimpleRecord(1000L, "k".getBytes(StandardCharsets.UTF_8), AvroRecordPredicateTest.wireFormat(9, string, "PAID")));
+
+        // when / then the record is neither dropped nor delivered unfiltered
+        assertThatThrownBy(() -> avroFilter.apply(
+                "orders",
+                new CelFilterConfig("value == \"PAID\""),
+                new AvroFormatConfig(policy),
+                records))
+                .withFailMessage(() -> "A registry outage was handled by the " + policy + " policy instead of failing the batch")
+                .isSameAs(outage);
     }
 
     private static SimpleRecord record(String value) {
