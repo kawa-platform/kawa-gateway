@@ -118,4 +118,24 @@ class CachingAvroSchemaResolverTest {
                 .withFailMessage(() -> "Schema id 8 was not resolved while id 7 was remembered as failed")
                 .isEqualTo(LONG);
     }
+
+    @Test
+    void reportsARememberedOutageAsAnOutage() {
+        // given a registry that is down
+        var clock = new AtomicLong();
+        var resolver = new CachingAvroSchemaResolver(id -> {
+            throw new SchemaRegistryUnavailableException("schema registry is unreachable");
+        }, Duration.ofSeconds(5), clock::get);
+        assertThatThrownBy(() -> resolver.resolve(7))
+                .withFailMessage(() -> "The first lookup during the outage was not reported as unavailable")
+                .isInstanceOf(SchemaRegistryUnavailableException.class);
+
+        // when looking it up again within the failure ttl
+        clock.addAndGet(Duration.ofSeconds(1).toNanos());
+
+        // then the remembered failure is still an outage, not a record error
+        assertThatThrownBy(() -> resolver.resolve(7))
+                .withFailMessage(() -> "A remembered outage was not reported as unavailable within the failure ttl")
+                .isInstanceOf(SchemaRegistryUnavailableException.class);
+    }
 }

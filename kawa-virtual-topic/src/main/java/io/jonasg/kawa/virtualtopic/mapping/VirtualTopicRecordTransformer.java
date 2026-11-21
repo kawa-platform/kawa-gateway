@@ -59,6 +59,10 @@ import java.util.concurrent.ConcurrentHashMap;
 /// | `include` | the stored value, untransformed - visibly not in the format it expects            |
 /// | `fail`    | no response: the fetch fails, as a `fail` filter does                              |
 ///
+/// A schema registry outage ([io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException]) is not a record error and
+/// bypasses the policy: it is thrown, whatever the policy, so the partition fails instead of
+/// records being dropped or delivered untransformed.
+///
 /// Every record of a transformed topic is decoded, mapped and re-encoded on every fetch: the cost
 /// grows with the number and size of the records, and it is paid again by every consumer.
 public final class VirtualTopicRecordTransformer {
@@ -81,6 +85,7 @@ public final class VirtualTopicRecordTransformer {
     /// `topic` has no transformations or there are no records (the fast path).
     ///
     /// @throws RuntimeException when a record cannot be transformed and the policy is `fail`
+    /// @throws io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException when the schema registry is unavailable, whatever the policy
     public BaseRecords apply(VirtualTopic topic, BaseRecords records) {
         if (!topic.transformsValues() || !(records instanceof MemoryRecords memoryRecords) || memoryRecords.sizeInBytes() == 0) {
             return records;
@@ -174,7 +179,7 @@ public final class VirtualTopicRecordTransformer {
     private record Transformation(Codecs codecs, ValueMapping mapping, DecodeErrorPolicy onError) {
 
         /// The transformed value of `record`; on failure its stored value or `null` (dropped) per
-        /// `onError`.
+        /// `onError`. A [io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException] is not caught: it is no record error.
         @Nullable ByteBuffer apply(Record record) {
             try {
                 Object value = codecs.decoder().decode(record.value());

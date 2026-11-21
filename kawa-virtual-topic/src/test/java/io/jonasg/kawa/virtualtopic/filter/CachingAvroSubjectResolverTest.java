@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -81,5 +82,94 @@ class CachingAvroSubjectResolverTest {
             return registry.resolve(subject, version);
         };
         return new CachingAvroSubjectResolver(recording, Duration.ofMinutes(5), Duration.ofSeconds(5), clock::get);
+    }
+
+    @Test
+    void servesTheCachedLatestVersionWhileTheRegistryIsUnavailable() {
+        // given the latest version was resolved before the registry went down
+        var available = new AtomicBoolean(true);
+        var resolver = resolver((_, _) -> {
+            if (!available.get()) {
+                throw new SchemaRegistryUnavailableException("schema registry is unreachable");
+            }
+            return V1;
+        });
+        resolver.resolve("orders-value", null);
+        available.set(false);
+
+        // when refreshing it after its ttl, then again within the failure ttl
+        clock.addAndGet(Duration.ofMinutes(6).toNanos());
+        RegisteredAvroSchema afterTtl = resolver.resolve("orders-value", null);
+        clock.addAndGet(Duration.ofSeconds(1).toNanos());
+        RegisteredAvroSchema withinFailureTtl = resolver.resolve("orders-value", null);
+
+        // then
+        assertThat(List.of(afterTtl, withinFailureTtl))
+                .withFailMessage(() -> "The stale latest version was not served while the registry was unavailable, lookups were " + lookups)
+                .containsExactly(V1, V1);
+    }
+
+    @Test
+    void picksUpANewLatestVersionOnceTheRegistryIsBack() {
+        // given the registry went down after the latest version was resolved
+        var registered = new ArrayList<RegisteredAvroSchema>();
+        registered.add(V1);
+        var resolver = resolver((_, _) -> {
+            if (registered.isEmpty()) {
+                throw new SchemaRegistryUnavailableException("schema registry is unreachable");
+            }
+            return registered.removeFirst();
+        });
+        resolver.resolve("orders-value", null);
+        clock.addAndGet(Duration.ofMinutes(6).toNanos());
+        resolver.resolve("orders-value", null);
+
+        // when it is back with a new version once the failure ttl has passed
+        registered.add(V2);
+        clock.addAndGet(Duration.ofSeconds(6).toNanos());
+        RegisteredAvroSchema recovered = resolver.resolve("orders-value", null);
+
+        // then
+        assertThat(recovered)
+                .withFailMessage(() -> "The new latest version was not picked up after the outage, lookups were " + lookups)
+                .isEqualTo(V2);
+    }
+
+    @Test
+    void failsTheLatestVersionOfADeletedSubjectDespiteACachedSchema() {
+        // given the latest version was resolved before the subject was deleted
+        var deleted = new AtomicBoolean(false);
+        var resolver = resolver((subject, _) -> {
+            if (deleted.get()) {
+                throw new IllegalStateException("schema registry returned HTTP 404 for subject '" + subject + "'");
+            }
+            return V1;
+        });
+        resolver.resolve("orders-value", null);
+        deleted.set(true);
+
+        // when / then refreshing it after its ttl
+        clock.addAndGet(Duration.ofMinutes(6).toNanos());
+        assertThatThrownBy(() -> resolver.resolve("orders-value", null))
+                .withFailMessage(() -> "A deleted subject was served from the cache instead of failing")
+                .hasMessageContaining("HTTP 404")
+                .isNotInstanceOf(SchemaRegistryUnavailableException.class);
+    }
+
+    @Test
+    void reportsAnOutageWithoutACachedSchemaAsAnOutage() {
+        // given a registry that is down before the subject was ever resolved
+        var resolver = resolver((subject, _) -> {
+            throw new SchemaRegistryUnavailableException("schema registry is unreachable");
+        });
+
+        // when / then, also for the remembered failure within the failure ttl
+        assertThatThrownBy(() -> resolver.resolve("orders-value", 2))
+                .withFailMessage(() -> "An outage without a cached schema was not reported as unavailable")
+                .isInstanceOf(SchemaRegistryUnavailableException.class);
+        clock.addAndGet(Duration.ofSeconds(1).toNanos());
+        assertThatThrownBy(() -> resolver.resolve("orders-value", 2))
+                .withFailMessage(() -> "A remembered outage was not reported as unavailable within the failure ttl")
+                .isInstanceOf(SchemaRegistryUnavailableException.class);
     }
 }

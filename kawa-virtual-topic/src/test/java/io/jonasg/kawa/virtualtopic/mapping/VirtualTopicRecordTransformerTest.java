@@ -17,7 +17,10 @@ import io.jonasg.kawa.virtualtopic.filter.AvroPayloadDecoder;
 import io.jonasg.kawa.virtualtopic.filter.PayloadDecodeException;
 import io.jonasg.kawa.virtualtopic.filter.RegisteredAvroSchema;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException;
 import org.apache.avro.Schema;
+import org.apache.avro.io.BinaryEncoder;
+import org.apache.avro.io.EncoderFactory;
 import org.apache.kafka.common.compress.Compression;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
@@ -31,7 +34,12 @@ import org.apache.kafka.common.record.internal.Record;
 import org.apache.kafka.common.record.internal.RecordBatch;
 import org.apache.kafka.common.record.internal.SimpleRecord;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -267,6 +275,62 @@ class VirtualTopicRecordTransformerTest {
         assertThat(transformed.value().getInt(1)).withFailMessage(() -> "The value does not name schema id 7").isEqualTo(7);
     }
 
+    @ParameterizedTest
+    @EnumSource(DecodeErrorPolicy.class)
+    void failsTheFetchWhenTheRegistryIsUnavailableToDecodeWhateverThePolicy(DecodeErrorPolicy policy) {
+        // given a registry that is down while the writer schema is looked up
+        var outage = new SchemaRegistryUnavailableException("schema registry is unreachable");
+        var avroTransformer = new VirtualTopicRecordTransformer(SchemaRegistries.of(id -> {
+            throw outage;
+        }, null));
+        VirtualTopic topic = topic(new AvroFormatConfig(policy), new ConvertTransformationConfig(new JsonFormatConfig()));
+        var records = MemoryRecords.withRecords(Compression.NONE, avro(9, "o-1"));
+
+        // when / then the record is neither dropped nor delivered untransformed
+        assertThatThrownBy(() -> avroTransformer.apply(topic, records))
+                .withFailMessage(() -> "A registry outage while decoding was handled by the " + policy + " policy instead of failing the fetch")
+                .isSameAs(outage);
+    }
+
+    @ParameterizedTest
+    @EnumSource(DecodeErrorPolicy.class)
+    void failsTheFetchWhenTheRegistryIsUnavailableToEncodeWhateverThePolicy(DecodeErrorPolicy policy) {
+        // given a registry that is down while the target schema is looked up
+        var outage = new SchemaRegistryUnavailableException("schema registry is unreachable");
+        var avroTransformer = new VirtualTopicRecordTransformer(SchemaRegistries.of(null, (subject, version) -> {
+            throw outage;
+        }));
+        VirtualTopic topic = topic(new JsonFormatConfig(policy),
+                new ConvertTransformationConfig(new AvroFormatConfig(policy, "orders-value", null)));
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"id\":\"o-1\"}"));
+
+        // when / then the record is neither dropped nor delivered untransformed
+        assertThatThrownBy(() -> avroTransformer.apply(topic, records))
+                .withFailMessage(() -> "A registry outage while encoding was handled by the " + policy + " policy instead of failing the fetch")
+                .isSameAs(outage);
+    }
+
+    @Test
+    void skipsARecordWithAnUnknownSchemaId() {
+        // given a registry that knows schema id 1 but not id 9
+        var avroTransformer = new VirtualTopicRecordTransformer(SchemaRegistries.of(id -> {
+            if (id == 1) {
+                return Schema.create(Schema.Type.STRING);
+            }
+            throw new IllegalStateException("schema registry returned HTTP 404 for schema id " + id);
+        }, null));
+        VirtualTopic topic = topic(new AvroFormatConfig(DecodeErrorPolicy.SKIP), new ConvertTransformationConfig(new JsonFormatConfig()));
+        var records = MemoryRecords.withRecords(Compression.NONE, avro(9, "o-1"), avro(1, "o-2"));
+
+        // when
+        List<Record> transformed = records(avroTransformer.apply(topic, records));
+
+        // then
+        assertThat(transformed).extracting(Record::offset)
+                .withFailMessage(() -> "A record with an unknown schema id was not skipped under the skip policy")
+                .containsExactly(1L);
+    }
+
     @Test
     void leavesOutATrailingBatchTheBrokerTruncated() {
         // given a complete batch followed by the first bytes of another
@@ -321,6 +385,21 @@ class VirtualTopicRecordTransformerTest {
 
     private static SimpleRecord json(String value) {
         return new SimpleRecord(bytes(value));
+    }
+
+    /// A string value in the schema registry wire format.
+    private static SimpleRecord avro(int schemaId, String value) {
+        var out = new ByteArrayOutputStream();
+        out.write(0);
+        out.writeBytes(ByteBuffer.allocate(Integer.BYTES).putInt(schemaId).array());
+        BinaryEncoder encoder = EncoderFactory.get().binaryEncoder(out, null);
+        try {
+            encoder.writeString(value);
+            encoder.flush();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return new SimpleRecord(out.toByteArray());
     }
 
     private static byte[] bytes(String text) {

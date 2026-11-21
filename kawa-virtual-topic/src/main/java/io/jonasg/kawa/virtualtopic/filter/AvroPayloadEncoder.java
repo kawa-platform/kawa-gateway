@@ -53,6 +53,9 @@ import java.util.Map;
 /// Decoding then encoding with the same schema gives the same value tree back, except for
 /// decimals: [AvroPayloadDecoder] exposes them as `Double`, so digits beyond double precision
 /// are lost.
+///
+/// A [SchemaRegistryUnavailableException] of the subject resolver passes through unwrapped: a
+/// registry outage is not a record error. Any other resolver failure is a [PayloadEncodeException].
 public final class AvroPayloadEncoder implements PayloadEncoder {
 
     private final AvroSubjectResolver subjects;
@@ -88,6 +91,9 @@ public final class AvroPayloadEncoder implements PayloadEncoder {
     private RegisteredAvroSchema target() {
         try {
             return subjects.resolve(subject, version);
+        } catch (SchemaRegistryUnavailableException e) {
+            // An outage, not a bad record: never handled per the onDecodeError policy.
+            throw e;
         } catch (RuntimeException e) {
             String versionText = version == null ? "latest" : version.toString();
             throw new PayloadEncodeException("could not resolve Avro subject '" + subject + "' version " + versionText

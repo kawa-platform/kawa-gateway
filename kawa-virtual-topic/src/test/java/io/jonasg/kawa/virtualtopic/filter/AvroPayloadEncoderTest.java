@@ -204,6 +204,20 @@ class AvroPayloadEncoderTest {
                 .hasMessageContaining("HTTP 404");
     }
 
+    @Test
+    void passesARegistryOutageThroughUnwrapped() {
+        // given
+        var outage = new SchemaRegistryUnavailableException("schema registry is unreachable");
+        var encoder = new AvroPayloadEncoder((subject, version) -> {
+            throw outage;
+        }, "orders-value", null);
+
+        // when / then
+        assertThatThrownBy(() -> encoder.encode("hello"))
+                .withFailMessage(() -> "A registry outage was turned into an encode error instead of passed through")
+                .isSameAs(outage);
+    }
+
     /// A complete order using every type of [#ORDER].
     static GenericRecord order() {
         var customer = new GenericData.Record(ORDER.getField("customer").schema());

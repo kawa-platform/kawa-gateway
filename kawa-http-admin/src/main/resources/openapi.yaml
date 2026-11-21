@@ -1825,7 +1825,9 @@ components:
           description: |
             What to do with a record whose value is not valid JSON, or that a virtual topic's transformations cannot
             transform (the mapping fails, or the result cannot be encoded): `skip` drops it (an offset gap),
-            `include` delivers it as stored (unfiltered, untransformed), `fail` fails the fetch.
+            `include` delivers it as stored (unfiltered, untransformed), `fail` fails the fetch. A schema registry
+            outage (unreachable, timed out, HTTP 5xx) is not a record error: whatever the policy, the partition fails
+            with `UNKNOWN_SERVER_ERROR` and no records, so the consumer fetches them again once the registry is back.
     AvroFormat:
       type: object
       required:
@@ -1850,7 +1852,9 @@ components:
           description: |
             What to do with a record whose value is not decodable Avro, or that a virtual topic's transformations cannot
             transform (the mapping fails, or the result cannot be encoded): `skip` drops it (an offset gap),
-            `include` delivers it as stored (unfiltered, untransformed), `fail` fails the fetch.
+            `include` delivers it as stored (unfiltered, untransformed), `fail` fails the fetch. A schema registry
+            outage (unreachable, timed out, HTTP 5xx) is not a record error: whatever the policy, the partition fails
+            with `UNKNOWN_SERVER_ERROR` and no records, so the consumer fetches them again once the registry is back.
         subject:
           type: string
           description: Registry subject of the schema transformed values are encoded with. Required when this format is a transformation output.
@@ -1881,7 +1885,9 @@ components:
           description: |
             What to do with a record whose value is not decodable XML, or that a virtual topic's transformations cannot
             transform (the mapping fails, or the result cannot be encoded): `skip` drops it (an offset gap),
-            `include` delivers it as stored (unfiltered, untransformed), `fail` fails the fetch.
+            `include` delivers it as stored (unfiltered, untransformed), `fail` fails the fetch. A schema registry
+            outage (unreachable, timed out, HTTP 5xx) is not a record error: whatever the policy, the partition fails
+            with `UNKNOWN_SERVER_ERROR` and no records, so the consumer fetches them again once the registry is back.
         root:
           type: string
           description: Root element name. Required when this format is a transformation output; when set, decoding refuses another root.

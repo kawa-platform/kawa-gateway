@@ -16,6 +16,11 @@ import java.util.function.LongSupplier;
 ///
 /// A failed lookup is remembered for [#DEFAULT_FAILURE_TTL], the same way as in
 /// [CachingAvroSchemaResolver]: within it, the lookup fails again without asking the registry.
+///
+/// When looking up the latest version again fails with a [SchemaRegistryUnavailableException],
+/// the latest version resolved before is kept until the registry answers again, so an outage does
+/// not stop encoding. Any other failure - the subject was deleted, say - fails even then, and an
+/// outage with nothing cached yet fails with the [SchemaRegistryUnavailableException].
 public final class CachingAvroSubjectResolver implements AvroSubjectResolver {
 
     public static final Duration DEFAULT_LATEST_TTL = Duration.ofMinutes(5);
@@ -49,7 +54,10 @@ public final class CachingAvroSubjectResolver implements AvroSubjectResolver {
         }
         Failure failure = failures.get(key);
         if (failure != null && now - failure.failedAtNanos() < failureTtlNanos) {
-            throw new IllegalStateException(failure.error().getMessage() + " (failed recently, not retried yet)", failure.error());
+            if (cached != null && failure.error() instanceof SchemaRegistryUnavailableException) {
+                return cached.schema();
+            }
+            throw failure.recalled();
         }
         // Resolved outside the map, as in CachingAvroSchemaResolver, so no map lock is held for
         // the duration of a registry call.
@@ -58,6 +66,10 @@ public final class CachingAvroSubjectResolver implements AvroSubjectResolver {
             resolved = delegate.resolve(subject, version);
         } catch (RuntimeException e) {
             failures.put(key, new Failure(e, now));
+            if (cached != null && e instanceof SchemaRegistryUnavailableException) {
+                // The registry is down: keep encoding with the last latest version it gave.
+                return cached.schema();
+            }
             throw e;
         }
         failures.remove(key);
@@ -72,5 +84,14 @@ public final class CachingAvroSubjectResolver implements AvroSubjectResolver {
     }
 
     private record Failure(RuntimeException error, long failedAtNanos) {
+
+        /// The remembered failure, thrown again: a registry outage stays a
+        /// [SchemaRegistryUnavailableException], so it is still not taken for a record error.
+        RuntimeException recalled() {
+            String message = error.getMessage() + " (failed recently, not retried yet)";
+            return error instanceof SchemaRegistryUnavailableException
+                    ? new SchemaRegistryUnavailableException(message, error)
+                    : new IllegalStateException(message, error);
+        }
     }
 }

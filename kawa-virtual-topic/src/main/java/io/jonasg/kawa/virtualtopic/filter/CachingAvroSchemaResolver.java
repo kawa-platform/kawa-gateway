@@ -13,7 +13,8 @@ import java.util.function.LongSupplier;
 /// A failed lookup is remembered for a short while ([#DEFAULT_FAILURE_TTL]): within it, the id
 /// fails again without asking the registry, so a topic full of records with an unknown id - or a
 /// registry that is down - costs one registry call per id per interval instead of one per record.
-/// Afterwards the id is looked up again, so a schema registered later is still found.
+/// Afterwards the id is looked up again, so a schema registered later is still found. A remembered
+/// [SchemaRegistryUnavailableException] is thrown again as one.
 public final class CachingAvroSchemaResolver implements AvroSchemaResolver {
 
     public static final Duration DEFAULT_FAILURE_TTL = Duration.ofSeconds(5);
@@ -43,7 +44,7 @@ public final class CachingAvroSchemaResolver implements AvroSchemaResolver {
         long now = nanoClock.getAsLong();
         Failure failure = failures.get(schemaId);
         if (failure != null && now - failure.failedAtNanos() < failureTtlNanos) {
-            throw new IllegalStateException(failure.error().getMessage() + " (failed recently, not retried yet)", failure.error());
+            throw failure.recalled();
         }
         // Resolved outside the map rather than in computeIfAbsent, which would hold a map lock
         // for the duration of a registry call. Two threads missing on the same id may both
@@ -63,5 +64,14 @@ public final class CachingAvroSchemaResolver implements AvroSchemaResolver {
     }
 
     private record Failure(RuntimeException error, long failedAtNanos) {
+
+        /// The remembered failure, thrown again: a registry outage stays a
+        /// [SchemaRegistryUnavailableException], so it is still not taken for a record error.
+        RuntimeException recalled() {
+            String message = error.getMessage() + " (failed recently, not retried yet)";
+            return error instanceof SchemaRegistryUnavailableException
+                    ? new SchemaRegistryUnavailableException(message, error)
+                    : new IllegalStateException(message, error);
+        }
     }
 }

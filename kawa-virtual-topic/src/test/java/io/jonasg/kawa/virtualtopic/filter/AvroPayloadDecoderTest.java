@@ -98,4 +98,18 @@ class AvroPayloadDecoderTest {
                 .withFailMessage(() -> "A record value with a header but no Avro body was not rejected")
                 .isInstanceOf(PayloadDecodeException.class);
     }
+
+    @Test
+    void passesARegistryOutageThroughUnwrapped() {
+        // given
+        var outage = new SchemaRegistryUnavailableException("schema registry is unreachable");
+        var decoder = new AvroPayloadDecoder(_ -> {
+            throw outage;
+        });
+
+        // when / then
+        assertThatThrownBy(() -> decoder.decode(ByteBuffer.wrap(AvroRecordPredicateTest.wireFormat(9, STRING, "hello"))))
+                .withFailMessage(() -> "A registry outage was turned into a decode error instead of passed through")
+                .isSameAs(outage);
+    }
 }
