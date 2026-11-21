@@ -14,7 +14,7 @@ import io.jonasg.kawa.config.XmlFormatConfig;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager.VirtualTopic;
 import io.jonasg.kawa.virtualtopic.filter.AvroPayloadDecoder;
-import io.jonasg.kawa.virtualtopic.filter.PayloadDecodeException;
+import io.jonasg.kawa.virtualtopic.filter.FailedRecordException;
 import io.jonasg.kawa.virtualtopic.filter.RegisteredAvroSchema;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException;
@@ -48,6 +48,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /// Batch-level tests for [VirtualTopicRecordTransformer#apply], the transform pass of the fetch path.
 class VirtualTopicRecordTransformerTest {
@@ -210,15 +211,90 @@ class VirtualTopicRecordTransformerTest {
     }
 
     @Test
-    void failsTheFetchOnARecordThatCannotBeTransformedUnderFailPolicy() {
-        // given a value that is not JSON, under the fail policy
-        VirtualTopic topic = topic(new JsonFormatConfig(DecodeErrorPolicy.FAIL), new RenameFieldTransformationConfig("a", "b"));
-        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("not json"));
+    void deliversTheTransformedRecordsBeforeARecordThatCannotBeTransformedUnderFailPolicy() {
+        // given a batch whose third value is not JSON, under the fail policy
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("{\"a\":2}"), json("not json"), json("{\"a\":4}"));
 
-        // when / then
-        assertThatThrownBy(() -> transformer.apply(topic, records))
-                .withFailMessage(() -> "The fetch did not fail on an undecodable value")
-                .isInstanceOf(PayloadDecodeException.class);
+        // when
+        FailedRecordException failure = failOn(records);
+
+        // then
+        assertThat(records(failure.recordsBefore())).extracting(VirtualTopicRecordTransformerTest::value)
+                .withFailMessage(() -> "The records before the bad one were not delivered transformed, or a record after it was")
+                .containsExactly("{\"b\":1}", "{\"b\":2}");
+    }
+
+    @Test
+    void stopsThePartitionAtTheOffsetOfARecordThatCannotBeTransformedUnderFailPolicy() {
+        // given a batch whose third value is not JSON, under the fail policy
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("{\"a\":2}"), json("not json"), json("{\"a\":4}"));
+
+        // when
+        FailedRecordException failure = failOn(records);
+
+        // then
+        assertThat(failure.offset())
+                .withFailMessage(() -> "The partition was not stopped at the offset of the bad record, but at " + failure.offset())
+                .isEqualTo(2L);
+    }
+
+    @Test
+    void endsTheDeliveredRecordsRightBeforeARecordThatCannotBeTransformedUnderFailPolicy() {
+        // given a batch whose third value is not JSON, under the fail policy
+        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("{\"a\":2}"), json("not json"), json("{\"a\":4}"));
+
+        // when
+        FailedRecordException failure = failOn(records);
+
+        // then the consumer's next fetch starts at the bad record, not past the original batch
+        assertThat(batches(failure.recordsBefore()).getLast().lastOffset())
+                .withFailMessage(() -> "The delivered batch does not end right before the bad record, so the consumer would skip it")
+                .isEqualTo(1L);
+    }
+
+    @Test
+    void deliversNothingWhenTheFirstRecordCannotBeTransformedUnderFailPolicy() {
+        // given a batch whose first value is not JSON, under the fail policy
+        var records = MemoryRecords.withRecords(Compression.NONE, json("not json"), json("{\"a\":2}"));
+
+        // when
+        FailedRecordException failure = failOn(records);
+
+        // then
+        assertThat(failure.recordsBefore().sizeInBytes())
+                .withFailMessage(() -> "Records were delivered although the bad record comes first")
+                .isZero();
+        assertThat(failure.offset())
+                .withFailMessage(() -> "The partition was not stopped at the first record")
+                .isZero();
+    }
+
+    @Test
+    void deliversTheBatchesBeforeTheBatchHoldingARecordThatCannotBeTransformedUnderFailPolicy() {
+        // given a batch at offsets 0-1 and a batch at offsets 2-3 that starts with a value that is not JSON
+        var records = concat(
+                MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("{\"a\":2}")),
+                MemoryRecords.withRecords(2L, Compression.NONE, json("not json"), json("{\"a\":4}")));
+
+        // when
+        FailedRecordException failure = failOn(records);
+
+        // then
+        assertThat(records(failure.recordsBefore())).extracting(Record::offset)
+                .withFailMessage(() -> "The records of the batch before the bad record were not all delivered")
+                .containsExactly(0L, 1L);
+        assertThat(failure.offset())
+                .withFailMessage(() -> "The partition was not stopped at the bad record of the second batch")
+                .isEqualTo(2L);
+    }
+
+    private FailedRecordException failOn(MemoryRecords records) {
+        VirtualTopic topic = topic(new JsonFormatConfig(DecodeErrorPolicy.FAIL), new RenameFieldTransformationConfig("a", "b"));
+        FailedRecordException failure = catchThrowableOfType(FailedRecordException.class, () -> transformer.apply(topic, records));
+        assertThat(failure)
+                .withFailMessage(() -> "A record that cannot be transformed did not stop the partition under the fail policy")
+                .isNotNull();
+        return failure;
     }
 
     @Test

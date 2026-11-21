@@ -5,6 +5,7 @@ import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.ShortCircuitResult;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager.VirtualTopic;
+import io.jonasg.kawa.virtualtopic.filter.FailedRecordException;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
 import io.jonasg.kawa.virtualtopic.mapping.VirtualTopicRecordTransformer;
@@ -32,10 +33,20 @@ import java.util.Optional;
 /// records stored in different formats, and a configuration change applies from the next response
 /// of a session on.
 ///
-/// A schema registry outage ([SchemaRegistryUnavailableException]) is not a record error: the
-/// partition it hits comes back with `UNKNOWN_SERVER_ERROR` and no records, so the consumer does
-/// not move past them and fetches them again once the registry is back. The other partitions of
-/// the response are delivered as usual.
+/// A failure costs only the partition it hits; the other partitions of the response are delivered
+/// as usual:
+///
+/// - A bad record under the `fail` policy ([FailedRecordException]) stops the partition at that
+///   record: the records before it are delivered, ending right before it, so the consumer's next
+///   fetch starts at it. When it is the first record fetched, the partition answers
+///   `CORRUPT_MESSAGE` with no records: the Java consumer then throws a `KafkaException` naming
+///   its offset from `poll` until the application seeks past it.
+/// - A schema registry outage ([SchemaRegistryUnavailableException]) is not a record error: the
+///   partition comes back with `UNKNOWN_SERVER_ERROR` and no records, so the consumer does not move
+///   past them and fetches them again once the registry is back.
+/// - Any other exception, such as a filter that fails to evaluate or a bug, is no record error
+///   either and is not handled per the `onDecodeError` policy: the partition comes back with
+///   `UNKNOWN_SERVER_ERROR` and no records, and the failure is logged.
 public final class FetchVirtualTopicTransform
         implements VirtualTopicTransform<FetchRequestData, FetchResponseData> {
 
@@ -150,16 +161,38 @@ public final class FetchVirtualTopicTransform
             String physical = virtualTopics.toPhysical(topic.topic());
             for (FetchResponseData.PartitionData partition : topic.partitions()) {
                 BaseRecords records = partition.records();
+                FailedRecordException stop = null;
                 try {
                     if (filter.isPresent()) {
-                        records = recordFilter.apply(physical, filter.get(), valueFormat, records);
+                        try {
+                            records = recordFilter.apply(physical, filter.get(), valueFormat, records);
+                        } catch (FailedRecordException e) {
+                            stop = e;
+                            records = e.recordsBefore();
+                        }
                     }
                     if (transformed.isPresent()) {
-                        records = recordTransformer.apply(transformed.get(), records);
+                        try {
+                            records = recordTransformer.apply(transformed.get(), records);
+                        } catch (FailedRecordException e) {
+                            // the transformer only saw the records before the filter's stop, so it stops earlier
+                            stop = e;
+                            records = e.recordsBefore();
+                        }
+                    }
+                    if (stop != null && records.sizeInBytes() == 0) {
+                        log.warn("Failing fetch of {}-{} at offset {}: {}",
+                                topic.topic(), partition.partitionIndex(), stop.offset(), stop.getMessage());
+                        partition.setErrorCode(Errors.CORRUPT_MESSAGE.code());
                     }
                 } catch (SchemaRegistryUnavailableException e) {
                     log.warn("Failing fetch of {}-{}, the schema registry is unavailable: {}",
                             topic.topic(), partition.partitionIndex(), e.getMessage());
+                    partition.setErrorCode(Errors.UNKNOWN_SERVER_ERROR.code());
+                    records = MemoryRecords.EMPTY;
+                } catch (RuntimeException e) {
+                    log.error("Failing fetch of {}-{}, its records could not be rewritten",
+                            topic.topic(), partition.partitionIndex(), e);
                     partition.setErrorCode(Errors.UNKNOWN_SERVER_ERROR.code());
                     records = MemoryRecords.EMPTY;
                 }

@@ -30,7 +30,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /// mechanism the broker's log cleaner (compaction) and client-side down-conversion use to drop
 /// records from a batch and re-emit a valid one - rather than hand-rolling batch encoding.
 ///
-/// A record whose value does not decode is handled per the format's [DecodeErrorPolicy]. A schema
+/// A record whose value does not decode is handled per the format's [DecodeErrorPolicy]; under
+/// `fail` the partition stops at it, see [FailedRecordException]. A schema
 /// registry outage ([SchemaRegistryUnavailableException]) is not a record error and bypasses the
 /// policy: it is thrown whatever the policy, so the partition fails instead of records being
 /// dropped or included.
@@ -66,6 +67,9 @@ public final class VirtualTopicRecordFilter {
     /// Returns `records` of `physicalTopic` filtered per `filter` - with record values decoded
     /// per `valueFormat` when one is configured (`null` for raw values) - or `records` unchanged
     /// when there is nothing to decode (null or empty - the fast path most partitions take).
+    ///
+    /// @throws FailedRecordException when a record value does not decode under the `fail` policy: it
+    ///                               carries the filtered records before that record
     public BaseRecords apply(
             String physicalTopic,
             VirtualTopicFilterConfig filter,
@@ -79,15 +83,37 @@ public final class VirtualTopicRecordFilter {
         AvroSchemaResolver avroSchemas = valueFormat instanceof AvroFormatConfig
                 ? schemaRegistries.avroSchemasFor(physicalTopic)
                 : null;
-        ByteBuffer output = ByteBuffer.allocate(memoryRecords.sizeInBytes());
-        memoryRecords.filterTo(
-                filters.computeIfAbsent(
-                        new FilterKey(filter, valueFormat, avroSchemas),
-                        key -> new EvaluatingRecordFilter(key.filter(), key.valueFormat(), key.avroSchemas())),
-                output,
-                BufferSupplier.NO_CACHING);
+        EvaluatingRecordFilter recordFilter = filters.computeIfAbsent(
+                new FilterKey(filter, valueFormat, avroSchemas),
+                key -> new EvaluatingRecordFilter(key.filter(), key.valueFormat(), key.avroSchemas()));
+        try {
+            return filter(memoryRecords, recordFilter);
+        } catch (Stop stop) {
+            // The records before the bad one passed, so filtering them again cannot stop.
+            MemoryRecords before = RecordBatches.before(memoryRecords, stop.offset);
+            MemoryRecords filtered = before.sizeInBytes() == 0 ? before : filter(before, recordFilter);
+            throw new FailedRecordException(stop.offset, filtered, stop.failure);
+        }
+    }
+
+    private static MemoryRecords filter(MemoryRecords records, EvaluatingRecordFilter recordFilter) {
+        ByteBuffer output = ByteBuffer.allocate(records.sizeInBytes());
+        records.filterTo(recordFilter, output, BufferSupplier.NO_CACHING);
         output.flip();
         return MemoryRecords.readableRecords(output);
+    }
+
+    /// A record the `fail` policy stops the partition at, thrown out of `filterTo`.
+    private static final class Stop extends RuntimeException {
+
+        private final long offset;
+        private final PayloadDecodeException failure;
+
+        private Stop(long offset, PayloadDecodeException failure) {
+            super(failure.getMessage(), failure, false, false);
+            this.offset = offset;
+            this.failure = failure;
+        }
     }
 
     /// Retains a record if it matches the configured filter. The [RecordPredicate] is resolved
@@ -130,10 +156,16 @@ public final class VirtualTopicRecordFilter {
                 RecordBatch batch,
                 Record record
         ) {
-            return matches(record);
+            try {
+                return matches(record);
+            } catch (PayloadDecodeException e) {
+                // only escapes matches under the fail policy
+                throw new Stop(record.offset(), e);
+            }
         }
 
-        /// A [SchemaRegistryUnavailableException] is not caught: it is no record error.
+        /// A [SchemaRegistryUnavailableException] is not caught: it is no record error, and neither is
+        /// any other exception, such as a filter that fails to evaluate.
         boolean matches(Record record) {
             try {
                 return predicate.test(record);
