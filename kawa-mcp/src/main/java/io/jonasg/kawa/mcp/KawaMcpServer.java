@@ -80,10 +80,11 @@ public final class KawaMcpServer implements AutoCloseable {
         this.server = McpServer.sync(endpoint)
                 .serverInfo("kawa", version())
                 .jsonMapper(mapper)
-                .capabilities(McpSchema.ServerCapabilities.builder().tools(false).resources(false, false).build())
+                .capabilities(McpSchema.ServerCapabilities.builder().tools(false).resources(false, false).completions().build())
                 .tools(tools.stream().map(McpTool::specification).toList())
                 .resources(resources.stream().map(McpResource::specification).toList())
                 .resourceTemplates(resourceTemplates.stream().map(McpResource::templateSpecification).toList())
+                .completions(resourceTemplates.stream().map(McpResource::completionSpecification).toList())
                 .build();
         router.post(PATH, endpoint);
     }

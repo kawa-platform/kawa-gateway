@@ -33,6 +33,8 @@ import java.util.Map;
 public abstract class McpResource {
 
     private static final String JSON = "application/json";
+    /// The most completion values one answer carries; the protocol caps a completion at 100.
+    private static final int MAX_COMPLETIONS = 100;
     private static final Logger log = LoggerFactory.getLogger(McpResource.class);
 
     private final McpJsonMapper mapper;
@@ -65,6 +67,28 @@ public abstract class McpResource {
     public final McpStatelessServerFeatures.SyncResourceTemplateSpecification templateSpecification() {
         var template = McpSchema.ResourceTemplate.builder(uri, name).description(description).mimeType(JSON).build();
         return new McpStatelessServerFeatures.SyncResourceTemplateSpecification(template, this::guarded);
+    }
+
+    /// The values the template's variable may take that start with `prefix`, offered to the agent as autocomplete.
+    /// None by default.
+    protected List<String> completions(String prefix) {
+        return List.of();
+    }
+
+    /// The autocomplete registration of a resource whose URI is a template: `completion/complete` for its variable
+    /// is answered with [#completions(String)], capped at the [#MAX_COMPLETIONS] values the protocol allows.
+    public final McpStatelessServerFeatures.SyncCompletionSpecification completionSpecification() {
+        var reference = new McpSchema.ResourceReference(uri);
+        var variable = uri.substring(uri.indexOf('{') + 1, uri.indexOf('}'));
+        return new McpStatelessServerFeatures.SyncCompletionSpecification(reference, (context, request) -> {
+            if (!variable.equals(request.argument().name())) {
+                return new McpSchema.CompleteResult(new McpSchema.CompleteResult.CompleteCompletion(List.of()));
+            }
+            var values = completions(request.argument().value());
+            var shown = values.stream().limit(MAX_COMPLETIONS).toList();
+            return new McpSchema.CompleteResult(
+                    new McpSchema.CompleteResult.CompleteCompletion(shown, values.size(), values.size() > MAX_COMPLETIONS));
+        });
     }
 
     /// The value of the template's variable in `requestedUri`: the one path segment after the template's fixed
