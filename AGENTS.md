@@ -88,7 +88,9 @@ depend on production modules such as `kawa-config` or `kawa-broker` (for `FakeBr
   `VirtualTopicManager`/`MetadataCache`, never talks to the broker.
 - `kawa-mcp`: MCP server (official `io.modelcontextprotocol.sdk`) served at `POST /mcp` on the admin port. The
   stateless Streamable HTTP transport (`McpEndpoint`) is a `Router.Handler`, so `/mcp` shares the admin pipeline and
-  authentication. It is switched by the runtime `mcp` module (`ModuleId.MCP`); while off, `/mcp` answers `404`. Tools
+  authentication. It is switched by the runtime `mcp` module (`ModuleId.MCP`); while off, `/mcp` answers `404`. Resources
+  (`McpResource`, read-only, same endpoint) expose the broker topics and consumer groups: `kawa://topics` and
+  `kawa://topics/{topicName}` list and describe only physical topics, virtual topics stay on the tools. Tools
   call the services in `AdminServices` directly, one package per tool (`listtopics/` holds `ListTopicsMcpTool` and its view;
   types shared by tools, such as `FilterView`, stay in the parent package), and answer with MCP-specific
   views as `structuredContent` plus the same JSON as text; the `McpTool` base class turns failures into tool errors and

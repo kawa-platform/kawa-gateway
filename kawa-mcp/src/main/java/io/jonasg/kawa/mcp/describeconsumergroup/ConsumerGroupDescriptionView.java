@@ -1,6 +1,7 @@
 package io.jonasg.kawa.mcp.describeconsumergroup;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.jonasg.kawa.http.consumergroups.ConsumerGroupService.ConsumerGroupDetail;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -192,5 +193,33 @@ public record ConsumerGroupDescriptionView(
     /// @param lag             end minus committed; absent unless both are known
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record PartitionLagView(int partition, @Nullable Long committedOffset, @Nullable Long endOffset, @Nullable Long lag) {
+    }
+
+    /// The view of a described group; members and topics are given only when lag applies.
+    static ConsumerGroupDescriptionView of(ConsumerGroupDetail group) {
+        if (!group.lagApplicable()) {
+            return new ConsumerGroupDescriptionView(group.groupId(), group.type(), group.state(), false, null, null, null, null);
+        }
+        var members = group.members().stream()
+                .map(member -> new MemberView(
+                        member.memberId(),
+                        member.clientId(),
+                        member.host(),
+                        member.assigned().stream()
+                                .map(partition -> new AssignedPartitionView(partition.topic(), partition.partition()))
+                                .toList()))
+                .toList();
+        var topics = group.topics().stream()
+                .map(topic -> new TopicLagView(
+                        topic.physicalTopic(),
+                        topic.virtualTopics(),
+                        topic.filtered(),
+                        topic.partitions().stream()
+                                .map(partition -> new PartitionLagView(
+                                        partition.partition(), partition.committed(), partition.end(), partition.lag()))
+                                .toList()))
+                .toList();
+        return new ConsumerGroupDescriptionView(
+                group.groupId(), group.type(), group.state(), true, members, topics, group.totalLag(), group.uncommittedPartitions());
     }
 }

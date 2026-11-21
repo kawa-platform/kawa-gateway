@@ -1,6 +1,7 @@
 package io.jonasg.kawa.mcp.listconsumergroups;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.jonasg.kawa.http.consumergroups.ConsumerGroupService.ConsumerGroupSummary;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
@@ -84,5 +85,20 @@ public record ListConsumerGroupsView(List<ConsumerGroupView> groups) {
             @Nullable Integer uncommittedPartitions,
             @Nullable Boolean lagIsUpperBound
     ) {
+    }
+
+    /// The view of `groups`: lag is given only for the groups it applies to.
+    static ListConsumerGroupsView of(List<ConsumerGroupSummary> groups) {
+        return new ListConsumerGroupsView(groups.stream()
+                .map(group -> new ConsumerGroupView(
+                        group.groupId(),
+                        group.type(),
+                        group.state(),
+                        group.protocolType(),
+                        group.lagApplicable(),
+                        group.lagApplicable() ? group.totalLag() : null,
+                        group.lagApplicable() ? group.uncommittedPartitions() : null,
+                        group.lagApplicable() ? group.lagIsUpperBound() : null))
+                .toList());
     }
 }

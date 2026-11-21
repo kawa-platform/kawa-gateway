@@ -2,7 +2,6 @@ package io.jonasg.kawa.mcp.listconsumergroups;
 
 import io.jonasg.kawa.http.consumergroups.ConsumerGroupService;
 import io.jonasg.kawa.mcp.McpTool;
-import io.jonasg.kawa.mcp.listconsumergroups.ListConsumerGroupsView.ConsumerGroupView;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 
@@ -53,17 +52,6 @@ public final class ListConsumerGroupsMcpTool extends McpTool {
 
     @Override
     protected ListConsumerGroupsView call(CallToolRequest request) {
-        var groups = consumerGroupService.list().stream()
-                .map(group -> new ConsumerGroupView(
-                        group.groupId(),
-                        group.type(),
-                        group.state(),
-                        group.protocolType(),
-                        group.lagApplicable(),
-                        group.lagApplicable() ? group.totalLag() : null,
-                        group.lagApplicable() ? group.uncommittedPartitions() : null,
-                        group.lagApplicable() ? group.lagIsUpperBound() : null))
-                .toList();
-        return new ListConsumerGroupsView(groups);
+        return ListConsumerGroupsView.of(consumerGroupService.list());
     }
 }

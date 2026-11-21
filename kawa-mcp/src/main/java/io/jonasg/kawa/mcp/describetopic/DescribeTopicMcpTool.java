@@ -2,7 +2,6 @@ package io.jonasg.kawa.mcp.describetopic;
 
 import io.jonasg.kawa.http.topics.TopicService;
 import io.jonasg.kawa.mcp.McpTool;
-import io.jonasg.kawa.mcp.VirtualTopicViews;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 
@@ -56,28 +55,6 @@ public final class DescribeTopicMcpTool extends McpTool {
 
     @Override
     protected TopicDescriptionView call(CallToolRequest request) {
-        return view(topicService.describeTopic(getRequiredArg(request, "topicName")));
-    }
-
-    /// The view of a described topic: its virtual topic details when the name is virtual, and the physical topic
-    /// that holds the records.
-    private static TopicDescriptionView view(TopicService.TopicDescription description) {
-        var virtual = description.virtualTopic();
-        return new TopicDescriptionView(
-                description.name(),
-                virtual == null ? null : new TopicDescriptionView.VirtualTopicDetails(
-                        virtual.name(),
-                        VirtualTopicViews.filter(virtual.filter()),
-                        VirtualTopicViews.valueFormat(virtual.valueFormat()),
-                        virtual.exposePhysicalTopic()
-                ),
-                new TopicDescriptionView.PhysicalTopicDetails(
-                        description.physicalTopic(),
-                        description.partitions(),
-                        description.replicationFactor(),
-                        description.configs()
-                ),
-                description.shadowsPhysicalTopic()
-        );
+        return TopicDescriptionView.of(topicService.describeTopic(getRequiredArg(request, "topicName")));
     }
 }

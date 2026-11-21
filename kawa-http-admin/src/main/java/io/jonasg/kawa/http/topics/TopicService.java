@@ -126,22 +126,31 @@ public final class TopicService implements AutoCloseable {
                 );
             }
 
-            var res = this.brokerAdmin.describe(List.of(name));
-            Map<String, TopicState> topics = res.toCompletableFuture().get();
-            if (topics.containsKey(name)) {
-                var state = topics.get(name);
-                return new TopicDescription(
-                        name,
-                        null,
-                        name,
-                        state.partitions(),
-                        state.replicationFactor(),
-                        state.configs(),
-                        false
-                );
-            }
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+        return describePhysicalTopic(name);
+    }
 
-            throw new NotFoundException("topic '" + name + "' not found");
+    /// One topic on the broker by its own name, whether or not a virtual topic of that name hides it.
+    ///
+    /// @throws NotFoundException when the broker does not know the topic
+    public TopicDescription describePhysicalTopic(String name) {
+        try {
+            Map<String, TopicState> topics = this.brokerAdmin.describe(List.of(name)).toCompletableFuture().get();
+            var state = topics.get(name);
+            if (state == null) {
+                throw new NotFoundException("topic '" + name + "' not found");
+            }
+            return new TopicDescription(
+                    name,
+                    null,
+                    name,
+                    state.partitions(),
+                    state.replicationFactor(),
+                    state.configs(),
+                    false
+            );
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
         }

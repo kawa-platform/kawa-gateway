@@ -3,7 +3,6 @@ package io.jonasg.kawa.mcp;
 import io.jonasg.kawa.http.configchange.ConflictException;
 import io.jonasg.kawa.http.configchange.ForbiddenException;
 import io.jonasg.kawa.http.configchange.NotFoundException;
-import io.jonasg.kawa.plugin.auth.KawaPrincipal;
 import io.modelcontextprotocol.common.McpTransportContext;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpStatelessServerFeatures;
@@ -35,7 +34,6 @@ public abstract class McpTool {
 
     public static final String INTERNAL_ERROR = "internal error";
 
-    private static final String UNKNOWN = "-";
     private static final Logger log = LoggerFactory.getLogger(McpTool.class);
 
     private final McpJsonMapper mapper;
@@ -88,11 +86,7 @@ public abstract class McpTool {
             result = error(INTERNAL_ERROR);
             outcome = "failed";
         }
-        var principal = context.get(McpEndpoint.PRINCIPAL) instanceof KawaPrincipal p ? p : null;
-        log.info("MCP tool {} called by {} via {}: {}", toolName,
-                principal == null ? UNKNOWN : principal.name(),
-                principal == null || principal.clientId() == null ? UNKNOWN : principal.clientId(),
-                outcome);
+        log.info("MCP tool {} called by {}: {}", toolName, McpCaller.describe(context), outcome);
         return result;
     }
 
