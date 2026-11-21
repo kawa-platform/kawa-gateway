@@ -20,6 +20,7 @@ import io.jonasg.kawa.governance.GovernanceInterceptor;
 import io.jonasg.kawa.governance.TopicDescriber;
 import io.jonasg.kawa.broker.KafkaBrokerAdmin;
 import io.jonasg.kawa.rbac.AuthorizationInterceptor;
+import io.jonasg.kawa.server.auth.AwsMskIam;
 import io.jonasg.kawa.server.broker.BrokerConnectionSettings;
 import io.jonasg.kawa.server.broker.ClusterConnections;
 import io.jonasg.kawa.server.endpoint.BrokerEndpointInterceptor;
@@ -117,6 +118,10 @@ public final class KafkaGateway implements Gateway {
         var brokerAuth = config.auth().brokerAuth();
         var brokerConnections = BrokerConnectionSettings.of(clusterCfg, brokerAuth);
         var brokerSecurity = BrokerSecurity.clientProperties(clusterCfg.tls(), brokerAuth);
+        if (brokerAuth != null && brokerAuth.isAwsMskIam()) {
+            // the gateway's own Kafka clients resolve AWS_MSK_IAM through this provider, signing for the configured region
+            AwsMskIam.install(brokerAuth);
+        }
         log.info("connecting to the cluster over {}", BrokerSecurity.protocol(clusterCfg.tls(), brokerAuth));
 
         // How clients reach the gateway. Loads the listener's TLS stores now, for the same reason.

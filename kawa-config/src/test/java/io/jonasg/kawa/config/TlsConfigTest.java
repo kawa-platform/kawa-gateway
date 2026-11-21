@@ -154,6 +154,43 @@ class TlsConfigTest {
     }
 
     @Test
+    void derivesASaslProtocolForAwsMskIamWithOrWithoutTls() throws IOException {
+        // given
+        var tls = new TlsConfig(new StoreConfig(file("ca.pem"), StoreType.PEM, null, null), null, null);
+        var iam = new BrokerAuthConfig("AWS_MSK_IAM", null, null, "eu-west-1", "gateway");
+
+        // when / then
+        assertThat(List.of(
+                BrokerSecurity.protocol(null, iam),
+                BrokerSecurity.protocol(tls, iam)))
+                .withFailMessage(() -> "AWS_MSK_IAM did not connect with SASL_PLAINTEXT, or SASL_SSL over the cluster's tls")
+                .containsExactly(SecurityProtocol.SASL_PLAINTEXT, SecurityProtocol.SASL_SSL);
+    }
+
+    @Test
+    void passesTheClustersTruststoreToAwsMskIamClients() throws IOException {
+        // given
+        String truststore = file("truststore.p12");
+        var tls = new TlsConfig(new StoreConfig(truststore, StoreType.PKCS12, "changeit", null), null, true);
+        var iam = new BrokerAuthConfig("AWS_MSK_IAM", null, null, "eu-west-1", "gateway");
+
+        // when
+        var props = BrokerSecurity.clientProperties(tls, iam);
+
+        // then
+        assertThat(props)
+                .withFailMessage(() -> "The AWS_MSK_IAM clients did not sign in over SASL_SSL with the cluster's truststore: " + props)
+                .containsEntry("security.protocol", "SASL_SSL")
+                .containsEntry("sasl.mechanism", "AWS_MSK_IAM")
+                .containsEntry("ssl.truststore.location", truststore)
+                .containsEntry("ssl.truststore.type", "PKCS12")
+                .containsEntry("ssl.truststore.password", "changeit");
+        assertThat(String.valueOf(props.get("sasl.jaas.config")))
+                .withFailMessage(() -> "The AWS_MSK_IAM clients have no IAM login module configured: " + props)
+                .contains("software.amazon.msk.auth.iam.IAMLoginModule");
+    }
+
+    @Test
     void connectsKafkaClientsInPlaintextWithoutTlsOrBrokerAuth() {
         assertThat(BrokerSecurity.clientProperties(null, null))
                 .containsExactly(java.util.Map.entry("security.protocol", "PLAINTEXT"));

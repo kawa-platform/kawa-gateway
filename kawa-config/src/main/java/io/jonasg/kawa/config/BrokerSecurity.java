@@ -12,6 +12,11 @@ import java.util.Properties;
 /// `auth.brokerAuth`, so the two cannot contradict a separately configured protocol.
 public final class BrokerSecurity {
 
+    // The aws-msk-iam-auth library's login module and callback handler, named as strings so this
+    // module does not depend on the library (kawa-server does).
+    private static final String AWS_MSK_IAM_LOGIN_MODULE = "software.amazon.msk.auth.iam.IAMLoginModule";
+    private static final String AWS_MSK_IAM_CALLBACK_HANDLER = "software.amazon.msk.auth.iam.IAMClientCallbackHandler";
+
     private BrokerSecurity() {
     }
 
@@ -28,7 +33,11 @@ public final class BrokerSecurity {
     public static Properties clientProperties(@Nullable TlsConfig tls, @Nullable BrokerAuthConfig auth) {
         var props = new Properties();
         props.put(CommonClientConfigs.SECURITY_PROTOCOL_CONFIG, protocol(tls, auth).name);
-        if (auth != null) {
+        if (auth != null && auth.isAwsMskIam()) {
+            props.put(SaslConfigs.SASL_MECHANISM, BrokerAuthConfig.AWS_MSK_IAM);
+            props.put(SaslConfigs.SASL_JAAS_CONFIG, awsMskIamJaas(auth.profile()));
+            props.put(SaslConfigs.SASL_CLIENT_CALLBACK_HANDLER_CLASS, AWS_MSK_IAM_CALLBACK_HANDLER);
+        } else if (auth != null) {
             props.put(SaslConfigs.SASL_MECHANISM, auth.mechanism());
             props.put(SaslConfigs.SASL_JAAS_CONFIG, "org.apache.kafka.common.security.plain.PlainLoginModule required "
                     + "username=\"" + auth.username() + "\" password=\"" + auth.password() + "\";");
@@ -50,6 +59,15 @@ public final class BrokerSecurity {
             }
         }
         return props;
+    }
+
+    /// The JAAS entry for AWS IAM. With a profile, only that profile's credentials are used; without
+    /// one, the AWS default credential chain.
+    private static String awsMskIamJaas(@Nullable String profile) {
+        if (profile == null) {
+            return AWS_MSK_IAM_LOGIN_MODULE + " required;";
+        }
+        return AWS_MSK_IAM_LOGIN_MODULE + " required awsProfileName=\"" + profile + "\" awsAddDefaultProviders=\"false\";";
     }
 
     private static void putIfPresent(Properties props, String key, @Nullable String value) {
