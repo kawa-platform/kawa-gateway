@@ -17,7 +17,9 @@ public enum DecodeErrorPolicy {
     @JsonProperty("include")
     INCLUDE,
 
-    /// Fail the fetch.
+    /// Stop the partition at the record: the records before it are delivered, then the partition
+    /// answers `CORRUPT_MESSAGE` at the bad record (the Java consumer throws a `KafkaException` from
+    /// `poll` until the application seeks past it). Other partitions are unaffected.
     @JsonProperty("fail")
     FAIL
 }

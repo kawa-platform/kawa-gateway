@@ -145,9 +145,21 @@ public final class BrokerClient {
                     request.requestHeader().correlationId(), request.requestHeader().clientId()), null, frame);
         }
 
-        pipeline.onResponse(request.context(), response);
-
         ClientSession session = request.session();
+        try {
+            pipeline.onResponse(request.context(), response);
+        } catch (RuntimeException e) {
+            // Only this request's client pays: the broker connection is shared with other clients' requests.
+            log.error("Failed to process {} v{} response (correlation {}) from broker {}; closing its client connection",
+                    request.apiName(), request.apiVersion(), correlationId, brokerId, e);
+            if (body == null) {
+                frame.release();
+            }
+            session.close();
+            metrics.response(response.apiName(), "error");
+            return;
+        }
+
         ByteBuf out = session.channel().alloc().buffer();
         responseHeaderCodec.encode(out, response.header().responseHeaderVersion(),
                 request.requestHeader().correlationId());

@@ -5,6 +5,7 @@ import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.ConvertTransformationConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.JsonFormatConfig;
+import io.jonasg.kawa.config.RenameFieldTransformationConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
@@ -38,8 +39,9 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
-/// Fetch responses of a virtual topic whose schema registry is unavailable for some of the
-/// partitions' records: only those partitions fail, and nothing escapes to the broker connection.
+/// Fetch responses of a virtual topic some of whose partitions' records cannot be rewritten - a bad
+/// record, a filter error, or a schema registry outage: only those partitions fail, and nothing
+/// escapes to the broker connection.
 class FetchVirtualTopicTransformTest {
 
     private static final int KNOWN_SCHEMA_ID = 1;
@@ -93,6 +95,143 @@ class FetchVirtualTopicTransformTest {
                 .hasSize(1);
     }
 
+    @Test
+    void answersCorruptMessageForAPartitionWhoseFirstRecordCannotBeTransformedUnderFailPolicy() {
+        // given a transformed JSON topic under the fail policy, partition 0 starting with a value that is not JSON
+        var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
+        FetchResponseData response = fetch(transform,
+                MemoryRecords.withRecords(Compression.NONE, json("not json"), json("{\"a\":2}")),
+                MemoryRecords.withRecords(Compression.NONE, json("{\"a\":3}")));
+
+        // when
+        assertThatCode(() -> transform.onResponse(context, response))
+                .withFailMessage(() -> "A record that cannot be transformed escaped the fetch response, closing the broker connection")
+                .doesNotThrowAnyException();
+
+        // then
+        assertCorruptMessage(partition(response, 0));
+        assertThat(values(partition(response, 1).records()))
+                .withFailMessage(() -> "The other partition was not transformed as usual")
+                .containsExactly("{\"b\":3}");
+    }
+
+    @Test
+    void deliversTheRecordsBeforeARecordThatCannotBeTransformedUnderFailPolicy() {
+        // given a transformed JSON topic under the fail policy, partition 0 holding a value that is not JSON at offset 1
+        var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
+        FetchResponseData response = fetch(transform,
+                MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("not json"), json("{\"a\":3}")),
+                MemoryRecords.withRecords(Compression.NONE, json("{\"a\":4}")));
+
+        // when
+        transform.onResponse(context, response);
+
+        // then
+        FetchResponseData.PartitionData stopped = partition(response, 0);
+        assertThat(stopped.errorCode())
+                .withFailMessage(() -> "The records before the bad one were not delivered without an error, got " + Errors.forCode(stopped.errorCode()))
+                .isEqualTo(Errors.NONE.code());
+        assertThat(values(stopped.records()))
+                .withFailMessage(() -> "Only the record before the bad one should have been delivered, transformed")
+                .containsExactly("{\"b\":1}");
+        assertThat(values(partition(response, 1).records()))
+                .withFailMessage(() -> "The other partition was not transformed as usual")
+                .containsExactly("{\"b\":4}");
+    }
+
+    @Test
+    void answersCorruptMessageForAPartitionWhoseFirstRecordCannotBeFilteredUnderFailPolicy() {
+        // given a filtered JSON topic under the fail policy, partition 0 starting with a value that is not JSON
+        var transform = transform(new VirtualTopicConfig("orders.raw", new CelFilterConfig("value.a > 0"), false,
+                new JsonFormatConfig(DecodeErrorPolicy.FAIL), List.of(), null));
+        FetchResponseData response = fetch(transform,
+                MemoryRecords.withRecords(Compression.NONE, json("not json")),
+                MemoryRecords.withRecords(Compression.NONE, json("{\"a\":3}")));
+
+        // when
+        assertThatCode(() -> transform.onResponse(context, response))
+                .withFailMessage(() -> "A record that cannot be filtered escaped the fetch response, closing the broker connection")
+                .doesNotThrowAnyException();
+
+        // then
+        assertCorruptMessage(partition(response, 0));
+        assertThat(values(partition(response, 1).records()))
+                .withFailMessage(() -> "The matching record of the other partition was not delivered")
+                .containsExactly("{\"a\":3}");
+    }
+
+    @Test
+    void deliversTheFilteredRecordsBeforeARecordThatCannotBeFilteredTransformedUnderFailPolicy() {
+        // given a filtered and transformed JSON topic under the fail policy, partition 0 holding a value that is not JSON at offset 2
+        var transform = transform(new VirtualTopicConfig("orders.raw", new CelFilterConfig("value.a > 1"), false,
+                new JsonFormatConfig(DecodeErrorPolicy.FAIL), List.of(new RenameFieldTransformationConfig("a", "b")), null));
+        FetchResponseData response = fetch(transform,
+                MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("{\"a\":2}"), json("not json"), json("{\"a\":4}")),
+                MemoryRecords.withRecords(Compression.NONE, json("{\"a\":5}")));
+
+        // when
+        transform.onResponse(context, response);
+
+        // then
+        FetchResponseData.PartitionData stopped = partition(response, 0);
+        assertThat(stopped.errorCode())
+                .withFailMessage(() -> "The records before the bad one were not delivered without an error, got " + Errors.forCode(stopped.errorCode()))
+                .isEqualTo(Errors.NONE.code());
+        assertThat(values(stopped.records()))
+                .withFailMessage(() -> "Only the matching record before the bad one should have been delivered, transformed")
+                .containsExactly("{\"b\":2}");
+    }
+
+    @Test
+    void answersUnknownServerErrorForAPartitionWhoseFilterCannotBeEvaluated() {
+        // given a filter that fails to evaluate on partition 0's valid record, under the skip policy
+        var transform = transform(new VirtualTopicConfig("orders.raw", new CelFilterConfig("int(value.n) == 1"), false,
+                new JsonFormatConfig(DecodeErrorPolicy.SKIP), List.of(), null));
+        FetchResponseData response = fetch(transform,
+                MemoryRecords.withRecords(Compression.NONE, json("{\"n\":\"not a number\"}")),
+                MemoryRecords.withRecords(Compression.NONE, json("{\"n\":\"1\"}")));
+
+        // when
+        assertThatCode(() -> transform.onResponse(context, response))
+                .withFailMessage(() -> "A filter evaluation error escaped the fetch response, closing the broker connection")
+                .doesNotThrowAnyException();
+
+        // then
+        FetchResponseData.PartitionData failed = partition(response, 0);
+        assertThat(failed.errorCode())
+                .withFailMessage(() -> "The partition the filter failed on did not fail with UNKNOWN_SERVER_ERROR, got "
+                        + Errors.forCode(failed.errorCode()))
+                .isEqualTo(Errors.UNKNOWN_SERVER_ERROR.code());
+        assertThat(size(failed.records()))
+                .withFailMessage(() -> "The partition the filter failed on still delivered records")
+                .isZero();
+        assertThat(partition(response, 1).errorCode())
+                .withFailMessage(() -> "The other partition was failed as well, got " + Errors.forCode(partition(response, 1).errorCode()))
+                .isEqualTo(Errors.NONE.code());
+        assertThat(values(partition(response, 1).records()))
+                .withFailMessage(() -> "The matching record of the other partition was not delivered")
+                .containsExactly("{\"n\":\"1\"}");
+    }
+
+    private static void assertCorruptMessage(FetchResponseData.PartitionData partition) {
+        assertThat(partition.errorCode())
+                .withFailMessage(() -> "The partition starting with a bad record did not answer CORRUPT_MESSAGE, got "
+                        + Errors.forCode(partition.errorCode()))
+                .isEqualTo(Errors.CORRUPT_MESSAGE.code());
+        assertThat(size(partition.records()))
+                .withFailMessage(() -> "The partition starting with a bad record still delivered records")
+                .isZero();
+    }
+
+    private static VirtualTopicConfig renamingTopic(DecodeErrorPolicy policy) {
+        return new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(policy),
+                List.of(new RenameFieldTransformationConfig("a", "b")), null);
+    }
+
+    private static SimpleRecord json(String value) {
+        return new SimpleRecord(value.getBytes(StandardCharsets.UTF_8));
+    }
+
     private static void assertOutagePartitionFailed(FetchResponseData response) {
         FetchResponseData.PartitionData failed = partition(response, 0);
         assertThat(failed.errorCode())
@@ -117,6 +256,13 @@ class FetchVirtualTopicTransformTest {
     /// Fetches `orders`; the broker answers with partition 0 holding a record whose schema the
     /// registry cannot serve and partition 1 holding one it can.
     private FetchResponseData fetch(FetchVirtualTopicTransform transform) {
+        return fetch(transform,
+                MemoryRecords.withRecords(Compression.NONE, avro(UNAVAILABLE_SCHEMA_ID, "o-1")),
+                MemoryRecords.withRecords(Compression.NONE, avro(KNOWN_SCHEMA_ID, "o-2")));
+    }
+
+    /// Fetches `orders`; the broker answers with `partition0` and `partition1` as partitions 0 and 1.
+    private FetchResponseData fetch(FetchVirtualTopicTransform transform, MemoryRecords partition0, MemoryRecords partition1) {
         var request = new FetchRequestData();
         request.topics().add(new FetchRequestData.FetchTopic().setTopic("orders"));
         transform.onRequest(context, request);
@@ -128,11 +274,11 @@ class FetchVirtualTopicTransformTest {
                         new FetchResponseData.PartitionData()
                                 .setPartitionIndex(0)
                                 .setHighWatermark(1)
-                                .setRecords(MemoryRecords.withRecords(Compression.NONE, avro(UNAVAILABLE_SCHEMA_ID, "o-1"))),
+                                .setRecords(partition0),
                         new FetchResponseData.PartitionData()
                                 .setPartitionIndex(1)
                                 .setHighWatermark(1)
-                                .setRecords(MemoryRecords.withRecords(Compression.NONE, avro(KNOWN_SCHEMA_ID, "o-2"))))));
+                                .setRecords(partition1))));
         return response;
     }
 
