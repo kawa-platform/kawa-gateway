@@ -1,12 +1,7 @@
 package io.jonasg.kawa.mcp.describeconsumergroup;
 
 import io.jonasg.kawa.http.consumergroups.ConsumerGroupService;
-import io.jonasg.kawa.http.consumergroups.ConsumerGroupService.ConsumerGroupDetail;
 import io.jonasg.kawa.mcp.McpTool;
-import io.jonasg.kawa.mcp.describeconsumergroup.ConsumerGroupDescriptionView.AssignedPartitionView;
-import io.jonasg.kawa.mcp.describeconsumergroup.ConsumerGroupDescriptionView.MemberView;
-import io.jonasg.kawa.mcp.describeconsumergroup.ConsumerGroupDescriptionView.PartitionLagView;
-import io.jonasg.kawa.mcp.describeconsumergroup.ConsumerGroupDescriptionView.TopicLagView;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 
@@ -60,33 +55,6 @@ public final class DescribeConsumerGroupMcpTool extends McpTool {
 
     @Override
     protected ConsumerGroupDescriptionView call(CallToolRequest request) {
-        return view(consumerGroupService.describe(getRequiredArg(request, "groupId")));
-    }
-
-    private static ConsumerGroupDescriptionView view(ConsumerGroupDetail group) {
-        if (!group.lagApplicable()) {
-            return new ConsumerGroupDescriptionView(group.groupId(), group.type(), group.state(), false, null, null, null, null);
-        }
-        var members = group.members().stream()
-                .map(member -> new MemberView(
-                        member.memberId(),
-                        member.clientId(),
-                        member.host(),
-                        member.assigned().stream()
-                                .map(partition -> new AssignedPartitionView(partition.topic(), partition.partition()))
-                                .toList()))
-                .toList();
-        var topics = group.topics().stream()
-                .map(topic -> new TopicLagView(
-                        topic.physicalTopic(),
-                        topic.virtualTopics(),
-                        topic.filtered(),
-                        topic.partitions().stream()
-                                .map(partition -> new PartitionLagView(
-                                        partition.partition(), partition.committed(), partition.end(), partition.lag()))
-                                .toList()))
-                .toList();
-        return new ConsumerGroupDescriptionView(
-                group.groupId(), group.type(), group.state(), true, members, topics, group.totalLag(), group.uncommittedPartitions());
+        return ConsumerGroupDescriptionView.of(consumerGroupService.describe(getRequiredArg(request, "groupId")));
     }
 }

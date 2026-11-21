@@ -1,10 +1,13 @@
 package io.jonasg.kawa.mcp.listtopics;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.jonasg.kawa.http.topics.TopicService;
 import io.jonasg.kawa.mcp.FilterView;
+import io.jonasg.kawa.mcp.VirtualTopicViews;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /// The `list_topics` result: the topics the gateway serves, shaped for an agent rather than the
 /// admin UI.
@@ -133,5 +136,43 @@ public record ListTopicsView(List<VirtualTopicView> virtualTopics, List<Physical
     /// @param partitions        its partition count
     /// @param replicationFactor its replica count per partition
     record PhysicalTopicView(String name, int partitions, int replicationFactor) {
+    }
+
+    /// The topics `topicService` knows, restricted to the layers asked for and to the names `pattern` matches
+    /// (a virtual topic by its virtual name, a physical topic by its physical name). A layer that is not asked for
+    /// is an empty list.
+    ///
+    /// @param pattern         searched anywhere in the name; `null` lists every topic
+    /// @param includeVirtual  whether to list the virtual topics
+    /// @param includePhysical whether to list the physical topics
+    static ListTopicsView of(TopicService topicService, @Nullable Pattern pattern, boolean includeVirtual, boolean includePhysical) {
+        var listing = topicService.listTopics();
+        var virtualTopics = includeVirtual
+                ? listing.virtual().stream()
+                        .filter(entry -> matches(pattern, entry.name()))
+                        .map(entry -> new VirtualTopicView(
+                                entry.name(),
+                                entry.physicalTopic(),
+                                topicService.partitionCount(entry.physicalTopic()),
+                                topicService.replicationFactor(entry.physicalTopic()),
+                                VirtualTopicViews.filter(entry.filter()),
+                                VirtualTopicViews.valueFormat(entry.valueFormat()),
+                                entry.exposePhysicalTopic()))
+                        .toList()
+                : List.<VirtualTopicView>of();
+        var physicalTopics = includePhysical
+                ? listing.physical().stream()
+                        .filter(topic -> matches(pattern, topic.name()))
+                        .map(topic -> new PhysicalTopicView(
+                                topic.name(),
+                                topicService.partitionCount(topic.name()),
+                                topicService.replicationFactor(topic.name())))
+                        .toList()
+                : List.<PhysicalTopicView>of();
+        return new ListTopicsView(virtualTopics, physicalTopics);
+    }
+
+    private static boolean matches(@Nullable Pattern pattern, String name) {
+        return pattern == null || pattern.matcher(name).find();
     }
 }

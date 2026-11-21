@@ -5,9 +5,13 @@ import io.jonasg.kawa.http.AdminServices;
 import io.jonasg.kawa.http.modules.ModuleService;
 import io.jonasg.kawa.http.web.Router;
 import io.jonasg.kawa.mcp.describeconsumergroup.DescribeConsumerGroupMcpTool;
+import io.jonasg.kawa.mcp.describeconsumergroup.ConsumerGroupMcpResource;
 import io.jonasg.kawa.mcp.describetopic.DescribeTopicMcpTool;
+import io.jonasg.kawa.mcp.describetopic.TopicMcpResource;
+import io.jonasg.kawa.mcp.listconsumergroups.ConsumerGroupsMcpResource;
 import io.jonasg.kawa.mcp.listconsumergroups.ListConsumerGroupsMcpTool;
 import io.jonasg.kawa.mcp.listtopics.ListTopicsMcpTool;
+import io.jonasg.kawa.mcp.listtopics.TopicsMcpResource;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
@@ -49,24 +53,37 @@ public final class KawaMcpServer implements AutoCloseable {
                         new DescribeTopicMcpTool(mapper, services.topics()),
                         new ListConsumerGroupsMcpTool(mapper, services.consumerGroups()),
                         new DescribeConsumerGroupMcpTool(mapper, services.consumerGroups())
+                ),
+                List.of(
+                        new TopicsMcpResource(mapper, services.topics()),
+                        new ConsumerGroupsMcpResource(mapper, services.consumerGroups())
+                ),
+                List.of(
+                        new TopicMcpResource(mapper, services.topics()),
+                        new ConsumerGroupMcpResource(mapper, services.consumerGroups())
                 )
         );
     }
 
-    /// Serves `tools`, which write their JSON with `mapper`.
+    /// Serves `tools`, the fixed-URI `resources` and the URI-template `resourceTemplates`, which write their JSON
+    /// with `mapper`.
     KawaMcpServer(
             Router router,
             ModuleService modules,
             @Nullable CorsConfig cors,
             McpJsonMapper mapper,
-            List<McpTool> tools
+            List<McpTool> tools,
+            List<McpResource> resources,
+            List<McpResource> resourceTemplates
     ) {
         var endpoint = new McpEndpoint(modules, mapper, originValidator(cors));
         this.server = McpServer.sync(endpoint)
                 .serverInfo("kawa", version())
                 .jsonMapper(mapper)
-                .capabilities(McpSchema.ServerCapabilities.builder().tools(false).build())
+                .capabilities(McpSchema.ServerCapabilities.builder().tools(false).resources(false, false).build())
                 .tools(tools.stream().map(McpTool::specification).toList())
+                .resources(resources.stream().map(McpResource::specification).toList())
+                .resourceTemplates(resourceTemplates.stream().map(McpResource::templateSpecification).toList())
                 .build();
         router.post(PATH, endpoint);
     }

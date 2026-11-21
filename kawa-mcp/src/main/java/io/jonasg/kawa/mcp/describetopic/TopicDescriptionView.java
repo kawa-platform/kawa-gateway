@@ -1,7 +1,9 @@
 package io.jonasg.kawa.mcp.describetopic;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.jonasg.kawa.http.topics.TopicService.TopicDescription;
 import io.jonasg.kawa.mcp.FilterView;
+import io.jonasg.kawa.mcp.VirtualTopicViews;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Map;
@@ -139,5 +141,27 @@ public record TopicDescriptionView(
             int replicationFactor,
             Map<String, String> settings
     ) {
+    }
+
+    /// The view of a described topic: its virtual topic details when the name is virtual, and the physical topic
+    /// that holds the records.
+    static TopicDescriptionView of(TopicDescription description) {
+        var virtual = description.virtualTopic();
+        return new TopicDescriptionView(
+                description.name(),
+                virtual == null ? null : new VirtualTopicDetails(
+                        virtual.name(),
+                        VirtualTopicViews.filter(virtual.filter()),
+                        VirtualTopicViews.valueFormat(virtual.valueFormat()),
+                        virtual.exposePhysicalTopic()
+                ),
+                new PhysicalTopicDetails(
+                        description.physicalTopic(),
+                        description.partitions(),
+                        description.replicationFactor(),
+                        description.configs()
+                ),
+                description.shadowsPhysicalTopic()
+        );
     }
 }

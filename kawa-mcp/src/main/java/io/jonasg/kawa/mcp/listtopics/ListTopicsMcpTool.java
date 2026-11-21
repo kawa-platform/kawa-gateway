@@ -2,14 +2,10 @@ package io.jonasg.kawa.mcp.listtopics;
 
 import io.jonasg.kawa.http.topics.TopicService;
 import io.jonasg.kawa.mcp.McpTool;
-import io.jonasg.kawa.mcp.VirtualTopicViews;
-import io.jonasg.kawa.mcp.listtopics.ListTopicsView.PhysicalTopicView;
-import io.jonasg.kawa.mcp.listtopics.ListTopicsView.VirtualTopicView;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import org.jspecify.annotations.Nullable;
 
-import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -77,7 +73,9 @@ public final class ListTopicsMcpTool extends McpTool {
 
     @Override
     protected ListTopicsView call(CallToolRequest request) {
-        return topicsView(namePattern(request), layer(request));
+        var layer = layer(request);
+        return ListTopicsView.of(topicService, namePattern(request), layer == null || VIRTUAL.equals(layer),
+                layer == null || PHYSICAL.equals(layer));
     }
 
     /// The compiled `name` argument, or `null` when it is absent or blank and every topic is listed.
@@ -102,36 +100,5 @@ public final class ListTopicsMcpTool extends McpTool {
             }
             return type;
         }).orElse(null);
-    }
-
-    private static boolean matches(@Nullable Pattern pattern, String name) {
-        return pattern == null || pattern.matcher(name).find();
-    }
-
-    private ListTopicsView topicsView(@Nullable Pattern pattern, @Nullable String layer) {
-        var listing = topicService.listTopics();
-        var virtualTopics = layer == null || VIRTUAL.equals(layer)
-                ? listing.virtual().stream()
-                        .filter(entry -> matches(pattern, entry.name()))
-                        .map(entry -> new VirtualTopicView(
-                                entry.name(),
-                                entry.physicalTopic(),
-                                topicService.partitionCount(entry.physicalTopic()),
-                                topicService.replicationFactor(entry.physicalTopic()),
-                                VirtualTopicViews.filter(entry.filter()),
-                                VirtualTopicViews.valueFormat(entry.valueFormat()),
-                                entry.exposePhysicalTopic()))
-                        .toList()
-                : List.<VirtualTopicView>of();
-        var physicalTopics = layer == null || PHYSICAL.equals(layer)
-                ? listing.physical().stream()
-                        .filter(topic -> matches(pattern, topic.name()))
-                        .map(topic -> new PhysicalTopicView(
-                                topic.name(),
-                                topicService.partitionCount(topic.name()),
-                                topicService.replicationFactor(topic.name())))
-                        .toList()
-                : List.<PhysicalTopicView>of();
-        return new ListTopicsView(virtualTopics, physicalTopics);
     }
 }

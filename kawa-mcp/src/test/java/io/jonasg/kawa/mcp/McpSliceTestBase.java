@@ -131,6 +131,11 @@ public abstract class McpSliceTestBase {
         return rpc("tools/call", "{\"name\":\"" + name + "\",\"arguments\":{}}");
     }
 
+    /// Reads the resource at `uri` with `resources/read`.
+    protected HttpResponse<String> readResource(String uri) throws Exception {
+        return rpc("resources/read", "{\"uri\":\"" + uri + "\"}");
+    }
+
     /// Calls the tool `name` with arguments.
     protected HttpResponse<String> callToolWithArgs(String name, String args) throws Exception {
         return rpc("tools/call", "{\"name\":\"" + name + "\",\"arguments\":%s}".formatted(args));
