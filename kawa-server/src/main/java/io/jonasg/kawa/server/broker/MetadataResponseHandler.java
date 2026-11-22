@@ -6,14 +6,19 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
+import java.util.function.Consumer;
+
 final class MetadataResponseHandler extends ChannelInboundHandlerAdapter {
 
     private static final Logger log = LoggerFactory.getLogger(MetadataResponseHandler.class);
 
     private final MetadataClient client;
+    private final Map<Integer, Consumer<ByteBuf>> pending;
 
-    MetadataResponseHandler(MetadataClient client) {
+    MetadataResponseHandler(MetadataClient client, Map<Integer, Consumer<ByteBuf>> pending) {
         this.client = client;
+        this.pending = pending;
     }
 
     @Override
@@ -23,7 +28,7 @@ final class MetadataResponseHandler extends ChannelInboundHandlerAdapter {
     ) {
         ByteBuf buf = (ByteBuf) msg;
         log.debug("Metadata channel read {} bytes", buf.readableBytes());
-        client.handleFrame(buf);
+        client.handleFrame(pending, buf);
     }
 
     @Override

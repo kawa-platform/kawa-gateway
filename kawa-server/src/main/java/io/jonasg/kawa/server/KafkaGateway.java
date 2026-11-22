@@ -40,6 +40,7 @@ import org.slf4j.LoggerFactory;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.List;
 
 /// Netty-based Kafka gateway: accepts client connections, rewrites virtual topics and
 /// forwards traffic to the physical cluster.
@@ -112,7 +113,7 @@ public final class KafkaGateway implements Gateway {
             throw new IllegalStateException("No cluster configured");
         }
         String bootstrapServers = clusterCfg.bootstrapServers().getFirst();
-        InetSocketAddress bootstrap = parseBootstrap(bootstrapServers);
+        List<InetSocketAddress> bootstrap = clusterCfg.bootstrapServers().stream().map(KafkaGateway::parseBootstrap).toList();
 
         // How to reach the brokers (TLS and SASL), for the gateway's Netty connections and for its
         // own Kafka clients. Loads the TLS stores now, so a bad one fails before anything connects.
@@ -163,7 +164,7 @@ public final class KafkaGateway implements Gateway {
         //    config topic. The dynamic snapshot's `clusters` map is carried in the message but
         //    not used for routing in this milestone.
         connections = new ClusterConnections(codec, requestPipeline.pipeline(), metrics, cache,
-                bootstrap.getHostString(), bootstrap.getPort(), brokerConnections);
+                bootstrap, brokerConnections);
         connections.start();
 
         // Dispatcher - installed only after the initial metadata fetch, so the listener

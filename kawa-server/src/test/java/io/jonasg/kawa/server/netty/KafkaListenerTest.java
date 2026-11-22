@@ -17,6 +17,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.netty.channel.nio.NioEventLoopGroup;
 import org.junit.jupiter.api.Test;
 
+import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.util.List;
@@ -76,7 +77,7 @@ class KafkaListenerTest {
         var cache = new MetadataCache();
         var pipeline = new InterceptorPipeline(List.of());
         var brokerPool = new BrokerClientPool(group, codec, pipeline, metrics, cache, "localhost", 9092);
-        var metadataClient = new MetadataClient("localhost", 9092, group, codec, cache, brokerPool, metrics);
+        var metadataClient = new MetadataClient(List.of(InetSocketAddress.createUnresolved("localhost", 9092)), group, codec, cache, brokerPool, metrics);
         return new KafkaClientRequestHandler(
                 codec, new ApiVersionsResponseBuilder(SupportedVersions.from(registry)), pipeline,
                 new LeaderRouter(cache), brokerPool, metadataClient, metrics, new FetchSessionRegistry(),
