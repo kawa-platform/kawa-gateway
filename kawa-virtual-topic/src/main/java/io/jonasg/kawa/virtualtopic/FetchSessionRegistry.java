@@ -1,12 +1,17 @@
 package io.jonasg.kawa.virtualtopic;
 
+import org.apache.kafka.common.TopicPartition;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
-/// Tracks the virtual/physical topic mapping of active fetch sessions (KIP-227, Fetch v7+).
+/// Tracks the virtual/physical topic mapping of active fetch sessions (KIP-227, Fetch v7+), and the
+/// offset the client last fetched each partition at, which an incremental fetch leaves out while it
+/// does not change.
 ///
 /// Incremental session fetches omit the topics list once a partition is caught up, so the
 /// per-request [VirtualTopicState] is empty and the response transform has nothing to rename
@@ -24,6 +29,7 @@ public final class FetchSessionRegistry {
     private static final class Entry {
 
         private final Map<String, String> physicalToVirtual = new HashMap<>();
+        private final Map<TopicPartition, Long> fetchOffsets = new ConcurrentHashMap<>();
         private volatile long lastSeenNanos;
 
         private Entry(long nowNanos) {
@@ -41,6 +47,15 @@ public final class FetchSessionRegistry {
     /// created) or unknown sessions.
     public void onFetchRequest(Object client, int sessionId, Map<String, String> physicalToVirtual,
                                List<String> forgottenPhysical) {
+        onFetchRequest(client, sessionId, physicalToVirtual, forgottenPhysical, Map.of(), List.of());
+    }
+
+    /// As [#onFetchRequest(Object, int, Map, List)], also remembering the fetch offset of every
+    /// partition the request names and forgetting the offsets of the partitions it forgets. A
+    /// partition an incremental fetch leaves out keeps its offset: the client only names a partition
+    /// when its fetch offset changed.
+    public void onFetchRequest(Object client, int sessionId, Map<String, String> physicalToVirtual, List<String> forgottenPhysical,
+                               Map<TopicPartition, Long> fetchOffsets, List<TopicPartition> forgottenPartitions) {
         if (sessionId == 0) {
             return;
         }
@@ -54,6 +69,8 @@ public final class FetchSessionRegistry {
         entry.lastSeenNanos = now;
         entry.physicalToVirtual.putAll(physicalToVirtual);
         forgottenPhysical.forEach(entry.physicalToVirtual::remove);
+        entry.fetchOffsets.putAll(fetchOffsets);
+        forgottenPartitions.forEach(entry.fetchOffsets::remove);
     }
 
     /// Binds a freshly created session (full-fetch response) to the request's topic mapping.
@@ -62,6 +79,17 @@ public final class FetchSessionRegistry {
             int sessionId,
             Map<String, String> physicalToVirtual
     ) {
+        bindSession(client, sessionId, physicalToVirtual, Map.of());
+    }
+
+    /// Binds a freshly created session to the request's topic mapping and the fetch offset of each
+    /// partition it named.
+    public void bindSession(
+            Object client,
+            int sessionId,
+            Map<String, String> physicalToVirtual,
+            Map<TopicPartition, Long> fetchOffsets
+    ) {
         long now = System.nanoTime();
         maybePrune(now);
         if (sessionId == 0 || physicalToVirtual.isEmpty()) {
@@ -69,6 +97,18 @@ public final class FetchSessionRegistry {
         }
         Entry entry = sessions.computeIfAbsent(new Key(client, sessionId), k -> new Entry(now));
         entry.physicalToVirtual.putAll(physicalToVirtual);
+        entry.fetchOffsets.putAll(fetchOffsets);
+    }
+
+    /// The offset the client last fetched `partition` (physical topic) at on this session, if known.
+    public OptionalLong fetchOffset(
+            Object client,
+            int sessionId,
+            TopicPartition partition
+    ) {
+        Entry entry = sessions.get(new Key(client, sessionId));
+        Long offset = entry == null ? null : entry.fetchOffsets.get(partition);
+        return offset == null ? OptionalLong.empty() : OptionalLong.of(offset);
     }
 
     public boolean hasSession(
