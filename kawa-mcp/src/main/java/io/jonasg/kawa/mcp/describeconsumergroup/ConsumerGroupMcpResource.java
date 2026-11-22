@@ -4,11 +4,11 @@ import io.jonasg.kawa.http.consumergroups.ConsumerGroupService;
 import io.jonasg.kawa.mcp.McpResource;
 import io.modelcontextprotocol.json.McpJsonMapper;
 
-/// The `kawa://consumer-groups/{groupId}` resource template: one group, as the [ConsumerGroupDescriptionView] the
+/// The `kafka://consumer-groups/{groupId}` resource template: one group, as the [ConsumerGroupDescriptionView] the
 /// `describe_consumer_group` tool answers with. An unknown group is a resource-not-found error.
 public final class ConsumerGroupMcpResource extends McpResource {
 
-    public static final String URI_TEMPLATE = "kawa://consumer-groups/{groupId}";
+    public static final String URI_TEMPLATE = "kafka://consumer-groups/{groupId}";
 
     private final ConsumerGroupService consumerGroupService;
 

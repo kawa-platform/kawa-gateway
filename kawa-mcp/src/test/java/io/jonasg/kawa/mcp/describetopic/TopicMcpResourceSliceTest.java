@@ -23,7 +23,7 @@ class TopicMcpResourceSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var readResp = readResource("kawa://topics/orders-v2");
+        var readResp = readResource("kafka://topics/orders-v2");
 
         // then
         assertThat(readResp).withFailMessage(() -> "resources/read of orders-v2 was not answered with 200").hasStatusCode(200);
@@ -50,7 +50,7 @@ class TopicMcpResourceSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var readResp = readResource("kawa://topics/orders%2Dv2");
+        var readResp = readResource("kafka://topics/orders%2Dv2");
 
         // then
         assertThatJson(readResp.body()).inPath("result.contents[0].text").isString()
@@ -69,7 +69,7 @@ class TopicMcpResourceSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var readResp = readResource("kawa://topics/orders");
+        var readResp = readResource("kafka://topics/orders");
 
         // then
         assertThatJson(readResp.body()).inPath("error.code")
@@ -83,7 +83,7 @@ class TopicMcpResourceSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var readResp = readResource("kawa://topics/missing");
+        var readResp = readResource("kafka://topics/missing");
 
         // then
         assertThatJson(readResp.body()).inPath("error.code")

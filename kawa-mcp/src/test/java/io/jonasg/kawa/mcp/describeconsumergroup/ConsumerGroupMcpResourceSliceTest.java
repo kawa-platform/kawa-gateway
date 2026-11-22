@@ -21,7 +21,7 @@ class ConsumerGroupMcpResourceSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var readResp = readResource("kawa://consumer-groups/orders-consumers");
+        var readResp = readResource("kafka://consumer-groups/orders-consumers");
 
         // then
         assertThat(readResp).withFailMessage(() -> "resources/read of orders-consumers was not answered with 200")
@@ -38,7 +38,7 @@ class ConsumerGroupMcpResourceSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var readResp = readResource("kawa://consumer-groups/missing");
+        var readResp = readResource("kafka://consumer-groups/missing");
 
         // then
         assertThatJson(readResp.body()).inPath("error.code")
