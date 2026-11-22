@@ -23,10 +23,10 @@ class JsonRecordPredicateTest {
         var filter = jsonFilter("value.status == \"PAID\"");
 
         // when / then
-        assertThat(filter.matches(record("{\"status\":\"PAID\"}")))
+        assertThat(matches(filter, record("{\"status\":\"PAID\"}")))
                 .withFailMessage(() -> "Record with status PAID was not matched")
                 .isTrue();
-        assertThat(filter.matches(record("{\"status\":\"OPEN\"}")))
+        assertThat(matches(filter, record("{\"status\":\"OPEN\"}")))
                 .withFailMessage(() -> "Record with status OPEN was not rejected")
                 .isFalse();
     }
@@ -37,7 +37,7 @@ class JsonRecordPredicateTest {
         var filter = jsonFilter("value.customer.country == \"BE\"");
 
         // when
-        var matches = filter.matches(record("{\"customer\":{\"id\":7,\"country\":\"BE\"}}"));
+        var matches = matches(filter, record("{\"customer\":{\"id\":7,\"country\":\"BE\"}}"));
 
         // then
         assertThat(matches)
@@ -51,13 +51,13 @@ class JsonRecordPredicateTest {
         var filter = jsonFilter("value.amount > 100");
 
         // when / then
-        assertThat(filter.matches(record("{\"amount\":150}")))
+        assertThat(matches(filter, record("{\"amount\":150}")))
                 .withFailMessage(() -> "Integer amount 150 was not matched by > 100")
                 .isTrue();
-        assertThat(filter.matches(record("{\"amount\":100.5}")))
+        assertThat(matches(filter, record("{\"amount\":100.5}")))
                 .withFailMessage(() -> "Decimal amount 100.5 was not matched by > 100")
                 .isTrue();
-        assertThat(filter.matches(record("{\"amount\":99}")))
+        assertThat(matches(filter, record("{\"amount\":99}")))
                 .withFailMessage(() -> "Amount 99 was not rejected by > 100")
                 .isFalse();
     }
@@ -68,10 +68,10 @@ class JsonRecordPredicateTest {
         var filter = jsonFilter("\"urgent\" in value.tags");
 
         // when / then
-        assertThat(filter.matches(record("{\"tags\":[\"urgent\",\"eu\"]}")))
+        assertThat(matches(filter, record("{\"tags\":[\"urgent\",\"eu\"]}")))
                 .withFailMessage(() -> "Record tagged urgent was not matched")
                 .isTrue();
-        assertThat(filter.matches(record("{\"tags\":[\"eu\"]}")))
+        assertThat(matches(filter, record("{\"tags\":[\"eu\"]}")))
                 .withFailMessage(() -> "Record without urgent tag was not rejected")
                 .isFalse();
     }
@@ -82,7 +82,7 @@ class JsonRecordPredicateTest {
         var filter = jsonFilter("value.status == \"PAID\"");
 
         // when
-        var matches = filter.matches(record("{\"amount\":10}"));
+        var matches = matches(filter, record("{\"amount\":10}"));
 
         // then
         assertThat(matches)
@@ -96,10 +96,10 @@ class JsonRecordPredicateTest {
         var filter = jsonFilter("has(value.refundId)");
 
         // when / then
-        assertThat(filter.matches(record("{\"refundId\":\"r-1\"}")))
+        assertThat(matches(filter, record("{\"refundId\":\"r-1\"}")))
                 .withFailMessage(() -> "Record with refundId was not matched by has()")
                 .isTrue();
-        assertThat(filter.matches(record("{\"orderId\":\"o-1\"}")))
+        assertThat(matches(filter, record("{\"orderId\":\"o-1\"}")))
                 .withFailMessage(() -> "Record without refundId was not rejected by has()")
                 .isFalse();
     }
@@ -110,7 +110,7 @@ class JsonRecordPredicateTest {
         var filter = jsonFilter("value.cancelledAt == null");
 
         // when
-        var matches = filter.matches(record("{\"cancelledAt\":null}"));
+        var matches = matches(filter, record("{\"cancelledAt\":null}"));
 
         // then
         assertThat(matches)
@@ -124,7 +124,7 @@ class JsonRecordPredicateTest {
         var filter = jsonFilter("value.status == \"PAID\"");
 
         // when
-        var matches = filter.matches(record("not json"));
+        var matches = matches(filter, record("not json"));
 
         // then
         assertThat(matches)
@@ -138,7 +138,7 @@ class JsonRecordPredicateTest {
         var filter = jsonFilter("value.status == \"PAID\"", DecodeErrorPolicy.INCLUDE);
 
         // when
-        var matches = filter.matches(record("not json"));
+        var matches = matches(filter, record("not json"));
 
         // then
         assertThat(matches)
@@ -152,7 +152,7 @@ class JsonRecordPredicateTest {
         var filter = jsonFilter("value.status == \"PAID\"", DecodeErrorPolicy.FAIL);
 
         // when / then
-        assertThatThrownBy(() -> filter.matches(record("not json")))
+        assertThatThrownBy(() -> matches(filter, record("not json")))
                 .withFailMessage(() -> "Invalid JSON record did not fail the filter with the fail policy")
                 .isInstanceOf(PayloadDecodeException.class);
     }
@@ -164,7 +164,7 @@ class JsonRecordPredicateTest {
         var tombstone = record(new SimpleRecord(1000L, "k".getBytes(StandardCharsets.UTF_8), null));
 
         // when
-        var matches = filter.matches(tombstone);
+        var matches = matches(filter, tombstone);
 
         // then
         assertThat(matches)
@@ -179,7 +179,8 @@ class JsonRecordPredicateTest {
                 new CelFilterConfig("value.contains(\"PAID\")"));
 
         // when
-        var matches = filter.matches(record("{\"status\":\"PAID\"}"));
+        var record = record("{\"status\":\"PAID\"}");
+        var matches = filter.matches(record, new DecodedValue(record, null));
 
         // then
         assertThat(matches)
@@ -217,5 +218,10 @@ class JsonRecordPredicateTest {
     /// matching how records reach the evaluator in the real fetch pipeline.
     private static Record record(SimpleRecord simple) {
         return MemoryRecords.withRecords(Compression.NONE, simple).records().iterator().next();
+    }
+
+    /// Evaluates `filter` on `record`, whose value is decoded as JSON.
+    private static boolean matches(VirtualTopicRecordFilter.EvaluatingRecordFilter filter, Record record) {
+        return filter.matches(record, new DecodedValue(record, new JsonPayloadDecoder()));
     }
 }

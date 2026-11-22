@@ -25,7 +25,7 @@ class HeaderMatchesRecordPredicateTest {
                 new Header[]{new RecordHeader("tenant", "eu-west-1".getBytes(StandardCharsets.UTF_8))}));
 
         // when
-        var matches = filter.matches(record);
+        var matches = matches(filter, record);
 
         // then
         assertThat(matches).isTrue();
@@ -41,7 +41,7 @@ class HeaderMatchesRecordPredicateTest {
                 new Header[]{new RecordHeader("tenant", "eu-west-1".getBytes(StandardCharsets.UTF_8))}));
 
         // when
-        var matches = filter.matches(record);
+        var matches = matches(filter, record);
 
         // then
         assertThat(matches).isFalse();
@@ -57,7 +57,7 @@ class HeaderMatchesRecordPredicateTest {
                 new Header[]{new RecordHeader("region", "eu".getBytes(StandardCharsets.UTF_8))}));
 
         // when
-        var matches = filter.matches(record);
+        var matches = matches(filter, record);
 
         // then
         assertThat(matches).isFalse();
@@ -67,5 +67,10 @@ class HeaderMatchesRecordPredicateTest {
     /// matching how records reach the evaluator in the real fetch pipeline.
     private static Record record(SimpleRecord simple) {
         return MemoryRecords.withRecords(Compression.NONE, simple).records().iterator().next();
+    }
+
+    /// Evaluates `filter` on `record`, whose value the filter reads as stored.
+    private static boolean matches(VirtualTopicRecordFilter.EvaluatingRecordFilter filter, Record record) {
+        return filter.matches(record, new DecodedValue(record, null));
     }
 }

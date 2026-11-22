@@ -3,8 +3,12 @@ package io.jonasg.kawa.virtualtopic;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
+import io.jonasg.kawa.virtualtopic.filter.AvroSchemaResolver;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
+import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
 import io.jonasg.kawa.virtualtopic.mapping.ValueMapping;
 import io.jonasg.kawa.virtualtopic.mapping.ValueMappings;
+import io.jonasg.kawa.virtualtopic.mapping.VirtualTopicRecordTransformer;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -25,12 +29,27 @@ import java.util.Set;
 /// reference: [reload] publishes a new snapshot in one write, so a reader on the hot path
 /// observes either the previous or the new mapping in its entirety - never a mix of the two.
 ///
+/// Each snapshot entry also carries what fetches need prepared - the topic's compiled consume
+/// filter and its value transformer with their codecs - built by [reload] from the configuration
+/// alone. So they exist only for the virtual topics of the current snapshot: a reload that changes
+/// or removes a topic leaves nothing of its previous configuration behind.
+///
 /// Topic names that are not virtualized map to themselves (identity) and carry no filter.
 public final class VirtualTopicManager {
 
+    private final SchemaRegistries schemaRegistries;
     private volatile Snapshot snapshot;
 
+    /// A manager whose topics' clusters have no schema registry.
     public VirtualTopicManager(Map<String, VirtualTopicConfig> virtualTopics) {
+        this(virtualTopics, SchemaRegistries.NONE);
+    }
+
+    /// @param schemaRegistries finds the schema registry of a physical topic's cluster, to decode
+    ///                         Avro record values for consume filters and transformations, and to
+    ///                         encode transformed values as Avro
+    public VirtualTopicManager(Map<String, VirtualTopicConfig> virtualTopics, SchemaRegistries schemaRegistries) {
+        this.schemaRegistries = schemaRegistries;
         reload(virtualTopics);
     }
 
@@ -41,14 +60,14 @@ public final class VirtualTopicManager {
     /// partially-applied one.
     ///
     /// Each virtual topic's transformations are compiled first; an invalid one throws (see
-    /// [#validate]) and leaves the previous snapshot in place.
+    /// [#validate]) and leaves the previous snapshot in place. Its consume filter and value
+    /// transformer are prepared too, so no fetch prepares them.
     public void reload(Map<String, VirtualTopicConfig> virtualTopics) {
         Map<String, VirtualTopic> virtual = new LinkedHashMap<>();
         Map<String, List<VirtualTopic>> physical = new LinkedHashMap<>();
         Map<String, String> names = new LinkedHashMap<>();
         virtualTopics.forEach((v, config) -> {
-            VirtualTopic virtualTopic = new VirtualTopic(v, config.topic(), config.filter(), config.exposePhysicalTopic(),
-                    config.valueFormat(), mapping(v, config), config.outputFormat());
+            VirtualTopic virtualTopic = virtualTopic(v, config);
             virtual.put(v, virtualTopic);
             physical.computeIfAbsent(config.topic(), _ -> new ArrayList<>()).add(virtualTopic);
             names.put(v, config.topic());
@@ -66,6 +85,21 @@ public final class VirtualTopicManager {
     /// @throws IllegalArgumentException naming the virtual topic and step that is invalid
     public static void validate(Map<String, VirtualTopicConfig> virtualTopics) {
         virtualTopics.forEach(VirtualTopicManager::mapping);
+    }
+
+    private VirtualTopic virtualTopic(String name, VirtualTopicConfig config) {
+        ValueMapping mapping = mapping(name, config);
+        PayloadFormatConfig outputFormat = config.outputFormat();
+        AvroSchemaResolver avroSchemas = schemaRegistries.avroSchemasFor(config.topic());
+        VirtualTopicRecordFilter recordFilter = config.filter() == null
+                ? null
+                : VirtualTopicRecordFilter.of(name, config.filter(), config.valueFormat(), avroSchemas);
+        VirtualTopicRecordTransformer transformer = outputFormat == null
+                ? null
+                : VirtualTopicRecordTransformer.of(config.valueFormat(), mapping, outputFormat, avroSchemas,
+                        schemaRegistries.avroSubjectsFor(config.topic()));
+        return new VirtualTopic(name, config.topic(), config.filter(), config.exposePhysicalTopic(),
+                config.valueFormat(), mapping, outputFormat, recordFilter, transformer);
     }
 
     private static ValueMapping mapping(String virtualTopic, VirtualTopicConfig config) {
@@ -155,6 +189,8 @@ public final class VirtualTopicManager {
     /// @param mapping      the compiled transformations, [ValueMapping#IDENTITY] when there are none
     /// @param outputFormat the format transformed values are encoded in, `null` when there are no
     ///                     transformations (values are then passed through unchanged)
+    /// @param recordFilter `filter` prepared for fetched records, `null` when there is no filter
+    /// @param transformer  the transformations prepared for fetched records, `null` when there are none
     public record VirtualTopic(
             String name,
             String physical,
@@ -162,12 +198,14 @@ public final class VirtualTopicManager {
             boolean exposePhysicalTopic,
             PayloadFormatConfig valueFormat,
             ValueMapping mapping,
-            @Nullable PayloadFormatConfig outputFormat
+            @Nullable PayloadFormatConfig outputFormat,
+            @Nullable VirtualTopicRecordFilter recordFilter,
+            @Nullable VirtualTopicRecordTransformer transformer
     ) {
 
         /// Whether fetched record values are transformed before they reach the client.
         public boolean transformsValues() {
-            return outputFormat != null;
+            return transformer != null;
         }
     }
 

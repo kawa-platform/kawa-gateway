@@ -1,6 +1,5 @@
 package io.jonasg.kawa.virtualtopic.transform;
 
-import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.ShortCircuitResult;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
@@ -24,12 +23,14 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.OptionalLong;
 
 /// Renames fetched topics between their virtual and physical names, and rewrites the records a
 /// virtual topic delivers: its consume filter first, on the stored values, then its
-/// transformations on the records that remain.
+/// transformations on the records that remain. A topic with transformations is filtered and
+/// transformed in one pass by its [VirtualTopicRecordTransformer], which decodes each value once
+/// for both; a topic with only a filter is filtered by its [VirtualTopicRecordFilter]. Transaction
+/// markers are delivered unchanged either way.
 ///
 /// Only the records from the offset the client fetched a partition at are rewritten and delivered:
 /// the broker answers with whole batches, from the one holding that offset, and the client discards
@@ -63,19 +64,10 @@ public final class FetchVirtualTopicTransform
 
     private final VirtualTopicManager virtualTopics;
     private final FetchSessionRegistry fetchSessions;
-    private final VirtualTopicRecordFilter recordFilter;
-    private final VirtualTopicRecordTransformer recordTransformer;
 
-    public FetchVirtualTopicTransform(
-            VirtualTopicManager virtualTopics,
-            FetchSessionRegistry fetchSessions,
-            VirtualTopicRecordFilter recordFilter,
-            VirtualTopicRecordTransformer recordTransformer
-    ) {
+    public FetchVirtualTopicTransform(VirtualTopicManager virtualTopics, FetchSessionRegistry fetchSessions) {
         this.virtualTopics = virtualTopics;
         this.fetchSessions = fetchSessions;
-        this.recordFilter = recordFilter;
-        this.recordTransformer = recordTransformer;
     }
 
     @Override
@@ -166,43 +158,33 @@ public final class FetchVirtualTopicTransform
     private void rewriteRecords(FetchResponseData data, GatewayContext context, int sessionId) {
         VirtualTopicState state = VirtualTopicState.from(context);
         for (FetchResponseData.FetchableTopicResponse topic : data.responses()) {
-            Optional<VirtualTopicFilterConfig> filter = virtualTopics.filterFor(topic.topic());
-            // Only a topic fetched by its virtual name is transformed: an exposed physical topic
-            // delivers its records as they are stored.
-            Optional<VirtualTopic> transformed = virtualTopics.virtualTopic(topic.topic()).filter(VirtualTopic::transformsValues);
-            if (filter.isEmpty() && transformed.isEmpty()) {
+            // Only a topic fetched by its virtual name is filtered and transformed: an exposed
+            // physical topic delivers its records as they are stored.
+            VirtualTopic virtualTopic = virtualTopics.virtualTopic(topic.topic()).orElse(null);
+            if (virtualTopic == null) {
                 continue;
             }
-            var valueFormat = virtualTopics.valueFormatFor(topic.topic()).orElse(null);
-            String physical = virtualTopics.toPhysical(topic.topic());
+            VirtualTopicRecordFilter filter = virtualTopic.recordFilter();
+            VirtualTopicRecordTransformer transformer = virtualTopic.transformer();
+            if (filter == null && transformer == null) {
+                continue;
+            }
+            String physical = virtualTopic.physical();
             for (FetchResponseData.PartitionData partition : topic.partitions()) {
                 BaseRecords records = partition.records();
-                FailedRecordException stop = null;
                 try {
                     if (records instanceof MemoryRecords memoryRecords && memoryRecords.sizeInBytes() > 0) {
                         records = fromFetchOffset(memoryRecords, state, context.source(), sessionId, new TopicPartition(physical, partition.partitionIndex()));
                     }
-                    if (filter.isPresent()) {
-                        try {
-                            records = recordFilter.apply(physical, filter.get(), valueFormat, records);
-                        } catch (FailedRecordException e) {
-                            stop = e;
-                            records = e.recordsBefore();
+                    try {
+                        records = transformer != null ? transformer.apply(filter, records) : filter.apply(records);
+                    } catch (FailedRecordException stop) {
+                        records = stop.recordsBefore();
+                        if (records.sizeInBytes() == 0) {
+                            log.warn("Failing fetch of {}-{} at offset {}: {}",
+                                    topic.topic(), partition.partitionIndex(), stop.offset(), stop.getMessage());
+                            partition.setErrorCode(Errors.CORRUPT_MESSAGE.code());
                         }
-                    }
-                    if (transformed.isPresent()) {
-                        try {
-                            records = recordTransformer.apply(transformed.get(), records);
-                        } catch (FailedRecordException e) {
-                            // the transformer only saw the records before the filter's stop, so it stops earlier
-                            stop = e;
-                            records = e.recordsBefore();
-                        }
-                    }
-                    if (stop != null && records.sizeInBytes() == 0) {
-                        log.warn("Failing fetch of {}-{} at offset {}: {}",
-                                topic.topic(), partition.partitionIndex(), stop.offset(), stop.getMessage());
-                        partition.setErrorCode(Errors.CORRUPT_MESSAGE.code());
                     }
                 } catch (SchemaRegistryUnavailableException e) {
                     log.warn("Failing fetch of {}-{}, the schema registry is unavailable: {}",

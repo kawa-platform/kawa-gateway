@@ -21,10 +21,10 @@ class XmlRecordPredicateTest {
         var filter = xmlFilter("value.status == \"PAID\" && value[\"@region\"] == \"eu\" && int(value.qty) > 2");
 
         // when / then
-        assertThat(filter.matches(record("<order region=\"eu\"><status>PAID</status><qty>3</qty></order>")))
+        assertThat(matches(filter, record("<order region=\"eu\"><status>PAID</status><qty>3</qty></order>")))
                 .withFailMessage(() -> "A paid EU order of 3 was not matched")
                 .isTrue();
-        assertThat(filter.matches(record("<order region=\"us\"><status>PAID</status><qty>3</qty></order>")))
+        assertThat(matches(filter, record("<order region=\"us\"><status>PAID</status><qty>3</qty></order>")))
                 .withFailMessage(() -> "A US order was not rejected")
                 .isFalse();
     }
@@ -35,7 +35,7 @@ class XmlRecordPredicateTest {
         var filter = xmlFilter("value.status == \"PAID\"");
 
         // then
-        assertThat(filter.matches(record("<order>mixed<status>PAID</status></order>")))
+        assertThat(matches(filter, record("<order>mixed<status>PAID</status></order>")))
                 .withFailMessage(() -> "A record with mixed content was not dropped")
                 .isFalse();
     }
@@ -47,5 +47,10 @@ class XmlRecordPredicateTest {
     private static Record record(String value) {
         var simple = new SimpleRecord(1000L, "k".getBytes(StandardCharsets.UTF_8), value.getBytes(StandardCharsets.UTF_8));
         return MemoryRecords.withRecords(Compression.NONE, simple).records().iterator().next();
+    }
+
+    /// Evaluates `filter` on `record`, whose value is decoded as XML.
+    private static boolean matches(VirtualTopicRecordFilter.EvaluatingRecordFilter filter, Record record) {
+        return filter.matches(record, new DecodedValue(record, new XmlPayloadDecoder(null)));
     }
 }

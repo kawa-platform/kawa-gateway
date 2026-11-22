@@ -12,7 +12,7 @@ public class HeaderContainsRecordPredicate implements RecordPredicate {
     }
 
     @Override
-    public boolean test(Record record) {
+    public boolean test(Record record, DecodedValue decodedValue) {
         return HeaderValues.of(record, config.header()).stream()
                 .anyMatch(value -> value.contains(config.value()));
     }

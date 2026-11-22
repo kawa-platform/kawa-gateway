@@ -45,6 +45,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -52,8 +53,6 @@ import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
 /// Batch-level tests for [VirtualTopicRecordTransformer#apply], the transform pass of the fetch path.
 class VirtualTopicRecordTransformerTest {
-
-    private final VirtualTopicRecordTransformer transformer = new VirtualTopicRecordTransformer(SchemaRegistries.NONE);
 
     @Test
     void transformsJsonValuesIntoXmlWithTheMappingApplied() {
@@ -67,7 +66,7 @@ class VirtualTopicRecordTransformerTest {
                 json("{\"order_id\":\"o-2\",\"status\":\"OPEN\",\"internal_risk_score\":1}"));
 
         // when
-        List<Record> transformed = records(transformer.apply(topic, records));
+        List<Record> transformed = records(transform(topic, records));
 
         // then
         assertThat(transformed).extracting(VirtualTopicRecordTransformerTest::value)
@@ -85,7 +84,7 @@ class VirtualTopicRecordTransformerTest {
                 new SimpleRecord(2_000L, bytes("k2"), bytes("{\"a\":2}"), headers));
 
         // when
-        List<Record> transformed = records(transformer.apply(topic, records));
+        List<Record> transformed = records(transform(topic, records));
 
         // then
         assertThat(transformed).extracting(Record::offset)
@@ -113,7 +112,7 @@ class VirtualTopicRecordTransformerTest {
         RecordBatch original = records.batches().iterator().next();
 
         // when
-        MutableRecordBatch batch = batches(transformer.apply(topic, records)).getFirst();
+        MutableRecordBatch batch = batches(transform(topic, records)).getFirst();
 
         // then
         assertThat(batch.isTransactional()).withFailMessage(() -> "Batch is no longer transactional").isTrue();
@@ -136,7 +135,7 @@ class VirtualTopicRecordTransformerTest {
                 new EndTransactionMarker(ControlRecordType.COMMIT, 0));
 
         // when
-        List<MutableRecordBatch> batches = batches(transformer.apply(topic, concat(data, marker)));
+        List<MutableRecordBatch> batches = batches(transform(topic, concat(data, marker)));
 
         // then
         assertThat(batches).hasSize(2);
@@ -156,7 +155,7 @@ class VirtualTopicRecordTransformerTest {
                 json("{\"a\":1}"), new SimpleRecord(bytes("k"), null), json("{\"a\":2}"));
 
         // when
-        List<Record> transformed = records(transformer.apply(topic, records));
+        List<Record> transformed = records(transform(topic, records));
 
         // then
         assertThat(transformed).hasSize(3);
@@ -170,7 +169,7 @@ class VirtualTopicRecordTransformerTest {
         var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("not json"), json("{\"a\":3}"));
 
         // when
-        List<Record> transformed = records(transformer.apply(topic, records));
+        List<Record> transformed = records(transform(topic, records));
 
         // then
         assertThat(transformed).extracting(Record::offset)
@@ -185,7 +184,7 @@ class VirtualTopicRecordTransformerTest {
         var records = MemoryRecords.withRecords(10L, Compression.NONE, json("nope"), json("nope either"));
 
         // when
-        BaseRecords result = transformer.apply(topic, records);
+        BaseRecords result = transform(topic, records);
 
         // then an empty batch is left, so the consumer still moves past offsets 10 and 11
         assertThat(records(result)).withFailMessage(() -> "Records that cannot be transformed were delivered").isEmpty();
@@ -202,7 +201,7 @@ class VirtualTopicRecordTransformerTest {
         var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("not json"));
 
         // when
-        List<Record> transformed = records(transformer.apply(topic, records));
+        List<Record> transformed = records(transform(topic, records));
 
         // then
         assertThat(transformed).extracting(VirtualTopicRecordTransformerTest::value)
@@ -290,7 +289,7 @@ class VirtualTopicRecordTransformerTest {
 
     private FailedRecordException failOn(MemoryRecords records) {
         VirtualTopic topic = topic(new JsonFormatConfig(DecodeErrorPolicy.FAIL), new RenameFieldTransformationConfig("a", "b"));
-        FailedRecordException failure = catchThrowableOfType(FailedRecordException.class, () -> transformer.apply(topic, records));
+        FailedRecordException failure = catchThrowableOfType(FailedRecordException.class, () -> transform(topic, records));
         assertThat(failure)
                 .withFailMessage(() -> "A record that cannot be transformed did not stop the partition under the fail policy")
                 .isNotNull();
@@ -304,7 +303,7 @@ class VirtualTopicRecordTransformerTest {
         var records = MemoryRecords.withRecords(Compression.NONE, json("{\"order\":{\"id\":\"o-1\"}}"), json("{\"order\":5}"));
 
         // when
-        List<Record> transformed = records(transformer.apply(topic, records));
+        List<Record> transformed = records(transform(topic, records));
 
         // then
         assertThat(transformed).extracting(VirtualTopicRecordTransformerTest::value)
@@ -319,7 +318,7 @@ class VirtualTopicRecordTransformerTest {
         var records = MemoryRecords.withRecords(Compression.NONE, json("{\"id\":\"o-1\"}"));
 
         // when
-        List<Record> transformed = records(transformer.apply(topic, records));
+        List<Record> transformed = records(transform(topic, records));
 
         // then
         assertThat(transformed).withFailMessage(() -> "The record that cannot be encoded was not skipped").isEmpty();
@@ -333,15 +332,14 @@ class VirtualTopicRecordTransformerTest {
                   {"name": "id", "type": "string"},
                   {"name": "status", "type": "string"}
                 ]}""");
-        var registry = SchemaRegistries.of(null, (subject, version) -> new RegisteredAvroSchema(7, order));
-        var avroTransformer = new VirtualTopicRecordTransformer(registry);
-        VirtualTopic topic = topic(new JsonFormatConfig(),
+        SchemaRegistries registries = SchemaRegistries.of(null, (subject, version) -> new RegisteredAvroSchema(7, order));
+        VirtualTopic topic = topic(registries, new JsonFormatConfig(),
                 new RenameFieldTransformationConfig("order_id", "id"),
                 new ConvertTransformationConfig(new AvroFormatConfig(DecodeErrorPolicy.SKIP, "orders-value", null)));
         var records = MemoryRecords.withRecords(Compression.NONE, json("{\"order_id\":\"o-1\",\"status\":\"PAID\"}"));
 
         // when
-        Record transformed = records(avroTransformer.apply(topic, records)).getFirst();
+        Record transformed = records(transform(topic, records)).getFirst();
 
         // then
         Object decoded = new AvroPayloadDecoder(id -> order).decode(transformed.value());
@@ -356,14 +354,14 @@ class VirtualTopicRecordTransformerTest {
     void failsTheFetchWhenTheRegistryIsUnavailableToDecodeWhateverThePolicy(DecodeErrorPolicy policy) {
         // given a registry that is down while the writer schema is looked up
         var outage = new SchemaRegistryUnavailableException("schema registry is unreachable");
-        var avroTransformer = new VirtualTopicRecordTransformer(SchemaRegistries.of(id -> {
+        SchemaRegistries registries = SchemaRegistries.of(id -> {
             throw outage;
-        }, null));
-        VirtualTopic topic = topic(new AvroFormatConfig(policy), new ConvertTransformationConfig(new JsonFormatConfig()));
+        }, null);
+        VirtualTopic topic = topic(registries, new AvroFormatConfig(policy), new ConvertTransformationConfig(new JsonFormatConfig()));
         var records = MemoryRecords.withRecords(Compression.NONE, avro(9, "o-1"));
 
         // when / then the record is neither dropped nor delivered untransformed
-        assertThatThrownBy(() -> avroTransformer.apply(topic, records))
+        assertThatThrownBy(() -> transform(topic, records))
                 .withFailMessage(() -> "A registry outage while decoding was handled by the " + policy + " policy instead of failing the fetch")
                 .isSameAs(outage);
     }
@@ -373,15 +371,15 @@ class VirtualTopicRecordTransformerTest {
     void failsTheFetchWhenTheRegistryIsUnavailableToEncodeWhateverThePolicy(DecodeErrorPolicy policy) {
         // given a registry that is down while the target schema is looked up
         var outage = new SchemaRegistryUnavailableException("schema registry is unreachable");
-        var avroTransformer = new VirtualTopicRecordTransformer(SchemaRegistries.of(null, (subject, version) -> {
+        SchemaRegistries registries = SchemaRegistries.of(null, (subject, version) -> {
             throw outage;
-        }));
-        VirtualTopic topic = topic(new JsonFormatConfig(policy),
+        });
+        VirtualTopic topic = topic(registries, new JsonFormatConfig(policy),
                 new ConvertTransformationConfig(new AvroFormatConfig(policy, "orders-value", null)));
         var records = MemoryRecords.withRecords(Compression.NONE, json("{\"id\":\"o-1\"}"));
 
         // when / then the record is neither dropped nor delivered untransformed
-        assertThatThrownBy(() -> avroTransformer.apply(topic, records))
+        assertThatThrownBy(() -> transform(topic, records))
                 .withFailMessage(() -> "A registry outage while encoding was handled by the " + policy + " policy instead of failing the fetch")
                 .isSameAs(outage);
     }
@@ -389,17 +387,17 @@ class VirtualTopicRecordTransformerTest {
     @Test
     void skipsARecordWithAnUnknownSchemaId() {
         // given a registry that knows schema id 1 but not id 9
-        var avroTransformer = new VirtualTopicRecordTransformer(SchemaRegistries.of(id -> {
+        SchemaRegistries registries = SchemaRegistries.of(id -> {
             if (id == 1) {
                 return Schema.create(Schema.Type.STRING);
             }
             throw new IllegalStateException("schema registry returned HTTP 404 for schema id " + id);
-        }, null));
-        VirtualTopic topic = topic(new AvroFormatConfig(DecodeErrorPolicy.SKIP), new ConvertTransformationConfig(new JsonFormatConfig()));
+        }, null);
+        VirtualTopic topic = topic(registries, new AvroFormatConfig(DecodeErrorPolicy.SKIP), new ConvertTransformationConfig(new JsonFormatConfig()));
         var records = MemoryRecords.withRecords(Compression.NONE, avro(9, "o-1"), avro(1, "o-2"));
 
         // when
-        List<Record> transformed = records(avroTransformer.apply(topic, records));
+        List<Record> transformed = records(transform(topic, records));
 
         // then
         assertThat(transformed).extracting(Record::offset)
@@ -417,7 +415,7 @@ class VirtualTopicRecordTransformerTest {
         truncated.limit(truncated.limit() - 5);
 
         // when
-        List<Record> transformed = records(transformer.apply(topic, concat(complete, MemoryRecords.readableRecords(truncated.slice()))));
+        List<Record> transformed = records(transform(topic, concat(complete, MemoryRecords.readableRecords(truncated.slice()))));
 
         // then
         assertThat(transformed).extracting(Record::offset)
@@ -433,7 +431,7 @@ class VirtualTopicRecordTransformerTest {
                 json("{\"a\":1}"), json("{\"a\":2}"));
 
         // when
-        BaseRecords result = transformer.apply(topic, records);
+        BaseRecords result = transform(topic, records);
 
         // then
         assertThat(batches(result)).extracting(RecordBatch::magic).containsOnly(RecordBatch.CURRENT_MAGIC_VALUE);
@@ -443,20 +441,28 @@ class VirtualTopicRecordTransformerTest {
     }
 
     @Test
-    void returnsTheRecordsUnchangedForATopicWithoutTransformations() {
+    void leavesTheValuesOfATopicWithoutTransformationsAsStored() {
         // given
         VirtualTopic topic = topic(new JsonFormatConfig());
-        var records = MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"));
 
         // when / then
-        assertThat(transformer.apply(topic, records))
-                .withFailMessage(() -> "Records of a topic without transformations were rewritten")
-                .isSameAs(records);
+        assertThat(topic.transformsValues())
+                .withFailMessage(() -> "A topic without transformations has its values rewritten")
+                .isFalse();
     }
 
     private static VirtualTopic topic(PayloadFormatConfig valueFormat, TransformationConfig... steps) {
+        return topic(SchemaRegistries.NONE, valueFormat, steps);
+    }
+
+    private static VirtualTopic topic(SchemaRegistries registries, PayloadFormatConfig valueFormat, TransformationConfig... steps) {
         var config = new VirtualTopicConfig("orders.raw", null, false, valueFormat, List.of(steps), null);
-        return new VirtualTopicManager(Map.of("orders", config)).virtualTopic("orders").orElseThrow();
+        return new VirtualTopicManager(Map.of("orders", config), registries).virtualTopic("orders").orElseThrow();
+    }
+
+    /// The fetched `records` of `topic` as its prepared transformer hands them to the consumer.
+    private static BaseRecords transform(VirtualTopic topic, BaseRecords records) {
+        return Objects.requireNonNull(topic.transformer(), "the topic has no transformations").apply(null, records);
     }
 
     private static SimpleRecord json(String value) {

@@ -138,7 +138,7 @@ public final class KafkaGateway implements Gateway {
         apiVersionsBuilder = new ApiVersionsResponseBuilder(SupportedVersions.from(kawaApiRegistry));
 
         // Dynamic config holders, filled from the config topic below
-        dynamicState = new DynamicGatewayState(bootstrapServers, config.configTopic(), brokerSecurity);
+        dynamicState = new DynamicGatewayState(bootstrapServers, config.configTopic(), brokerSecurity, schemaRegistries);
 
         // Bind the client listener; resolve the advertised endpoint. The listener closes every
         // connection until the dispatcher is installed below.
@@ -155,7 +155,7 @@ public final class KafkaGateway implements Gateway {
 
         // Interceptor pipeline, built before the config load so every applied snapshot switches its modules
         topicDescriber = new KafkaBrokerAdmin(bootstrapServers, brokerSecurity);
-        RequestPipeline requestPipeline = buildPipeline(dynamicState, advertised, topicDescriber, schemaRegistries);
+        RequestPipeline requestPipeline = buildPipeline(dynamicState, advertised, topicDescriber);
 
         // Dynamic config from the config topic (blocks until caught up)
         dynamicState.start(requestPipeline.pipeline());
@@ -253,15 +253,14 @@ public final class KafkaGateway implements Gateway {
     private RequestPipeline buildPipeline(
             DynamicGatewayState state,
             AdvertisedListener advertised,
-            TopicDescriber topics,
-            SchemaRegistries schemaRegistries
+            TopicDescriber topics
     ) {
         var fetchSessions = new FetchSessionRegistry();
         var governance = state.governance();
         var pipeline = InterceptorPipeline.builder()
                 .module(ModuleId.RBAC, new AuthorizationInterceptor(state.authorizer(), state.virtualTopics()))
                 .module(ModuleId.GOVERNANCE, new GovernanceInterceptor(() -> governance, topics, state.virtualTopics()::toPhysical))
-                .module(ModuleId.VIRTUAL_TOPICS, new VirtualTopicInterceptor(state.virtualTopics(), fetchSessions, schemaRegistries))
+                .module(ModuleId.VIRTUAL_TOPICS, new VirtualTopicInterceptor(state.virtualTopics(), fetchSessions))
                 .always(new BrokerEndpointInterceptor(advertised))
                 .build();
         return new RequestPipeline(pipeline, fetchSessions);

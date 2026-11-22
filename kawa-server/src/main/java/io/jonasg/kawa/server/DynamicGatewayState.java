@@ -4,6 +4,7 @@ import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.RbacConfig;
 import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import io.jonasg.kawa.governance.GovernancePolicy;
 import io.jonasg.kawa.rbac.RbacAuthorizer;
 import io.jonasg.kawa.server.auth.SaslAuthenticator;
@@ -34,13 +35,20 @@ public final class DynamicGatewayState implements AutoCloseable {
     private final GovernancePolicy governance;
     private volatile @Nullable DynamicConfigManager configManager;
 
-    /// @param brokerSecurity the Kafka client settings for reaching the brokers (`security.protocol`,
-    ///                       `sasl.*`, `ssl.*`), see [io.jonasg.kawa.config.BrokerSecurity#clientProperties]
+    /// State for a cluster without a schema registry.
     public DynamicGatewayState(String bootstrapServers, String topic, Properties brokerSecurity) {
+        this(bootstrapServers, topic, brokerSecurity, SchemaRegistries.NONE);
+    }
+
+    /// @param brokerSecurity   the Kafka client settings for reaching the brokers (`security.protocol`,
+    ///                         `sasl.*`, `ssl.*`), see [io.jonasg.kawa.config.BrokerSecurity#clientProperties]
+    /// @param schemaRegistries the schema registry of each physical topic's cluster, which every applied
+    ///                         snapshot's virtual topics decode and encode Avro values with
+    public DynamicGatewayState(String bootstrapServers, String topic, Properties brokerSecurity, SchemaRegistries schemaRegistries) {
         this.bootstrapServers = bootstrapServers;
         this.topic = topic;
         this.brokerSecurity = brokerSecurity;
-        virtualTopics = new VirtualTopicManager(Map.of());
+        virtualTopics = new VirtualTopicManager(Map.of(), schemaRegistries);
         authorizer = new RbacAuthorizer(new RbacConfig(Map.of(), Map.of()));
         saslAuthenticator = new SaslAuthenticator();
         governance = new GovernancePolicy(new GovernanceConfig(null));

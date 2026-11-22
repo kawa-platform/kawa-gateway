@@ -5,28 +5,29 @@ import dev.cel.runtime.CelRuntime;
 import io.jonasg.kawa.config.CelFilterConfig;
 import org.apache.kafka.common.record.internal.Record;
 
-/// Filters records with a CEL expression over the [RecordCel] bindings.
+/// Filters records with a CEL expression over the [RecordCel] bindings: `value` is the decoded
+/// value on a topic with a `valueFormat`, else the raw value as a string.
 public class CelRecordPredicate implements RecordPredicate {
 
     /// The compiled expression. Compilation is expensive, so it happens once here - which also
     /// rejects an invalid expression when the filter is created rather than on the first record.
     private final CelRuntime.Program program;
     private final String expression;
-    private final PayloadDecoder valueDecoder;
+    private final boolean decoded;
 
-    /// @param valueDecoder decodes the record value before evaluation, or `null` to bind the
-    ///                     raw value as a string
-    public CelRecordPredicate(CelFilterConfig config, PayloadDecoder valueDecoder) {
+    /// @param decoded whether `value` is bound to the decoded value ([DecodedValue#get()]), else to
+    ///                the raw value as a string
+    public CelRecordPredicate(CelFilterConfig config, boolean decoded) {
         this.expression = config.expression();
-        this.valueDecoder = valueDecoder;
-        this.program = compile(config.expression(), valueDecoder == null
-                ? RecordCel.Environment.RAW_FILTER
-                : RecordCel.Environment.DECODED_FILTER);
+        this.decoded = decoded;
+        this.program = compile(config.expression(), decoded
+                ? RecordCel.Environment.DECODED_FILTER
+                : RecordCel.Environment.RAW_FILTER);
     }
 
     @Override
-    public boolean test(Record record) {
-        Object value = valueDecoder == null ? RecordCel.text(record.value()) : valueDecoder.decode(record.value());
+    public boolean test(Record record, DecodedValue decodedValue) {
+        Object value = decoded ? decodedValue.get() : RecordCel.text(record.value());
         try {
             return Boolean.TRUE.equals(program.eval(RecordCel.bindings(record, value)));
         } catch (CelEvaluationException e) {

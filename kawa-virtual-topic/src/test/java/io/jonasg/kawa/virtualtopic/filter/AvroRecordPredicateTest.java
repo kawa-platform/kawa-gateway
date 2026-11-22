@@ -66,10 +66,10 @@ class AvroRecordPredicateTest {
         var predicate = avroFilter("value.status == \"PAID\"");
 
         // when / then
-        assertThat(predicate.test(order(o -> o.put("status", "PAID"))))
+        assertThat(test(predicate, order(o -> o.put("status", "PAID"))))
                 .withFailMessage(() -> "Record with status PAID was not matched")
                 .isTrue();
-        assertThat(predicate.test(order(o -> o.put("status", "OPEN"))))
+        assertThat(test(predicate, order(o -> o.put("status", "OPEN"))))
                 .withFailMessage(() -> "Record with status OPEN was not rejected")
                 .isFalse();
     }
@@ -80,7 +80,7 @@ class AvroRecordPredicateTest {
         var predicate = avroFilter("value.state == \"SHIPPED\"");
 
         // when
-        var matches = predicate.test(order(o -> o.put("state", new GenericData.EnumSymbol(ORDER.getField("state").schema(), "SHIPPED"))));
+        var matches = test(predicate, order(o -> o.put("state", new GenericData.EnumSymbol(ORDER.getField("state").schema(), "SHIPPED"))));
 
         // then
         assertThat(matches)
@@ -94,7 +94,7 @@ class AvroRecordPredicateTest {
         var predicate = avroFilter("value.customer.country == \"BE\" && value.customer.id == 7");
 
         // when
-        var matches = predicate.test(order(o -> {
+        var matches = test(predicate, order(o -> {
         }));
 
         // then
@@ -109,7 +109,7 @@ class AvroRecordPredicateTest {
         var predicate = avroFilter("value.quantity > 2 && value.amount > 100 && value.price == 9.99 && value.total == 19.98");
 
         // when
-        var matches = predicate.test(order(o -> {
+        var matches = test(predicate, order(o -> {
         }));
 
         // then
@@ -124,7 +124,7 @@ class AvroRecordPredicateTest {
         var predicate = avroFilter("\"urgent\" in value.tags && value.attributes.region == \"eu\" && value.tags.size() == 2");
 
         // when
-        var matches = predicate.test(order(o -> {
+        var matches = test(predicate, order(o -> {
         }));
 
         // then
@@ -140,11 +140,11 @@ class AvroRecordPredicateTest {
         var isRefund = avroFilter("value.refundId == \"r-1\"");
 
         // when / then
-        assertThat(isNull.test(order(o -> {
+        assertThat(test(isNull, order(o -> {
         })))
                 .withFailMessage(() -> "Null union branch was not equal to CEL null")
                 .isTrue();
-        assertThat(isRefund.test(order(o -> o.put("refundId", "r-1"))))
+        assertThat(test(isRefund, order(o -> o.put("refundId", "r-1"))))
                 .withFailMessage(() -> "String union branch was not matched")
                 .isTrue();
     }
@@ -155,7 +155,7 @@ class AvroRecordPredicateTest {
         var predicate = avroFilter("value.signature == b\"sig\"");
 
         // when
-        var matches = predicate.test(order(o -> {
+        var matches = test(predicate, order(o -> {
         }));
 
         // then
@@ -175,16 +175,16 @@ class AvroRecordPredicateTest {
         // when / then
         Record order = order(o -> {
         });
-        assertThat(unknownField.test(order))
+        assertThat(test(unknownField, order))
                 .withFailMessage(() -> "Field absent from the schema was not read as null")
                 .isFalse();
-        assertThat(unknownMapKey.test(order))
+        assertThat(test(unknownMapKey, order))
                 .withFailMessage(() -> "Absent map key was not read as null")
                 .isFalse();
-        assertThat(hasUnknown.test(order))
+        assertThat(test(hasUnknown, order))
                 .withFailMessage(() -> "has() was true for a field absent from the schema")
                 .isFalse();
-        assertThat(hasKnown.test(order))
+        assertThat(test(hasKnown, order))
                 .withFailMessage(() -> "has() was false for a schema field and a present map key")
                 .isTrue();
     }
@@ -196,10 +196,10 @@ class AvroRecordPredicateTest {
                 new CelFilterConfig("value.status == \"PAID\""), new AvroFormatConfig(), SCHEMAS);
 
         // when / then
-        assertThat(filter.matches(order(o -> o.put("status", "PAID"))))
+        assertThat(matches(filter, order(o -> o.put("status", "PAID"))))
                 .withFailMessage(() -> "Avro record with status PAID was not retained by the record filter")
                 .isTrue();
-        assertThat(filter.matches(order(o -> o.put("status", "OPEN"))))
+        assertThat(matches(filter, order(o -> o.put("status", "OPEN"))))
                 .withFailMessage(() -> "Avro record with status OPEN was not dropped by the record filter")
                 .isFalse();
     }
@@ -207,23 +207,21 @@ class AvroRecordPredicateTest {
     @Test
     void avroWithoutSchemaRegistryIsHandledPerDecodeErrorPolicy() {
         // given no schema registry, so no Avro decoder
-        var skip = new VirtualTopicRecordFilter.EvaluatingRecordFilter(
-                new CelFilterConfig("value.status == \"PAID\""), new AvroFormatConfig(DecodeErrorPolicy.SKIP), null);
-        var include = new VirtualTopicRecordFilter.EvaluatingRecordFilter(
-                new CelFilterConfig("value.status == \"PAID\""), new AvroFormatConfig(DecodeErrorPolicy.INCLUDE), null);
-        Record paid = order(o -> o.put("status", "PAID"));
+        var skip = VirtualTopicRecordFilter.of("orders", new CelFilterConfig("value.status == \"PAID\""), new AvroFormatConfig(DecodeErrorPolicy.SKIP), null);
+        var include = VirtualTopicRecordFilter.of("orders", new CelFilterConfig("value.status == \"PAID\""),
+                new AvroFormatConfig(DecodeErrorPolicy.INCLUDE), null);
 
         // when / then
-        assertThat(skip.matches(paid))
+        assertThat(((MemoryRecords) skip.apply(orders(o -> o.put("status", "PAID")))).records())
                 .withFailMessage(() -> "Avro record was not dropped with skip policy when no schema registry is configured")
-                .isFalse();
-        assertThat(include.matches(paid))
+                .isEmpty();
+        assertThat(((MemoryRecords) include.apply(orders(o -> o.put("status", "PAID")))).records())
                 .withFailMessage(() -> "Avro record was not delivered with include policy when no schema registry is configured")
-                .isTrue();
+                .hasSize(1);
     }
 
     private static CelRecordPredicate avroFilter(String expression) {
-        return new CelRecordPredicate(new CelFilterConfig(expression), DECODER);
+        return new CelRecordPredicate(new CelFilterConfig(expression), true);
     }
 
     /// An order with default values, adjusted by `customizer`, in the schema registry wire format.
@@ -253,6 +251,13 @@ class AvroRecordPredicateTest {
         return MemoryRecords.withRecords(Compression.NONE, simple).records().iterator().next();
     }
 
+    /// A batch holding one order, adjusted by `customizer`.
+    private static MemoryRecords orders(Consumer<GenericRecord> customizer) {
+        Record order = order(customizer);
+        return MemoryRecords.withRecords(Compression.NONE,
+                new SimpleRecord(order.timestamp(), order.key(), order.value()));
+    }
+
     static byte[] wireFormat(int schemaId, Schema schema, Object datum) {
         var out = new ByteArrayOutputStream();
         out.write(0);
@@ -265,5 +270,15 @@ class AvroRecordPredicateTest {
             throw new IllegalStateException(e);
         }
         return out.toByteArray();
+    }
+
+    /// Evaluates `predicate` on `record`, whose value is decoded as Avro with the test schemas.
+    private static boolean test(CelRecordPredicate predicate, Record record) {
+        return predicate.test(record, new DecodedValue(record, DECODER));
+    }
+
+    /// Evaluates `filter` on `record`, whose value is decoded as Avro with the test schemas.
+    private static boolean matches(VirtualTopicRecordFilter.EvaluatingRecordFilter filter, Record record) {
+        return filter.matches(record, new DecodedValue(record, DECODER));
     }
 }
