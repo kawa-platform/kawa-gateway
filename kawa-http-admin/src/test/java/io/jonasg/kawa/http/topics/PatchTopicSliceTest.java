@@ -307,7 +307,53 @@ class PatchTopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(patchTopicResp).hasStatusCode(400);
         assertThatJson(patchTopicResp.body()).isEqualTo("""
-                {"error": "virtual topic 'orders.public': transformations require a 'valueFormat' to decode the record value"}
+                {"error": "transformations require a 'valueFormat' to decode the record value"}
+                """);
+    }
+
+    @Test
+    void refusesAPatchedStepWithAnUnknownKeyWithoutChangingTheSteps() throws Exception {
+        // given
+        var current = new VirtualTopicConfig("orders", null, false, new JsonFormatConfig(),
+                List.of(new DropFieldsTransformationConfig(List.of("secret"))), null);
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders.public", current));
+        startServer();
+
+        // when
+        var patchTopicResp = send("PATCH", "/topics/orders.public", """
+                {"transformations": [{"type": "renameField", "from": "a", "to": "b", "form": "c"}]}
+                """);
+
+        // then
+        assertThat(patchTopicResp).hasStatusCode(400);
+        assertThatJson(patchTopicResp.body()).isEqualTo("""
+                {"error": "transformations[0] (renameField): unknown property 'form'"}
+                """);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders.public"))
+                .withFailMessage(() -> "A refused patch changed the virtual topic")
+                .isEqualTo(current);
+    }
+
+    @Test
+    void refusesAPatchedConvertThatIsNotTheLastStepNamingIt() throws Exception {
+        // given
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders.public",
+                new VirtualTopicConfig("orders", null, false, new JsonFormatConfig(), List.of(), null)));
+        startServer();
+
+        // when
+        var patchTopicResp = send("PATCH", "/topics/orders.public", """
+                {"transformations": [
+                  {"type": "dropFields", "fields": ["a"]},
+                  {"type": "convert", "format": {"type": "json"}},
+                  {"type": "dropFields", "fields": ["b"]}
+                ]}
+                """);
+
+        // then
+        assertThat(patchTopicResp).hasStatusCode(400);
+        assertThatJson(patchTopicResp.body()).isEqualTo("""
+                {"error": "transformations[1] (convert): must be the last step"}
                 """);
     }
 

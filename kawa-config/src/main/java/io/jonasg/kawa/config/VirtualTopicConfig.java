@@ -35,7 +35,7 @@ public record VirtualTopicConfig(
         }
         for (int i = 0; i < transformations.size() - 1; i++) {
             if (transformations.get(i) instanceof ConvertTransformationConfig) {
-                throw new IllegalArgumentException("a 'convert' transformation must be the last step");
+                throw new IllegalArgumentException("transformations[" + i + "] (convert): must be the last step");
             }
         }
         if (!transformations.isEmpty()) {

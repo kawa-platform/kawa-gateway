@@ -181,7 +181,6 @@ public final class TopicService implements AutoCloseable {
         VirtualTopicConfig current = dynamicConfigRepository.getActiveConfigOrEmpty().virtualTopics().get(name);
         var operation = current != null ? Operation.ALTER : Operation.CREATE;
         var value = virtualTopic(
-                name,
                 request.topic(),
                 request.filter(),
                 request.exposePhysicalTopic() != null && request.exposePhysicalTopic(),
@@ -220,7 +219,6 @@ public final class TopicService implements AutoCloseable {
             throw new IllegalArgumentException("virtual topic requires a physical 'topic'");
         }
         var updated = virtualTopic(
-                newName,
                 topic,
                 patch.filterOr(current.filter()),
                 patch.exposePhysicalTopic() == null ? current.exposePhysicalTopic() : patch.exposePhysicalTopic(),
@@ -240,7 +238,6 @@ public final class TopicService implements AutoCloseable {
     /// value format or the format transformed values are converted to, needs a schema registry on
     /// the physical topic's cluster; without one every record would be skipped on fetch.
     private VirtualTopicConfig virtualTopic(
-            String name,
             String topic,
             @Nullable VirtualTopicFilterConfig filter,
             boolean exposePhysicalTopic,
@@ -248,22 +245,14 @@ public final class TopicService implements AutoCloseable {
             List<TransformationConfig> transformations,
             @Nullable ManagedBy managedBy
     ) {
-        TopicTransformations.requireConvertLast(transformations);
-        VirtualTopicConfig config;
-        try {
-            config = new VirtualTopicConfig(topic, filter, exposePhysicalTopic, valueFormat, transformations, managedBy);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("virtual topic '" + name + "': " + e.getMessage(), e);
-        }
+        var config = new VirtualTopicConfig(topic, filter, exposePhysicalTopic, valueFormat, transformations, managedBy);
         ValueMappings.compile(transformations);
         if (schemaRegistries.avroSchemasFor(topic) == null) {
             if (valueFormat instanceof AvroFormatConfig) {
-                throw new IllegalArgumentException("virtual topic '" + name
-                        + "': an 'avro' value format requires a schemaRegistry on the cluster of topic '" + topic + "'");
+                throw new IllegalArgumentException("an 'avro' value format requires a schemaRegistry on the cluster of topic '" + topic + "'");
             }
             if (config.outputFormat() instanceof AvroFormatConfig) {
-                throw new IllegalArgumentException("virtual topic '" + name
-                        + "': a 'convert' to 'avro' requires a schemaRegistry on the cluster of topic '" + topic + "'");
+                throw new IllegalArgumentException("a 'convert' to 'avro' requires a schemaRegistry on the cluster of topic '" + topic + "'");
             }
         }
         return config;

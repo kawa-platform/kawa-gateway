@@ -86,14 +86,17 @@ class VirtualTopicTransformationConfigTest {
     }
 
     @Test
-    void refusesAConvertThatIsNotTheLastStep() {
+    void refusesAConvertThatIsNotTheLastStepNamingIt() {
+        // given
         var steps = List.<TransformationConfig>of(
+                new DropFieldsTransformationConfig(List.of("internal")),
                 new ConvertTransformationConfig(new JsonFormatConfig()),
                 new DropFieldsTransformationConfig(List.of("secret")));
 
+        // when / then
         assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(), steps, null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("must be the last step");
+                .hasMessage("transformations[1] (convert): must be the last step");
     }
 
     @Test

@@ -1261,7 +1261,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                 "[{\"type\": \"dropFields\", \"fields\": [\"a\"]}, {\"type\": \"cel\", \"expression\": \"{\\\"id\\\": value.id\"}]",
                 "transformations[1] (cel): Invalid CEL expression",
                 "[{\"type\": \"uppercase\"}]",
-                "transformations[0]: unsupported type 'uppercase'",
+                "transformations[0]: unsupported type 'uppercase', expected one of [dropFields, renameField, defaultField, cel, convert]",
                 "[{\"fields\": [\"a\"]}]",
                 "transformations[0]: 'type' is required",
                 "[{\"type\": \"dropFields\", \"fields\": []}]",
@@ -1270,8 +1270,12 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                 "transformations[0] (renameField): field path 'a..b' has an empty segment",
                 "[{\"type\": \"convert\", \"format\": {\"type\": \"json\"}}, {\"type\": \"dropFields\", \"fields\": [\"a\"]}]",
                 "transformations[0] (convert): must be the last step",
+                "[{\"type\": \"dropFields\", \"fields\": [\"a\"], \"field\": \"b\"}]",
+                "transformations[0] (dropFields): unknown property 'field'",
+                "[{\"type\": \"defaultField\", \"field\": \"currency\"}]",
+                "transformations[0] (defaultField): 'value' is required",
                 "[{\"type\": \"convert\", \"format\": {\"type\": \"avro\"}}]",
-                "virtual topic 'orders.public': encoding transformed values as Avro requires a 'subject'");
+                "encoding transformed values as Avro requires a 'subject'");
 
         for (var invalid : cases.entrySet()) {
             String transformations = invalid.getKey();
@@ -1295,6 +1299,48 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void refusesAMisspelledDefaultFieldKeyNamingTheKey() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var createTopicResp = send("POST", "/topics", """
+                {"type": "virtual", "name": "orders.public", "topic": "orders", "valueFormat": {"type": "json"},
+                 "transformations": [
+                   {"type": "dropFields", "fields": ["secret"]},
+                   {"type": "defaultField", "field": "currency", "default": "EUR"}
+                 ]}
+                """);
+
+        // then
+        assertThat(createTopicResp).hasStatusCode(400);
+        assertThatJson(createTopicResp.body()).isEqualTo("""
+                {"error": "transformations[1] (defaultField): unknown property 'default'"}
+                """);
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "A virtual topic with a misspelled step key was persisted")
+                .doesNotContainKey("orders.public");
+    }
+
+    @Test
+    void createsADefaultFieldWithAnExplicitNullDefault() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var createTopicResp = send("POST", "/topics", """
+                {"type": "virtual", "name": "orders.public", "topic": "orders", "valueFormat": {"type": "json"},
+                 "transformations": [{"type": "defaultField", "field": "currency", "value": null}]}
+                """);
+
+        // then
+        assertThat(createTopicResp).hasStatusCode(201);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders.public").transformations())
+                .withFailMessage(() -> "A defaultField with an explicit null value was not stored as a null default")
+                .containsExactly(new DefaultFieldTransformationConfig("currency", null));
+    }
+
+    @Test
     void refusesAnAvroValueFormatWithoutASchemaRegistry() throws Exception {
         // given a cluster without a schema registry
         schemaRegistries = SchemaRegistries.NONE;
@@ -1309,7 +1355,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(putTopicResp).hasStatusCode(400);
         assertThatJson(putTopicResp.body()).isEqualTo("""
-                {"error": "virtual topic 'orders.public': an 'avro' value format requires a schemaRegistry on the cluster of topic 'orders'"}
+                {"error": "an 'avro' value format requires a schemaRegistry on the cluster of topic 'orders'"}
                 """);
         assertThat(repository.getActiveConfig().virtualTopics())
                 .withFailMessage(() -> "A virtual topic that cannot decode Avro was persisted")
@@ -1331,7 +1377,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(createTopicResp).hasStatusCode(400);
         assertThatJson(createTopicResp.body()).isEqualTo("""
-                {"error": "virtual topic 'orders.public': a 'convert' to 'avro' requires a schemaRegistry on the cluster of topic 'orders'"}
+                {"error": "a 'convert' to 'avro' requires a schemaRegistry on the cluster of topic 'orders'"}
                 """);
         assertThat(repository.getActiveConfig().virtualTopics())
                 .withFailMessage(() -> "A virtual topic that cannot encode Avro was persisted")

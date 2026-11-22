@@ -1908,6 +1908,7 @@ components:
         - Avro, as the `valueFormat` or a `convert` format, needs a `schemaRegistry` on the cluster
         - paths are non-blank without empty segments (`a..b`, `.a`, `a.` are refused)
         - a `cel` expression must compile
+        - a step has only the keys its type documents; an unknown key (a misspelling such as `default` for `value`) is refused
 
         A `400` about one step has an `error` starting with `transformations[N]`, N being the step's 0-based index
         (`transformations[2] (cel): Invalid CEL expression ...`).
@@ -1965,6 +1966,7 @@ components:
       required:
         - type
         - field
+        - value
       properties:
         type:
           type: string
@@ -1974,7 +1976,8 @@ components:
           type: string
           description: Dotted path of the field, set when absent or null; missing parent objects are created.
         value:
-          description: The default, any JSON value.
+          nullable: true
+          description: The default, any JSON value including `null`. Required; an explicit `null` sets the field to null.
     CelTransformation:
       type: object
       required:
