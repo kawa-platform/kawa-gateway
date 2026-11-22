@@ -35,6 +35,8 @@ import org.awaitility.core.ThrowingRunnable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.TestInstance;
+import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.output.Slf4jLogConsumer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.KafkaContainer;
@@ -87,7 +89,10 @@ abstract class GatewayTestSupport {
     static KafkaContainer kafka = new KafkaContainer(KafkaImage.KAFKA_NATIVE)
             .withEnv("KAFKA_AUTHORIZER_CLASS_NAME", "org.apache.kafka.metadata.authorizer.StandardAuthorizer")
             .withEnv("KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND", "true")
-            .withEnv("KAFKA_SUPER_USERS", "User:ANONYMOUS");
+            .withEnv("KAFKA_SUPER_USERS", "User:ANONYMOUS")
+            // Streams the broker's own output into the test log, so a container that fails to start
+            // (for example during KRaft recovery) shows why.
+            .withLogConsumer(new Slf4jLogConsumer(LoggerFactory.getLogger("kafka-broker")));
 
     protected static KafkaGateway gateway;
     protected static String gatewayBootstrap;
