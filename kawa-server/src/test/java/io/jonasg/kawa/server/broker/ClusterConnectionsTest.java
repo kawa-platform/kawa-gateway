@@ -8,6 +8,7 @@ import io.jonasg.kawa.protocol.kafka.KafkaBodyCodec;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
+import java.net.InetSocketAddress;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,7 +22,8 @@ class ClusterConnectionsTest {
         var codec = new KafkaBodyCodec(KafkaApiRegistry.create());
         var pipeline = new InterceptorPipeline(List.of());
         var cache = new MetadataCache();
-        var connections = new ClusterConnections(codec, pipeline, metrics, cache, "localhost", 9092, BrokerConnectionSettings.PLAINTEXT);
+        var bootstrap = List.of(InetSocketAddress.createUnresolved("localhost", 9092));
+        var connections = new ClusterConnections(codec, pipeline, metrics, cache, bootstrap, BrokerConnectionSettings.PLAINTEXT);
 
         // when
         connections.close();

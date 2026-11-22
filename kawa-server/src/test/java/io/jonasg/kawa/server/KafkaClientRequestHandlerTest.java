@@ -45,6 +45,7 @@ import org.apache.kafka.common.protocol.ObjectSerializationCache;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.junit.jupiter.api.Test;
 
+import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.Set;
 
@@ -286,7 +287,7 @@ class KafkaClientRequestHandlerTest {
         var brokerPool = new BrokerClientPool(
                 group, codec, pipeline, metrics, cache, "localhost", 9092);
         MetadataClient metadataClient =
-                new MetadataClient("localhost", 9092, group, codec, cache, brokerPool, metrics);
+                new MetadataClient(List.of(InetSocketAddress.createUnresolved("localhost", 9092)), group, codec, cache, brokerPool, metrics);
         return new KafkaClientRequestHandler(
                 codec, apiVersionsBuilder, pipeline,
                 new LeaderRouter(cache), brokerPool, metadataClient, metrics, new FetchSessionRegistry(),
