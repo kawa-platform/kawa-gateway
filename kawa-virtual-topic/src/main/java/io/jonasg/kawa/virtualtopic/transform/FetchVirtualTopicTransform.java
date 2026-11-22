@@ -6,11 +6,13 @@ import io.jonasg.kawa.core.ShortCircuitResult;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager.VirtualTopic;
 import io.jonasg.kawa.virtualtopic.filter.FailedRecordException;
+import io.jonasg.kawa.virtualtopic.filter.RecordBatches;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
 import io.jonasg.kawa.virtualtopic.mapping.VirtualTopicRecordTransformer;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicState;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.message.FetchRequestData;
 import org.apache.kafka.common.message.FetchResponseData;
 import org.apache.kafka.common.protocol.Errors;
@@ -23,10 +25,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /// Renames fetched topics between their virtual and physical names, and rewrites the records a
 /// virtual topic delivers: its consume filter first, on the stored values, then its
 /// transformations on the records that remain.
+///
+/// Only the records from the offset the client fetched a partition at are rewritten and delivered:
+/// the broker answers with whole batches, from the one holding that offset, and the client discards
+/// the records below it. The offset comes from the request, or - for a partition an incremental
+/// fetch leaves out because its offset did not change - from the [FetchSessionRegistry].
 ///
 /// Records are rewritten per response from the configuration current at that moment, and each
 /// record on its own, so a fetch session needs no knowledge of formats: one response may hold
@@ -38,9 +46,9 @@ import java.util.Optional;
 ///
 /// - A bad record under the `fail` policy ([FailedRecordException]) stops the partition at that
 ///   record: the records before it are delivered, ending right before it, so the consumer's next
-///   fetch starts at it. When it is the first record fetched, the partition answers
-///   `CORRUPT_MESSAGE` with no records: the Java consumer then throws a `KafkaException` naming
-///   its offset from `poll` until the application seeks past it.
+///   fetch starts at it. When it is the first record from the consumer's fetch offset on, the
+///   partition answers `CORRUPT_MESSAGE` with no records: the Java consumer then throws a
+///   `KafkaException` naming its offset from `poll` until the application seeks past it.
 /// - A schema registry outage ([SchemaRegistryUnavailableException]) is not a record error: the
 ///   partition comes back with `UNKNOWN_SERVER_ERROR` and no records, so the consumer does not move
 ///   past them and fetches them again once the registry is back.
@@ -91,9 +99,16 @@ public final class FetchVirtualTopicTransform
                 state.record(physical, topic.topic());
                 topic.setTopic(physical);
             }
+            for (FetchRequestData.FetchPartition partition : topic.partitions()) {
+                state.fetchOffset(new TopicPartition(physical, partition.partition()), partition.fetchOffset());
+            }
         }
+        List<TopicPartition> forgottenPartitions = new ArrayList<>();
         for (FetchRequestData.ForgottenTopic forgotten : data.forgottenTopicsData()) {
             forgotten.setTopic(virtualTopics.toPhysical(forgotten.topic()));
+            for (int partition : forgotten.partitions()) {
+                forgottenPartitions.add(new TopicPartition(forgotten.topic(), partition));
+            }
         }
 
         state.fetchSessionId(data.sessionId());
@@ -109,7 +124,7 @@ public final class FetchVirtualTopicTransform
             forgottenPhysical.add(forgotten.topic());
         }
         fetchSessions.onFetchRequest(
-                context.source(), data.sessionId(), state.physicalToVirtual(), forgottenPhysical
+                context.source(), data.sessionId(), state.physicalToVirtual(), forgottenPhysical, state.fetchOffsets(), forgottenPartitions
         );
     }
 
@@ -124,7 +139,7 @@ public final class FetchVirtualTopicTransform
             fetchSessions.removeSession(context.source(), sessionId);
         }
         if (sessionId != 0 && state.fetchSessionId() == 0) {
-            fetchSessions.bindSession(context.source(), sessionId, state.physicalToVirtual());
+            fetchSessions.bindSession(context.source(), sessionId, state.physicalToVirtual(), state.fetchOffsets());
         }
         if (sessionId != 0 && fetchSessions.hasSession(context.source(), sessionId)) {
             for (FetchResponseData.FetchableTopicResponse topic : data.responses()) {
@@ -135,7 +150,7 @@ public final class FetchVirtualTopicTransform
                     topic.setTopic(virtual);
                 }
             }
-            rewriteRecords(data);
+            rewriteRecords(data, context, sessionId);
             return;
         }
         for (FetchResponseData.FetchableTopicResponse topic : data.responses()) {
@@ -145,10 +160,11 @@ public final class FetchVirtualTopicTransform
             }
         }
 
-        rewriteRecords(data);
+        rewriteRecords(data, context, sessionId);
     }
 
-    private void rewriteRecords(FetchResponseData data) {
+    private void rewriteRecords(FetchResponseData data, GatewayContext context, int sessionId) {
+        VirtualTopicState state = VirtualTopicState.from(context);
         for (FetchResponseData.FetchableTopicResponse topic : data.responses()) {
             Optional<VirtualTopicFilterConfig> filter = virtualTopics.filterFor(topic.topic());
             // Only a topic fetched by its virtual name is transformed: an exposed physical topic
@@ -163,6 +179,9 @@ public final class FetchVirtualTopicTransform
                 BaseRecords records = partition.records();
                 FailedRecordException stop = null;
                 try {
+                    if (records instanceof MemoryRecords memoryRecords && memoryRecords.sizeInBytes() > 0) {
+                        records = fromFetchOffset(memoryRecords, state, context.source(), sessionId, new TopicPartition(physical, partition.partitionIndex()));
+                    }
                     if (filter.isPresent()) {
                         try {
                             records = recordFilter.apply(physical, filter.get(), valueFormat, records);
@@ -199,6 +218,22 @@ public final class FetchVirtualTopicTransform
                 partition.setRecords(records);
             }
         }
+    }
+
+    /// The records of `partition` from the offset the client fetched it at - named in this request,
+    /// else remembered by its fetch session - on: the broker returns whole batches, and the records
+    /// below that offset the client discards. Evaluating them could stop the partition at a bad
+    /// record the client already moved past, answering it records it ignores, forever.
+    private MemoryRecords fromFetchOffset(MemoryRecords records, VirtualTopicState state, Object client, int sessionId, TopicPartition partition) {
+        OptionalLong fetchOffset = state.fetchOffset(partition);
+        if (fetchOffset.isEmpty()) {
+            fetchOffset = fetchSessions.fetchOffset(client, sessionId, partition);
+        }
+        if (fetchOffset.isEmpty()) {
+            log.debug("No fetch offset known for {}, rewriting all of its fetched records", partition);
+            return records;
+        }
+        return RecordBatches.from(records, fetchOffset.getAsLong());
     }
 
     /// Answers every topic and partition the request named, under the client's names, with [Errors#INVALID_REQUEST].

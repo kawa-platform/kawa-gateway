@@ -2,10 +2,14 @@ package io.jonasg.kawa.virtualtopic;
 
 import io.jonasg.kawa.core.GatewayContext;
 
+import org.apache.kafka.common.TopicPartition;
+
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /// State a virtual-topic transform keeps between a request and its response, to transform the
@@ -14,6 +18,7 @@ public final class VirtualTopicState {
 
     private final Map<String, String> physicalToVirtual = new LinkedHashMap<>();
     private final Set<String> hiddenTopics = new HashSet<>();
+    private final Map<TopicPartition, Long> fetchOffsets = new HashMap<>();
     private int fetchSessionId;
     private boolean offsetFetchAllTopics;
     private short apiVersion;
@@ -64,6 +69,22 @@ public final class VirtualTopicState {
     /// Compared with the response's session id to tell when the broker created a session.
     public int fetchSessionId() {
         return fetchSessionId;
+    }
+
+    /// Remembers the offset the Fetch request asked `partition` (physical topic) from.
+    public void fetchOffset(TopicPartition partition, long offset) {
+        fetchOffsets.put(partition, offset);
+    }
+
+    /// The offset the Fetch request asked `partition` (physical topic) from, if it named it.
+    public OptionalLong fetchOffset(TopicPartition partition) {
+        Long offset = fetchOffsets.get(partition);
+        return offset == null ? OptionalLong.empty() : OptionalLong.of(offset);
+    }
+
+    /// Every fetch offset the request named, by physical topic partition, as an immutable copy.
+    public Map<TopicPartition, Long> fetchOffsets() {
+        return Map.copyOf(fetchOffsets);
     }
 
     /// Records the fetch session id the request sent.

@@ -46,6 +46,9 @@ class FetchVirtualTopicTransformTest {
 
     private static final int KNOWN_SCHEMA_ID = 1;
     private static final int UNAVAILABLE_SCHEMA_ID = 9;
+    private static final int NO_SESSION = 0;
+    private static final int SESSIONLESS = -1;
+    private static final int SESSION = 42;
 
     /// Resolves schema id 1; the registry is down for any other id.
     private final SchemaRegistries registries = SchemaRegistries.of(id -> {
@@ -211,6 +214,137 @@ class FetchVirtualTopicTransformTest {
         assertThat(values(partition(response, 1).records()))
                 .withFailMessage(() -> "The matching record of the other partition was not delivered")
                 .containsExactly("{\"n\":\"1\"}");
+    }
+
+    @Test
+    void deliversTheRecordsBeforeABadRecordInTheMiddleOfABatchEndingRightBeforeIt() {
+        // given a transformed topic under the fail policy whose batch at offsets 1-7 holds a bad record at 5
+        var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
+
+        // when the consumer fetches at offset 1
+        FetchResponseData.PartitionData partition = fetchAt(transform, NO_SESSION, SESSIONLESS, 1L, NO_SESSION);
+
+        // then
+        assertThat(partition.errorCode())
+                .withFailMessage(() -> "The records before the bad one were not delivered without an error, got " + Errors.forCode(partition.errorCode()))
+                .isEqualTo(Errors.NONE.code());
+        assertThat(offsets(partition.records()))
+                .withFailMessage(() -> "Only the records before the bad one should have been delivered")
+                .containsExactly(1L, 2L, 3L, 4L);
+        assertThat(lastOffset(partition.records()))
+                .withFailMessage(() -> "The delivered records do not end right before the bad record, so the consumer would skip it")
+                .isEqualTo(4L);
+    }
+
+    @Test
+    void answersCorruptMessageWhenTheConsumerFetchesAtABadRecordInTheMiddleOfABatch() {
+        // given a transformed topic under the fail policy whose batch at offsets 1-7 holds a bad record at 5
+        var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
+
+        // when the consumer fetches at offset 5, and the broker answers with the whole batch again
+        FetchResponseData.PartitionData partition = fetchAt(transform, NO_SESSION, SESSIONLESS, 5L, NO_SESSION);
+
+        // then
+        assertCorruptMessage(partition);
+    }
+
+    @Test
+    void answersCorruptMessageWhenTheConsumerFetchesAtARecordThatCannotBeFilteredInTheMiddleOfABatch() {
+        // given a filtered topic under the fail policy whose batch at offsets 1-7 holds a bad record at 5
+        var transform = transform(new VirtualTopicConfig("orders.raw", new CelFilterConfig("value.a > 0"), false,
+                new JsonFormatConfig(DecodeErrorPolicy.FAIL), List.of(), null));
+
+        // when the consumer fetches at offset 5, and the broker answers with the whole batch again
+        FetchResponseData.PartitionData partition = fetchAt(transform, NO_SESSION, SESSIONLESS, 5L, NO_SESSION);
+
+        // then
+        assertCorruptMessage(partition);
+    }
+
+    @Test
+    void answersCorruptMessageAgainWhenAnIncrementalFetchLeavesOutThePartitionStuckAtABadRecord() {
+        // given a fetch session the consumer created fetching at the bad record at offset 5
+        var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
+        fetchAt(transform, NO_SESSION, 0, 5L, SESSION);
+
+        // when the consumer retries with an incremental fetch that leaves the unchanged partition out
+        FetchResponseData.PartitionData partition = fetchAt(transform, SESSION, 1, null, SESSION);
+
+        // then
+        assertCorruptMessage(partition);
+    }
+
+    @Test
+    void answersCorruptMessageWhenAnIncrementalFetchMovesTheConsumerToABadRecord() {
+        // given a fetch session the consumer created fetching at offset 1
+        var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
+        fetchAt(transform, NO_SESSION, 0, 1L, SESSION);
+
+        // when the consumer's incremental fetch moves it to the bad record, then retries leaving the partition out
+        fetchAt(transform, SESSION, 1, 5L, SESSION);
+        FetchResponseData.PartitionData partition = fetchAt(transform, SESSION, 2, null, SESSION);
+
+        // then
+        assertCorruptMessage(partition);
+    }
+
+    @Test
+    void deliversTheRecordsAfterABadRecordOnceTheConsumerSeeksPastIt() {
+        // given a transformed topic under the fail policy whose batch at offsets 1-7 holds a bad record at 5
+        var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
+
+        // when the consumer seeks to offset 6
+        FetchResponseData.PartitionData partition = fetchAt(transform, NO_SESSION, SESSIONLESS, 6L, NO_SESSION);
+
+        // then
+        assertThat(partition.errorCode())
+                .withFailMessage(() -> "The records after the bad one were not delivered without an error, got " + Errors.forCode(partition.errorCode()))
+                .isEqualTo(Errors.NONE.code());
+        assertThat(values(partition.records()))
+                .withFailMessage(() -> "The records after the bad one were not delivered transformed")
+                .containsExactly("{\"b\":6}", "{\"b\":7}");
+    }
+
+    /// Fetches partition 0 of `orders` at `fetchOffset` (`null` leaves the partition out of the
+    /// request, as an incremental fetch does when its offset did not change); the broker answers
+    /// with the batch at offsets 1-7 whose record at 5 is not JSON.
+    private FetchResponseData.PartitionData fetchAt(FetchVirtualTopicTransform transform, int requestSession, int epoch,
+                                                    Long fetchOffset, int responseSession) {
+        var fetchContext = new GatewayContext("consumer", System.nanoTime());
+        var request = new FetchRequestData().setSessionId(requestSession).setSessionEpoch(epoch);
+        if (fetchOffset != null) {
+            request.topics().add(new FetchRequestData.FetchTopic().setTopic("orders").setPartitions(new ArrayList<>(List.of(
+                    new FetchRequestData.FetchPartition().setPartition(0).setFetchOffset(fetchOffset)))));
+        }
+        transform.onRequest(fetchContext, request);
+
+        var response = new FetchResponseData().setSessionId(responseSession);
+        response.responses().add(new FetchResponseData.FetchableTopicResponse()
+                .setTopic("orders.raw")
+                .setPartitions(List.of(new FetchResponseData.PartitionData()
+                        .setPartitionIndex(0)
+                        .setHighWatermark(8)
+                        .setRecords(MemoryRecords.withRecords(1L, Compression.NONE,
+                                json("{\"a\":1}"), json("{\"a\":2}"), json("{\"a\":3}"), json("{\"a\":4}"),
+                                json("not json"), json("{\"a\":6}"), json("{\"a\":7}"))))));
+        transform.onResponse(fetchContext, response);
+        return partition(response, 0);
+    }
+
+    private static List<Long> offsets(BaseRecords records) {
+        List<Long> offsets = new ArrayList<>();
+        for (Record record : ((MemoryRecords) records).records()) {
+            offsets.add(record.offset());
+        }
+        return offsets;
+    }
+
+    private static long lastOffset(BaseRecords records) {
+        long last = -1L;
+        for (var batch : ((MemoryRecords) records).batches()) {
+            last = batch.lastOffset();
+        }
+        return last;
     }
 
     private static void assertCorruptMessage(FetchResponseData.PartitionData partition) {
