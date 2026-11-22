@@ -11,6 +11,7 @@ import io.jonasg.kawa.config.RenameFieldTransformationConfig;
 import io.jonasg.kawa.config.TransformationConfig;
 import io.jonasg.kawa.virtualtopic.filter.AvroPayloadDecoder;
 import io.jonasg.kawa.virtualtopic.filter.CelRecordPredicate;
+import io.jonasg.kawa.virtualtopic.filter.DecodedValue;
 import io.jonasg.kawa.virtualtopic.filter.JsonPayloadDecoder;
 import io.jonasg.kawa.virtualtopic.filter.JsonPayloadEncoder;
 import org.apache.avro.Schema;
@@ -249,11 +250,11 @@ class ValueMappingsTest {
     @Test
     void composesWithAFilterOnTheSourceFields() {
         // given a filter on a field the mapping drops
-        var filter = new CelRecordPredicate(new CelFilterConfig("value.internal_risk_score < 1.0"), new JsonPayloadDecoder());
+        var filter = new CelRecordPredicate(new CelFilterConfig("value.internal_risk_score < 1.0"), true);
         ValueMapping mapping = ValueMappings.compile(List.of(new DropFieldsTransformationConfig(List.of("internal_risk_score"))));
 
         // when
-        boolean kept = filter.test(record);
+        boolean kept = filter.test(record, new DecodedValue(record, new JsonPayloadDecoder()));
         String json = encode(mapping.apply(decode(ORDER), record));
 
         // then

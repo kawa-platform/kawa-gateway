@@ -4,8 +4,11 @@ import io.jonasg.kawa.config.AvroFormatConfig;
 import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.JsonFormatConfig;
+import io.jonasg.kawa.config.PayloadFormatConfig;
+import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import org.apache.avro.Schema;
 import org.apache.kafka.common.compress.Compression;
+import org.apache.kafka.common.record.internal.BaseRecords;
 import org.apache.kafka.common.record.internal.MemoryRecords;
 import org.apache.kafka.common.record.internal.Record;
 import org.apache.kafka.common.record.internal.SimpleRecord;
@@ -22,11 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
-/// Batch-level tests for [VirtualTopicRecordFilter#apply] - the decode-filter-reencode path
+/// Batch-level tests for [VirtualTopicRecordFilter#apply(BaseRecords)] - the decode-filter-reencode path
 /// the fetch pipeline uses - with CEL filters over JSON record values.
 class VirtualTopicRecordFilterTest {
-
-    private final VirtualTopicRecordFilter filter = new VirtualTopicRecordFilter();
 
     @Test
     void dropsRecordsThatDoNotMatchJsonFilter() {
@@ -36,8 +37,7 @@ class VirtualTopicRecordFilterTest {
                 record("{\"status\":\"OPEN\"}"));
 
         // when
-        var filtered = (MemoryRecords) filter.apply(
-                "orders",
+        var filtered = (MemoryRecords) filter(
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(),
                 records);
@@ -58,8 +58,7 @@ class VirtualTopicRecordFilterTest {
                 record("{\"status\":\"PAID\"}"));
 
         // when
-        var filtered = (MemoryRecords) filter.apply(
-                "orders",
+        var filtered = (MemoryRecords) filter(
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(),
                 records);
@@ -80,8 +79,7 @@ class VirtualTopicRecordFilterTest {
                 record("{\"status\":\"VOID\"}"));
 
         // when
-        var filtered = (MemoryRecords) filter.apply(
-                "orders",
+        var filtered = (MemoryRecords) filter(
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(),
                 records);
@@ -101,8 +99,7 @@ class VirtualTopicRecordFilterTest {
                 record("not json"));
 
         // when
-        var filtered = (MemoryRecords) filter.apply(
-                "orders",
+        var filtered = (MemoryRecords) filter(
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(),
                 records);
@@ -123,8 +120,7 @@ class VirtualTopicRecordFilterTest {
                 record("not json"));
 
         // when
-        var filtered = (MemoryRecords) filter.apply(
-                "orders",
+        var filtered = (MemoryRecords) filter(
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(DecodeErrorPolicy.INCLUDE),
                 records);
@@ -255,8 +251,7 @@ class VirtualTopicRecordFilterTest {
         var records = MemoryRecords.withRecords(Compression.NONE, record("{\"n\":\"not a number\"}"));
 
         // when / then the record is neither dropped, delivered, nor reported as an invalid record
-        assertThatThrownBy(() -> filter.apply(
-                "orders",
+        assertThatThrownBy(() -> filter(
                 new CelFilterConfig("int(value.n) == 1"),
                 new JsonFormatConfig(policy),
                 records))
@@ -265,8 +260,7 @@ class VirtualTopicRecordFilterTest {
     }
 
     private FailedRecordException failOn(MemoryRecords records) {
-        FailedRecordException failure = catchThrowableOfType(FailedRecordException.class, () -> filter.apply(
-                "orders",
+        FailedRecordException failure = catchThrowableOfType(FailedRecordException.class, () -> filter(
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(DecodeErrorPolicy.FAIL),
                 records));
@@ -305,8 +299,7 @@ class VirtualTopicRecordFilterTest {
                 record("{\"status\":\"PAID\"}"));
 
         // when
-        var filtered = (MemoryRecords) filter.apply(
-                "orders",
+        var filtered = (MemoryRecords) filter(
                 new CelFilterConfig("value.status == \"PAID\""),
                 new JsonFormatConfig(),
                 records);
@@ -327,8 +320,7 @@ class VirtualTopicRecordFilterTest {
                 record("{\"status\":\"OPEN\"}"));
 
         // when
-        var filtered = (MemoryRecords) filter.apply(
-                "orders",
+        var filtered = (MemoryRecords) filter(
                 new CelFilterConfig("value.contains(\"PAID\")"),
                 null,
                 records);
@@ -346,19 +338,16 @@ class VirtualTopicRecordFilterTest {
     void failsTheBatchWhenTheRegistryIsUnavailableWhateverThePolicy(DecodeErrorPolicy policy) {
         // given an Avro topic whose registry is down
         var outage = new SchemaRegistryUnavailableException("schema registry is unreachable");
-        var avroFilter = new VirtualTopicRecordFilter(SchemaRegistries.of(id -> {
+        AvroSchemaResolver unavailable = id -> {
             throw outage;
-        }, null));
+        };
         Schema string = Schema.create(Schema.Type.STRING);
         var records = MemoryRecords.withRecords(Compression.NONE,
                 new SimpleRecord(1000L, "k".getBytes(StandardCharsets.UTF_8), AvroRecordPredicateTest.wireFormat(9, string, "PAID")));
 
         // when / then the record is neither dropped nor delivered unfiltered
-        assertThatThrownBy(() -> avroFilter.apply(
-                "orders",
-                new CelFilterConfig("value == \"PAID\""),
-                new AvroFormatConfig(policy),
-                records))
+        assertThatThrownBy(() -> VirtualTopicRecordFilter.of("orders", new CelFilterConfig("value == \"PAID\""), new AvroFormatConfig(policy), unavailable)
+                .apply(records))
                 .withFailMessage(() -> "A registry outage was handled by the " + policy + " policy instead of failing the batch")
                 .isSameAs(outage);
     }
@@ -380,5 +369,9 @@ class VirtualTopicRecordFilterTest {
         List<Record> survivors = new ArrayList<>();
         records.records().forEach(survivors::add);
         return survivors;
+    }
+
+    private static BaseRecords filter(VirtualTopicFilterConfig filter, PayloadFormatConfig valueFormat, BaseRecords records) {
+        return VirtualTopicRecordFilter.of("orders", filter, valueFormat, null).apply(records);
     }
 }

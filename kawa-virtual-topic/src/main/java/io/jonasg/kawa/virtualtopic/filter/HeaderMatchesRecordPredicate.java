@@ -16,7 +16,7 @@ public class HeaderMatchesRecordPredicate implements RecordPredicate {
     }
 
     @Override
-    public boolean test(Record record) {
+    public boolean test(Record record, DecodedValue decodedValue) {
         return HeaderValues.of(record, header).stream()
                 .anyMatch(value -> pattern.matcher(value).matches());
     }
