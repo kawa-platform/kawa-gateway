@@ -29,7 +29,7 @@ import java.util.Map;
 /// Any other failure is logged and answered with [McpTool#INTERNAL_ERROR], so internals do not leak to the agent.
 ///
 /// Every read leaves one info line naming the resource, the caller and the OAuth client, e.g.
-/// `MCP resource kawa://topics read by alice via kawa-mcp-claude: ok`.
+/// `MCP resource kafka://topics read by alice via kawa-mcp-claude: ok`.
 public abstract class McpResource {
 
     private static final String JSON = "application/json";
@@ -43,7 +43,7 @@ public abstract class McpResource {
     private final String description;
 
     /// @param mapper      writes the resource's JSON; the server passes the mapper it serves with
-    /// @param uri         the fixed URI, or a URI template with one trailing variable, e.g. `kawa://topics/{topicName}`
+    /// @param uri         the fixed URI, or a URI template with one trailing variable, e.g. `kafka://topics/{topicName}`
     /// @param name        the resource name the agent sees
     /// @param description what the resource holds, as the agent reads it
     protected McpResource(McpJsonMapper mapper, String uri, String name, String description) {

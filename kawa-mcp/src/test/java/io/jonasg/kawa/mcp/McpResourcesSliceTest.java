@@ -25,7 +25,7 @@ class McpResourcesSliceTest extends McpSliceTestBase {
 
         // when
         var completeResp = rpc("completion/complete", """
-                {"ref":{"type":"ref/resource","uri":"kawa://topics/{topicName}"},
+                {"ref":{"type":"ref/resource","uri":"kafka://topics/{topicName}"},
                  "argument":{"name":"topicName","value":"orders"}}""");
 
         // then
@@ -47,10 +47,12 @@ class McpResourcesSliceTest extends McpSliceTestBase {
         // then
         assertThat(listResp).withFailMessage(() -> "resources/list was not answered with 200").hasStatusCode(200);
         assertThatJson(listResp.body()).inPath("result.resources[*].uri")
+                .isArray()
                 .withFailMessage(() -> "resources/list does not advertise the topics and consumer groups: " + listResp.body())
-                .isEqualTo(List.of("kawa://topics", "kawa://consumer-groups"));
-        assertThatJson(templatesResp.body()).inPath("result.resourceTemplates[*].uriTemplate").isArray()
+                .containsExactlyInAnyOrder("kafka://topics", "kafka://consumer-groups");
+        assertThatJson(templatesResp.body()).inPath("result.resourceTemplates[*].uriTemplate")
+                .isArray()
                 .withFailMessage(() -> "resources/templates/list does not advertise the single-item templates: " + templatesResp.body())
-                .containsExactlyInAnyOrder("kawa://topics/{topicName}", "kawa://consumer-groups/{groupId}");
+                .containsExactlyInAnyOrder("kafka://topics/{topicName}", "kafka://consumer-groups/{groupId}");
     }
 }

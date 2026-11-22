@@ -27,13 +27,13 @@ class TopicsMcpResourceSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var readResp = readResource("kawa://topics");
+        var readResp = readResource("kafka://topics");
 
         // then
-        assertThat(readResp).withFailMessage(() -> "resources/read of kawa://topics was not answered with 200").hasStatusCode(200);
+        assertThat(readResp).withFailMessage(() -> "resources/read of kafka://topics was not answered with 200").hasStatusCode(200);
         assertThatJson(readResp.body()).inPath("result.contents[0].text").isString()
                 .satisfies(text -> assertThatJson(text)
-                        .withFailMessage(() -> "kawa://topics did not list only the broker topics: " + readResp.body())
+                        .withFailMessage(() -> "kafka://topics did not list only the broker topics: " + readResp.body())
                         .isEqualTo(json("""
                                 {
                                   "virtualTopics": [],

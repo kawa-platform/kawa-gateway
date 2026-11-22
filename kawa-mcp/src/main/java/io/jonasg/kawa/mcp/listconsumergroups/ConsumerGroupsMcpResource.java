@@ -4,11 +4,11 @@ import io.jonasg.kawa.http.consumergroups.ConsumerGroupService;
 import io.jonasg.kawa.mcp.McpResource;
 import io.modelcontextprotocol.json.McpJsonMapper;
 
-/// The `kawa://consumer-groups` resource: every group on the cluster, as the [ListConsumerGroupsView] the
+/// The `kafka://consumer-groups` resource: every group on the cluster, as the [ListConsumerGroupsView] the
 /// `list_consumer_groups` tool answers with.
 public final class ConsumerGroupsMcpResource extends McpResource {
 
-    public static final String URI = "kawa://consumer-groups";
+    public static final String URI = "kafka://consumer-groups";
 
     private final ConsumerGroupService consumerGroupService;
 

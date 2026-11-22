@@ -18,14 +18,14 @@ class ConsumerGroupsMcpResourceSliceTest extends McpSliceTestBase {
         startServer();
 
         // when
-        var readResp = readResource("kawa://consumer-groups");
+        var readResp = readResource("kafka://consumer-groups");
 
         // then
-        assertThat(readResp).withFailMessage(() -> "resources/read of kawa://consumer-groups was not answered with 200")
+        assertThat(readResp).withFailMessage(() -> "resources/read of kafka://consumer-groups was not answered with 200")
                 .hasStatusCode(200);
         assertThatJson(readResp.body()).inPath("result.contents[0].text").isString()
                 .satisfies(text -> assertThatJson(text).inPath("groups[*].groupId")
-                        .withFailMessage(() -> "kawa://consumer-groups did not list 'orders-consumers': " + readResp.body())
+                        .withFailMessage(() -> "kafka://consumer-groups did not list 'orders-consumers': " + readResp.body())
                         .isEqualTo(List.of("orders-consumers")));
     }
 }
