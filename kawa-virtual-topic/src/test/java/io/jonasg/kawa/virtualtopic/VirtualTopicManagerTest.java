@@ -1,5 +1,6 @@
 package io.jonasg.kawa.virtualtopic;
 
+import io.jonasg.kawa.config.CelFilterConfig;
 import io.jonasg.kawa.config.CelTransformationConfig;
 import io.jonasg.kawa.config.DropFieldsTransformationConfig;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
@@ -13,6 +14,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class VirtualTopicManagerTest {
@@ -219,5 +221,80 @@ class VirtualTopicManagerTest {
         assertThat(virtualTopics.toPhysical("orders"))
                 .withFailMessage(() -> "A failed reload replaced the previous snapshot")
                 .isEqualTo("orders-v2");
+    }
+
+    @Test
+    void keepsAnsweringThePreviousMappingUntilAPreparedSnapshotIsPublished() {
+        // when
+        virtualTopics.prepare(Map.of("payments", new VirtualTopicConfig("payments-v1")));
+
+        // then
+        assertThat(virtualTopics.toPhysical("orders"))
+                .withFailMessage(() -> "Preparing a snapshot stopped 'orders' from mapping to 'orders-v2' before it was published")
+                .isEqualTo("orders-v2");
+        assertThat(virtualTopics.toPhysical("payments"))
+                .withFailMessage(() -> "Preparing a snapshot made 'payments' a virtual topic before it was published")
+                .isEqualTo("payments");
+        assertThat(virtualTopics.virtualTopics())
+                .withFailMessage(() -> "Preparing a snapshot changed the virtual topics before it was published, got %s"
+                        .formatted(virtualTopics.virtualTopics()))
+                .containsOnlyKeys("orders", "customers", "legacy");
+    }
+
+    @Test
+    void answersExactlyTheMappingOfThePublishedSnapshot() {
+        // given
+        VirtualTopicManager.Snapshot snapshot = virtualTopics.prepare(Map.of("payments", new VirtualTopicConfig("payments-v1")));
+
+        // when
+        virtualTopics.publish(snapshot);
+
+        // then
+        assertThat(virtualTopics.toPhysical("payments"))
+                .withFailMessage(() -> "The published snapshot did not map 'payments' to 'payments-v1'")
+                .isEqualTo("payments-v1");
+        assertThat(virtualTopics.virtualTopics())
+                .withFailMessage(() -> "The published snapshot did not replace the previous virtual topics, got %s"
+                        .formatted(virtualTopics.virtualTopics()))
+                .containsOnlyKeys("payments");
+    }
+
+    @Test
+    void refusesToPrepareASnapshotWithAnInvalidTransformationNamingTheVirtualTopic() {
+        // given
+        var invalid = new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(),
+                List.of(new CelTransformationConfig("value.")), null);
+
+        // when / then
+        assertThatThrownBy(() -> virtualTopics.prepare(Map.of("orders", invalid)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("virtual topic 'orders'");
+    }
+
+    @Test
+    void keepsTheCurrentMappingWhenPreparingASnapshotWithAnInvalidTransformation() {
+        // given
+        var invalid = new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(),
+                List.of(new CelTransformationConfig("value.")), null);
+
+        // when
+        assertThatThrownBy(() -> virtualTopics.prepare(Map.of("orders", invalid)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // then
+        assertThat(virtualTopics.toPhysical("orders"))
+                .withFailMessage(() -> "A refused snapshot replaced the mapping of 'orders' to 'orders-v2'")
+                .isEqualTo("orders-v2");
+    }
+
+    @Test
+    void preparesASnapshotWhoseConsumeFilterDoesNotCompile() {
+        // given
+        var unfilterable = new VirtualTopicConfig("orders.raw", new CelFilterConfig("value.a >"), false, new JsonFormatConfig());
+
+        // when / then
+        assertThatCode(() -> virtualTopics.prepare(Map.of("orders", unfilterable)))
+                .withFailMessage(() -> "A consume filter that does not compile refused the whole snapshot")
+                .doesNotThrowAnyException();
     }
 }

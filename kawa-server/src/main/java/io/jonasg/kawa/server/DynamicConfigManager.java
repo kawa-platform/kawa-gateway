@@ -31,11 +31,13 @@ import java.util.function.UnaryOperator;
 /// persist changes.
 ///
 /// A snapshot is applied in an order that keeps the application atomic in the failure case:
-/// [RbacAuthorizer#reload] and [GovernancePolicy#reload] are the consumers that can reject a
-/// snapshot (an unknown role reference or an invalid CEL expression throws), so they run
-/// first. Each of them is atomic on its own - a failed reload keeps the previous state - and
-/// the non-risky consumers ([VirtualTopicManager], [SaslAuthenticator]) are only touched
-/// after both risky reloads have succeeded. The [InterceptorPipeline] goes last, so a rejected
+/// [VirtualTopicManager#prepare] compiles the virtual topics first without changing what they
+/// answer (an invalid transformation throws), then [RbacAuthorizer#reload] and
+/// [GovernancePolicy#reload], the other consumers that can reject a snapshot (an unknown role
+/// reference or an invalid CEL expression throws), run. Each of them is atomic on its own - a
+/// failed reload keeps the previous state - and the prepared virtual topics are published
+/// ([VirtualTopicManager#publish]) and [SaslAuthenticator] reloaded only after all of them have
+/// succeeded. The [InterceptorPipeline] goes last, so a rejected
 /// snapshot never switches a module on or off: switching RBAC off is fail-open, so it must only
 /// happen with a snapshot the gateway accepted.
 ///
@@ -190,11 +192,11 @@ public final class DynamicConfigManager implements DynamicConfigRepository, Auto
     }
 
     private void applyConsumers(DynamicConfig config) {
-        // validated before anything is applied: an invalid transformation refuses the whole snapshot
-        VirtualTopicManager.validate(config.virtualTopics());
-        authorizer.reload(config.rbac()); // risky first: can throw on unknown role
+        // prepared before anything is applied: an invalid transformation refuses the whole snapshot
+        var prepared = virtualTopics.prepare(config.virtualTopics());
+        authorizer.reload(config.rbac()); // risky: can throw on unknown role
         governance.reload(config.governance()); // risky: can throw on invalid CEL expression
-        virtualTopics.reload(config.virtualTopics());
+        virtualTopics.publish(prepared); // cannot throw: a snapshot refused above leaves virtual topics unchanged
         saslAuthenticator.reload(config.auth().mechanisms(), config.auth().clients());
         pipeline.reload(config.modules()); // last: a rejected snapshot never switches a module
     }

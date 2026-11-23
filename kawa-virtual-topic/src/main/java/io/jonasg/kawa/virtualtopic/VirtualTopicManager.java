@@ -26,11 +26,15 @@ import java.util.Set;
 /// optional consume filter configuration.
 ///
 /// The whole mapping is an immutable [Snapshot] swapped atomically via a single `volatile`
-/// reference: [reload] publishes a new snapshot in one write, so a reader on the hot path
-/// observes either the previous or the new mapping in its entirety - never a mix of the two.
+/// reference. Changing it takes two steps: [#prepare] builds the complete new snapshot without
+/// changing what the manager answers, and [#publish] makes it current in one write, so a reader on
+/// the hot path observes either the previous or the new mapping in its entirety - never a mix of
+/// the two. A caller applying a configuration that spans several components can prepare first, so
+/// an invalid one is refused before any part of it takes effect, and publish once the rest is
+/// applied; [#reload] does both at once.
 ///
 /// Each snapshot entry also carries what fetches need prepared - the topic's compiled consume
-/// filter and its value transformer with their codecs - built by [reload] from the configuration
+/// filter and its value transformer with their codecs - built by [#prepare] from the configuration
 /// alone. So they exist only for the virtual topics of the current snapshot: a reload that changes
 /// or removes a topic leaves nothing of its previous configuration behind.
 ///
@@ -53,16 +57,19 @@ public final class VirtualTopicManager {
         reload(virtualTopics);
     }
 
-    /// Replaces the virtual-topic mapping with a new snapshot built from `virtualTopics`.
-    ///
-    /// Safe to call concurrently with readers: the new snapshot is assigned to a single
-    /// `volatile` reference, so readers see either the previous or the new mapping, never a
-    /// partially-applied one.
-    ///
-    /// Each virtual topic's transformations are compiled first; an invalid one throws (see
-    /// [#validate]) and leaves the previous snapshot in place. Its consume filter and value
-    /// transformer are prepared too, so no fetch prepares them.
+    /// Replaces the virtual-topic mapping with a new snapshot built from `virtualTopics`:
+    /// [#publish] of [#prepare]. An invalid transformation throws and leaves the previous snapshot
+    /// in place.
     public void reload(Map<String, VirtualTopicConfig> virtualTopics) {
+        publish(prepare(virtualTopics));
+    }
+
+    /// Builds the complete snapshot for `virtualTopics` - the mapping and each virtual topic's
+    /// compiled transformations, consume filter and value transformer, so no fetch prepares them -
+    /// without changing what this manager answers. Pass it to [#publish] to make it current.
+    ///
+    /// @throws IllegalArgumentException naming the virtual topic and step whose transformations are invalid
+    public Snapshot prepare(Map<String, VirtualTopicConfig> virtualTopics) {
         Map<String, VirtualTopic> virtual = new LinkedHashMap<>();
         Map<String, List<VirtualTopic>> physical = new LinkedHashMap<>();
         Map<String, String> names = new LinkedHashMap<>();
@@ -73,18 +80,18 @@ public final class VirtualTopicManager {
             names.put(v, config.topic());
         });
         physical.replaceAll((_, topics) -> List.copyOf(topics));
-        this.snapshot = new Snapshot(
+        return new Snapshot(
                 Collections.unmodifiableMap(virtual),
                 Collections.unmodifiableMap(physical),
                 Collections.unmodifiableMap(names));
     }
 
-    /// Compiles the transformations of every virtual topic without applying anything, so a
-    /// configuration can be refused before any part of it takes effect.
+    /// Makes `snapshot`, built by [#prepare], the current mapping.
     ///
-    /// @throws IllegalArgumentException naming the virtual topic and step that is invalid
-    public static void validate(Map<String, VirtualTopicConfig> virtualTopics) {
-        virtualTopics.forEach(VirtualTopicManager::mapping);
+    /// Safe to call concurrently with readers: the snapshot is assigned to a single `volatile`
+    /// reference, so readers see either the previous or the new mapping, never a partially-applied one.
+    public void publish(Snapshot snapshot) {
+        this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
     }
 
     private VirtualTopic virtualTopic(String name, VirtualTopicConfig config) {
@@ -111,7 +118,7 @@ public final class VirtualTopicManager {
     }
 
     public Optional<VirtualTopic> findByName(String name) {
-        return this.snapshot.byVirtual.values()
+        return this.snapshot.byVirtual().values()
                 .stream()
                 .filter(virtualTopic -> Objects.equals(name, virtualTopic.name))
                 .findFirst();
@@ -209,12 +216,33 @@ public final class VirtualTopicManager {
         }
     }
 
-    /// Immutable snapshot of all three lookup maps. Published as a unit so a reload can never
-    /// be observed half-applied.
-    private record Snapshot(
-            Map<String, VirtualTopic> byVirtual,
-            Map<String, List<VirtualTopic>> byPhysical,
-            Map<String, String> virtualToPhysical) {
+    /// Immutable snapshot of all three lookup maps, built by [#prepare] and made current by
+    /// [#publish] as a unit, so a reload can never be observed half-applied. Opaque to callers.
+    public static final class Snapshot {
 
+        private final Map<String, VirtualTopic> byVirtual;
+        private final Map<String, List<VirtualTopic>> byPhysical;
+        private final Map<String, String> virtualToPhysical;
+
+        private Snapshot(
+                Map<String, VirtualTopic> byVirtual,
+                Map<String, List<VirtualTopic>> byPhysical,
+                Map<String, String> virtualToPhysical) {
+            this.byVirtual = byVirtual;
+            this.byPhysical = byPhysical;
+            this.virtualToPhysical = virtualToPhysical;
+        }
+
+        private Map<String, VirtualTopic> byVirtual() {
+            return byVirtual;
+        }
+
+        private Map<String, List<VirtualTopic>> byPhysical() {
+            return byPhysical;
+        }
+
+        private Map<String, String> virtualToPhysical() {
+            return virtualToPhysical;
+        }
     }
 }
