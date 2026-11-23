@@ -1,9 +1,7 @@
 package io.jonasg.kawa.server.broker;
 
 import io.jonasg.kawa.core.InterceptorPipeline;
-import io.jonasg.kawa.core.cluster.BrokerNode;
 import io.jonasg.kawa.core.cluster.MetadataCache;
-import io.jonasg.kawa.core.cluster.MetadataSnapshot;
 import io.jonasg.kawa.core.metrics.GatewayMetrics;
 import io.jonasg.kawa.protocol.kafka.KafkaApiRegistry;
 import io.jonasg.kawa.protocol.kafka.KafkaBodyCodec;
@@ -17,9 +15,12 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.channel.ChannelInitializer;
+import io.netty.channel.group.ChannelGroup;
+import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.util.concurrent.GlobalEventExecutor;
 import org.apache.kafka.common.message.ApiVersionsResponseData;
 import org.apache.kafka.common.message.MetadataResponseData;
 import org.apache.kafka.common.protocol.ApiKeys;
@@ -29,7 +30,6 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -203,33 +203,38 @@ class MetadataClientTest {
     }
 
     @Test
-    void triesTheBrokersItLastLearnedAfterTheBootstrapServers() {
-        // given - a cache that learned broker 7 from the last metadata response
+    void reconnectsThroughTheBrokerItLearnedWhenTheBootstrapServerGoesDown() throws Exception {
+        // given - a bootstrap broker whose metadata names a second broker, which is also up
+        var group = new NioEventLoopGroup(1);
+        var codec = new KafkaBodyCodec(KafkaApiRegistry.create());
+        Channel second = startBroker(group, codec, Set.of("orders"), Integer.MAX_VALUE, 0, new DefaultChannelGroup(GlobalEventExecutor.INSTANCE));
+        int secondPort = ((InetSocketAddress) second.localAddress()).getPort();
+        var firstConnections = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
+        Channel first = startBroker(group, codec, Set.of("orders"), Integer.MAX_VALUE, secondPort, firstConnections);
+        int firstPort = ((InetSocketAddress) first.localAddress()).getPort();
         var cache = new MetadataCache();
-        cache.update(MetadataSnapshot.of(Map.of(), Map.of(7, BrokerNode.of(7, "kafka-7", 9092, null)), "cluster"));
-        var client = new MetadataClient(bootstrapAt(9092), null, null, cache, null, null);
+        var metrics = new GatewayMetrics(new SimpleMeterRegistry());
+        var pool = new BrokerClientPool(group, codec, new InterceptorPipeline(List.of()), metrics, cache, "127.0.0.1", firstPort);
+        var client = new MetadataClient(bootstrapAt(firstPort), group, codec, cache, pool, metrics);
 
-        // when
-        var candidates = client.candidates();
+        try {
+            client.start();
 
-        // then
-        assertThat(candidates)
-                .withFailMessage(() -> "Metadata client did not try the learned broker after the bootstrap servers: " + candidates)
-                .containsExactly(new MetadataClient.Endpoint("127.0.0.1", 9092), new MetadataClient.Endpoint("kafka-7", 9092));
-    }
+            // when - the bootstrap broker goes away for good
+            first.close().sync();
+            firstConnections.close().awaitUninterruptibly();
 
-    @Test
-    void doublesTheReconnectDelayUpToThirtySeconds() {
-        // when / then
-        assertThat(MetadataClient.nextBackoffMillis(500))
-                .withFailMessage(() -> "Reconnect delay did not double from 0.5 s to 1 s")
-                .isEqualTo(1_000);
-        assertThat(MetadataClient.nextBackoffMillis(16_000))
-                .withFailMessage(() -> "Reconnect delay did not cap at 30 s")
-                .isEqualTo(30_000);
-        assertThat(MetadataClient.nextBackoffMillis(30_000))
-                .withFailMessage(() -> "Reconnect delay grew past 30 s")
-                .isEqualTo(30_000);
+            // then - the client gets back in through the second broker
+            await().atMost(Duration.ofSeconds(15))
+                    .pollInterval(Duration.ofMillis(100))
+                    .untilAsserted(() -> assertThat(refreshSucceeds(client))
+                            .withFailMessage(() -> "Metadata client did not reconnect through the broker it learned on port " + secondPort)
+                            .isTrue());
+        } finally {
+            client.stop();
+            second.close().sync();
+            group.shutdownGracefully().sync();
+        }
     }
 
     @Test
@@ -265,6 +270,14 @@ class MetadataClientTest {
     /// lists `topics`, each with one partition led by broker 1.
     private static Channel startBroker(NioEventLoopGroup group, KafkaBodyCodec codec, Set<String> topics, int metadataAnswers)
             throws InterruptedException {
+        return startBroker(group, codec, topics, metadataAnswers, 0, new DefaultChannelGroup(GlobalEventExecutor.INSTANCE));
+    }
+
+    /// As [#startBroker(NioEventLoopGroup, KafkaBodyCodec, Set, int)], but the Metadata response names
+    /// broker 1 on `advertisedPort` (`0` for this broker's own port), and every accepted connection is
+    /// added to `connections`, so a test can drop them all at once.
+    private static Channel startBroker(NioEventLoopGroup group, KafkaBodyCodec codec, Set<String> topics, int metadataAnswers,
+                                       int advertisedPort, ChannelGroup connections) throws InterruptedException {
         var responseHeaderCodec = new ResponseHeaderCodec();
         return new ServerBootstrap()
                 .group(group)
@@ -272,6 +285,7 @@ class MetadataClientTest {
                 .childHandler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
+                        connections.add(ch);
                         ch.pipeline().addLast(new KafkaFrameDecoder());
                         ch.pipeline().addLast(new KafkaFrameEncoder());
                         var metadataRequests = new AtomicInteger();
@@ -287,8 +301,9 @@ class MetadataClientTest {
                                     ctx.close();
                                     return;
                                 }
+                                int ownPort = ((InetSocketAddress) ctx.channel().localAddress()).getPort();
                                 Object body = apiKey == ApiKeys.METADATA.id
-                                        ? metadata(topics, ((InetSocketAddress) ctx.channel().localAddress()).getPort())
+                                        ? metadata(topics, advertisedPort == 0 ? ownPort : advertisedPort)
                                         : new ApiVersionsResponseData();
                                 short headerVersion = ApiKeys.forId(apiKey).responseHeaderVersion(apiVersion);
                                 ByteBuf out = ctx.alloc().buffer();

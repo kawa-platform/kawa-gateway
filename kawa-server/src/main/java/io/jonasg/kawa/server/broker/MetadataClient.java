@@ -17,6 +17,7 @@ import io.jonasg.kawa.protocol.kafka.VersionRange;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
@@ -44,6 +45,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -66,6 +68,7 @@ public final class MetadataClient implements MetadataRefresher {
     private static final long INITIAL_METADATA_TIMEOUT_SECONDS = 30;
     private static final long INITIAL_BACKOFF_MILLIS = 500;
     private static final long MAX_BACKOFF_MILLIS = 30_000;
+    private static final int CONNECT_TIMEOUT_MILLIS = 5_000;
 
     private final List<Endpoint> bootstrap;
     private final EventLoopGroup group;
@@ -85,6 +88,7 @@ public final class MetadataClient implements MetadataRefresher {
     });
 
     private volatile @Nullable Connection connection;
+    private volatile @Nullable Endpoint lastAnswered;
     private volatile boolean running;
     private volatile Map<Short, VersionRange> brokerRanges = Map.of();
 
@@ -120,21 +124,21 @@ public final class MetadataClient implements MetadataRefresher {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(INITIAL_METADATA_TIMEOUT_SECONDS);
         long delay = INITIAL_BACKOFF_MILLIS;
         while (true) {
-            Connection attempt = connectToAny();
-            if (attempt != null) {
-                return attempt;
+            try {
+                return connectToAny();
+            } catch (IllegalStateException e) {
+                if (System.nanoTime() >= deadline) {
+                    throw e;
+                }
+                log.warn("No metadata broker answered; retrying in {} ms", delay, e);
+                Thread.sleep(delay);
+                delay = nextBackoffMillis(delay);
             }
-            if (System.nanoTime() >= deadline) {
-                throw new IllegalStateException("Could not connect to any of " + candidates() + " for initial metadata");
-            }
-            log.warn("No metadata broker answered; retrying in {} ms", delay);
-            Thread.sleep(delay);
-            delay = nextBackoffMillis(delay);
         }
     }
 
     /// The delay before the attempt after one that waited `currentMillis`: doubled, capped at 30 s.
-    static long nextBackoffMillis(long currentMillis) {
+    private static long nextBackoffMillis(long currentMillis) {
         return Math.min(currentMillis * 2, MAX_BACKOFF_MILLIS);
     }
 
@@ -178,6 +182,7 @@ public final class MetadataClient implements MetadataRefresher {
     private void onConnected(Connection attempt) {
         Channel channel = attempt.channel();
         connection = attempt;
+        lastAnswered = attempt.endpoint();
         metrics.brokerConnectionOpened();
         channel.closeFuture().addListener(_ -> onClosed(attempt));
         if (!running) {
@@ -200,7 +205,11 @@ public final class MetadataClient implements MetadataRefresher {
         }
         if (running) {
             log.warn("Metadata connection to {} lost; reconnecting", closed.endpoint());
-            reconnector.execute(this::reconnect);
+            try {
+                reconnector.execute(this::reconnect);
+            } catch (RejectedExecutionException e) {
+                // stop() shut the reconnect thread down between the check above and here.
+            }
         }
     }
 
@@ -210,24 +219,26 @@ public final class MetadataClient implements MetadataRefresher {
         long delay = INITIAL_BACKOFF_MILLIS;
         try {
             while (running) {
-                Connection attempt = connectToAny();
-                if (attempt != null) {
+                try {
+                    Connection attempt = connectToAny();
                     log.info("Metadata connection re-established");
                     onConnected(attempt);
                     return;
+                } catch (IllegalStateException e) {
+                    log.warn("No metadata broker answered; retrying in {} ms", delay, e);
+                    Thread.sleep(delay);
+                    delay = nextBackoffMillis(delay);
                 }
-                log.warn("No metadata broker answered; retrying in {} ms", delay);
-                Thread.sleep(delay);
-                delay = nextBackoffMillis(delay);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
 
-    /// Tries each candidate once, in order, and returns the first connection that is established, or
-    /// `null` when none is.
-    private @Nullable Connection connectToAny() throws InterruptedException {
+    /// Tries each candidate once, in order, and returns the first connection that is established.
+    /// When none is, throws an [IllegalStateException] whose cause is the last connect failure.
+    private Connection connectToAny() throws InterruptedException {
+        Exception lastFailure = null;
         for (Endpoint endpoint : candidates()) {
             try {
                 return connect(endpoint);
@@ -235,14 +246,21 @@ public final class MetadataClient implements MetadataRefresher {
                 throw e;
             } catch (Exception e) {
                 log.warn("Metadata connect to {} failed ({})", endpoint, e.getMessage());
+                lastFailure = e;
             }
         }
-        return null;
+        throw new IllegalStateException("No metadata broker answered among " + candidates(), lastFailure);
     }
 
-    /// The endpoints to try, in order: the bootstrap servers, then the brokers the cache last learned.
-    List<Endpoint> candidates() {
-        var candidates = new LinkedHashSet<>(bootstrap);
+    /// The endpoints to try, in order: the broker that answered last, the bootstrap servers, then the
+    /// brokers the cache last learned.
+    private List<Endpoint> candidates() {
+        var candidates = new LinkedHashSet<Endpoint>();
+        Endpoint answered = lastAnswered;
+        if (answered != null) {
+            candidates.add(answered);
+        }
+        candidates.addAll(bootstrap);
         cache.brokers().forEach(broker -> candidates.add(new Endpoint(broker.host(), broker.port())));
         return List.copyOf(candidates);
     }
@@ -250,10 +268,11 @@ public final class MetadataClient implements MetadataRefresher {
     private Connection connect(Endpoint endpoint) throws InterruptedException {
         var pending = new ConcurrentHashMap<Integer, Consumer<ByteBuf>>();
         var inFlightRefreshes = ConcurrentHashMap.<CompletableFuture<Void>>newKeySet();
-        Channel channel = new Bootstrap()
+        ChannelFuture connecting = new Bootstrap()
                 .group(group)
                 .channel(NioSocketChannel.class)
                 .option(ChannelOption.TCP_NODELAY, true)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, CONNECT_TIMEOUT_MILLIS)
                 .handler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
@@ -263,7 +282,16 @@ public final class MetadataClient implements MetadataRefresher {
                         ch.pipeline().addLast("handler", new MetadataResponseHandler(MetadataClient.this, pending));
                     }
                 })
-                .connect(endpoint.host(), endpoint.port()).sync().channel();
+                .connect(endpoint.host(), endpoint.port());
+        Channel channel;
+        try {
+            channel = connecting.sync().channel();
+        } catch (InterruptedException e) {
+            // stop() interrupted the reconnect thread mid-connect: do not leave the socket open.
+            connecting.cancel(true);
+            connecting.channel().close();
+            throw e;
+        }
         // establish() closes the channel itself when the TLS or SASL handshake fails.
         settings.establish(channel, codec, "metadata broker " + endpoint);
         return new Connection(endpoint, channel, pending, inFlightRefreshes);
