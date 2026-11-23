@@ -9,6 +9,7 @@ import io.jonasg.kawa.server.netty.ClientSession;
 import io.netty.channel.EventLoopGroup;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,7 +17,7 @@ import java.util.stream.Collectors;
 
 /// Lazily creates one [BrokerClient] per client connection and physical broker, the connections
 /// that client would have if it talked to the cluster directly. Unknown broker ids (or the
-/// UNROUTED route) fall back to a connection to the bootstrap node.
+/// UNROUTED route) fall back to a connection to the bootstrap servers, tried in configured order.
 ///
 /// A broker processes one request per connection at a time, so connections are not shared between
 /// clients: a request the broker holds (a JoinGroup until the group has rejoined, a Fetch until
@@ -34,16 +35,17 @@ public final class BrokerClientPool {
     private final GatewayMetrics metrics;
     private final MetadataCache cache;
     private final BrokerConnectionSettings settings;
-    private final String bootstrapHost;
-    private final int bootstrapPort;
+    private final List<Endpoint> bootstrap;
 
     public BrokerClientPool(EventLoopGroup group, KafkaBodyCodec codec, InterceptorPipeline pipeline,
                             GatewayMetrics metrics, MetadataCache cache, String bootstrapHost, int bootstrapPort) {
-        this(group, codec, pipeline, metrics, cache, bootstrapHost, bootstrapPort, BrokerConnectionSettings.PLAINTEXT);
+        this(group, codec, pipeline, metrics, cache, List.of(new Endpoint(bootstrapHost, bootstrapPort)),
+                BrokerConnectionSettings.PLAINTEXT);
     }
 
+    /// @param bootstrap the bootstrap servers in configured order; the fallback connection tries them in that order
     public BrokerClientPool(EventLoopGroup group, KafkaBodyCodec codec, InterceptorPipeline pipeline,
-                            GatewayMetrics metrics, MetadataCache cache, String bootstrapHost, int bootstrapPort,
+                            GatewayMetrics metrics, MetadataCache cache, List<Endpoint> bootstrap,
                             BrokerConnectionSettings settings) {
         this.group = group;
         this.codec = codec;
@@ -51,23 +53,22 @@ public final class BrokerClientPool {
         this.metrics = metrics;
         this.cache = cache;
         this.settings = settings;
-        this.bootstrapHost = bootstrapHost;
-        this.bootstrapPort = bootstrapPort;
+        this.bootstrap = List.copyOf(bootstrap);
     }
 
-    /// The connection `session` uses for `brokerId`, or for the bootstrap node when the broker is
+    /// The connection `session` uses for `brokerId`, or for the bootstrap servers when the broker is
     /// not known.
     public BrokerClient forBroker(ClientSession session, int brokerId) {
         BrokerNode node = brokerId < 0 ? null : cache.broker(brokerId);
         Map<Integer, BrokerClient> sessionClients = clients.computeIfAbsent(session, _ -> new ConcurrentHashMap<>());
         if (node == null) {
-            return sessionClients.computeIfAbsent(BOOTSTRAP, _ -> newClient(BOOTSTRAP, bootstrapHost, bootstrapPort));
+            return sessionClients.computeIfAbsent(BOOTSTRAP, _ -> newClient(BOOTSTRAP, bootstrap));
         }
-        return sessionClients.computeIfAbsent(brokerId, id -> newClient(id, node.host(), node.port()));
+        return sessionClients.computeIfAbsent(brokerId, id -> newClient(id, List.of(new Endpoint(node.host(), node.port()))));
     }
 
-    private BrokerClient newClient(int brokerId, String host, int port) {
-        return new BrokerClient(brokerId, host, port, group, codec, pipeline, metrics, settings);
+    private BrokerClient newClient(int brokerId, List<Endpoint> targets) {
+        return new BrokerClient(brokerId, targets, group, codec, pipeline, metrics, settings);
     }
 
     /// Closes the connections of brokers that left the cluster, in every session.
