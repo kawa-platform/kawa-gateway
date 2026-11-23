@@ -189,11 +189,16 @@ class ConsumerGroupMultiBrokerIT {
             producer.commitTransaction();
         }
 
-        // then
-        var committed = brokerAdmin.listConsumerGroupOffsets(group).partitionsToOffsetAndMetadata().get(30, TimeUnit.SECONDS);
-        assertThat(committed.get(new TopicPartition(TOPIC, 0)))
-                .withFailMessage(() -> "The transaction's offsets for group '" + group + "' were not committed: " + committed)
-                .isNotNull();
+        // then - the offsets become visible once the commit markers reach the group coordinator
+        Awaitility.await("the transaction's offsets for group '" + group + "' to be committed")
+                .atMost(Duration.ofSeconds(30))
+                .pollInterval(Duration.ofMillis(500))
+                .untilAsserted(() -> {
+                    var committed = brokerAdmin.listConsumerGroupOffsets(group).partitionsToOffsetAndMetadata().get(30, TimeUnit.SECONDS);
+                    assertThat(committed.get(new TopicPartition(TOPIC, 0)))
+                            .withFailMessage(() -> "The transaction's offsets for group '" + group + "' were not committed: " + committed)
+                            .isNotNull();
+                });
     }
 
     /// Fetching a group's offsets and initializing a transaction create `__consumer_offsets` and
