@@ -100,7 +100,7 @@ public final class MetadataClient implements MetadataRefresher {
     public MetadataClient(List<InetSocketAddress> bootstrap, EventLoopGroup group, KafkaBodyCodec codec,
                           MetadataCache cache, BrokerClientPool pool, GatewayMetrics metrics,
                           BrokerConnectionSettings settings) {
-        this.bootstrap = bootstrap.stream().map(address -> new Endpoint(address.getHostString(), address.getPort())).toList();
+        this.bootstrap = bootstrap.stream().map(Endpoint::of).toList();
         this.group = group;
         this.codec = codec;
         this.cache = cache;
@@ -440,15 +440,6 @@ public final class MetadataClient implements MetadataRefresher {
         Connection current = connection;
         if (current != null) {
             current.channel().close();
-        }
-    }
-
-    /// A host and port the client connects to: a bootstrap server or a broker the cache knows.
-    record Endpoint(String host, int port) {
-
-        @Override
-        public String toString() {
-            return host + ":" + port;
         }
     }
 

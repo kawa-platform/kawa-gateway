@@ -21,14 +21,13 @@ public final class ClusterConnections implements AutoCloseable {
     private final MetadataClient metadataClient;
     private final LeaderRouter router;
 
-    /// `bootstrap` lists the cluster's bootstrap servers in configured order; the first one is the
-    /// fallback for requests to a broker the cache does not know.
+    /// `bootstrap` lists the cluster's bootstrap servers in configured order; requests to a broker the
+    /// cache does not know fall back to them, tried in that order.
     public ClusterConnections(KafkaBodyCodec codec, InterceptorPipeline pipeline,
                               GatewayMetrics metrics, MetadataCache cache,
                               List<InetSocketAddress> bootstrap, BrokerConnectionSettings settings) {
-        var first = bootstrap.getFirst();
         pool = new BrokerClientPool(brokerGroup, codec, pipeline, metrics, cache,
-                first.getHostString(), first.getPort(), settings);
+                bootstrap.stream().map(Endpoint::of).toList(), settings);
         metadataClient = new MetadataClient(bootstrap, brokerGroup, codec, cache, pool, metrics, settings);
         router = new LeaderRouter(cache);
     }

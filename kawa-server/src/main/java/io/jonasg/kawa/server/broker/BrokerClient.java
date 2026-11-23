@@ -23,9 +23,11 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.CorruptedFrameException;
 import org.apache.kafka.common.message.FetchRequestData;
 import org.apache.kafka.common.message.JoinGroupRequestData;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
@@ -38,13 +40,14 @@ public final class BrokerClient {
 
     private static final Logger log = LoggerFactory.getLogger(BrokerClient.class);
     private static final long REQUEST_TIMEOUT_MILLIS = TimeUnit.SECONDS.toMillis(30);
+    /// Bounds each connect attempt, so a bootstrap server that drops packets does not stall the next target.
+    private static final int CONNECT_TIMEOUT_MILLIS = 5_000;
     /// How long past the time a broker may legitimately hold a request the gateway still waits,
     /// as Kafka's own client does for JoinGroup.
     private static final long LONG_POLL_LAPSE_MILLIS = 5_000;
 
     private final int brokerId;
-    private final String host;
-    private final int port;
+    private final List<Endpoint> targets;
     private final EventLoopGroup group;
     private final KafkaBodyCodec codec;
     private final InterceptorPipeline pipeline;
@@ -56,6 +59,7 @@ public final class BrokerClient {
     private final AtomicInteger correlationIds = new AtomicInteger();
 
     private volatile Channel channel;
+    private volatile @Nullable Endpoint connectedTo;
     private volatile boolean closed;
 
     public BrokerClient(int brokerId, String host, int port, EventLoopGroup group,
@@ -66,9 +70,16 @@ public final class BrokerClient {
     public BrokerClient(int brokerId, String host, int port, EventLoopGroup group,
                         KafkaBodyCodec codec, InterceptorPipeline pipeline, GatewayMetrics metrics,
                         BrokerConnectionSettings settings) {
+        this(brokerId, List.of(new Endpoint(host, port)), group, codec, pipeline, metrics, settings);
+    }
+
+    /// @param targets the addresses to connect to, tried in order on each connect: one for a broker,
+    ///                every bootstrap server for the bootstrap client
+    BrokerClient(int brokerId, List<Endpoint> targets, EventLoopGroup group,
+                 KafkaBodyCodec codec, InterceptorPipeline pipeline, GatewayMetrics metrics,
+                 BrokerConnectionSettings settings) {
         this.brokerId = brokerId;
-        this.host = host;
-        this.port = port;
+        this.targets = List.copyOf(targets);
         this.group = group;
         this.codec = codec;
         this.pipeline = pipeline;
@@ -113,8 +124,8 @@ public final class BrokerClient {
         }
         channel.writeAndFlush(out);
         metrics.request(request.apiName(), "forwarded");
-        log.debug("Forwarded {} v{} (correlation {}) to broker {} on {}:{}",
-                request.apiName(), request.apiVersion(), brokerCorrelationId, brokerId, host, port);
+        log.debug("Forwarded {} v{} (correlation {}) to broker {} on {}",
+                request.apiName(), request.apiVersion(), brokerCorrelationId, brokerId, connectedTo);
     }
 
     void handleBrokerResponse(ByteBuf frame) {
@@ -208,41 +219,64 @@ public final class BrokerClient {
         try {
             connect();
         } catch (Exception e) {
-            log.error("Failed to connect to broker {} at {}:{}", brokerId, host, port, e);
+            log.error("Failed to connect to broker {} at {}", brokerId, targets, e);
             session.close();
             throw new CorruptedFrameException("Broker connection failed", e);
         }
     }
 
+    /// Connects to the first target that answers, trying them in order. Throws when none does.
     private void connect() throws InterruptedException {
+        Channel ch = null;
+        Endpoint answered = null;
+        Exception lastFailure = null;
+        for (Endpoint target : targets) {
+            try {
+                ch = open(target);
+                answered = target;
+                break;
+            } catch (InterruptedException e) {
+                throw e;
+            } catch (Exception e) {
+                log.warn("Connect to broker {} at {} failed ({}); trying the next target", brokerId, target, e.getMessage());
+                lastFailure = e;
+            }
+        }
+        if (ch == null) {
+            throw new IllegalStateException("No target answered for broker " + brokerId + " among " + targets, lastFailure);
+        }
+        Channel connected = ch;
+        this.channel = connected;
+        this.connectedTo = answered;
+        metrics.brokerConnectionOpened();
+        connected.closeFuture().addListener(future -> {
+            metrics.brokerConnectionClosed();
+            Channel current = channel;
+            if (current == connected) {
+                channel = null;
+            }
+        });
+    }
+
+    /// Opens one connection to `target`, completing its TLS handshake and SASL login.
+    private Channel open(Endpoint target) throws InterruptedException {
         var bootstrap = new Bootstrap();
         bootstrap.group(group)
                 .channel(NioSocketChannel.class)
                 .option(ChannelOption.TCP_NODELAY, true)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, CONNECT_TIMEOUT_MILLIS)
                 .handler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
-                        settings.addTls(ch, host, port);
+                        settings.addTls(ch, target.host(), target.port());
                         ch.pipeline().addLast("frameDecoder", new KafkaFrameDecoder());
                         ch.pipeline().addLast("frameEncoder", new KafkaFrameEncoder());
                         ch.pipeline().addLast("responseHandler", new BrokerResponseHandler(BrokerClient.this));
                     }
                 });
-        Channel ch = bootstrap.connect(host, port).sync().channel();
-        try {
-            settings.establish(ch, codec, "broker " + brokerId + " at " + host + ":" + port);
-        } catch (IllegalStateException e) {
-            throw new CorruptedFrameException(e.getMessage(), e);
-        }
-        this.channel = ch;
-        metrics.brokerConnectionOpened();
-        ch.closeFuture().addListener(future -> {
-            metrics.brokerConnectionClosed();
-            Channel current = channel;
-            if (current == ch) {
-                channel = null;
-            }
-        });
+        Channel ch = bootstrap.connect(target.host(), target.port()).sync().channel();
+        settings.establish(ch, codec, "broker " + brokerId + " at " + target);
+        return ch;
     }
 
     void onBrokerDisconnected() {

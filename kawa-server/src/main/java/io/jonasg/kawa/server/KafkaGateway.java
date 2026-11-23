@@ -112,7 +112,8 @@ public final class KafkaGateway implements Gateway {
         if (clusterCfg == null || clusterCfg.bootstrapServers().isEmpty()) {
             throw new IllegalStateException("No cluster configured");
         }
-        String bootstrapServers = clusterCfg.bootstrapServers().getFirst();
+        // The Kafka clients (config-topic consumer and writer, admin) take the whole list and fail over themselves.
+        String bootstrapServers = String.join(",", clusterCfg.bootstrapServers());
         List<InetSocketAddress> bootstrap = clusterCfg.bootstrapServers().stream().map(KafkaGateway::parseBootstrap).toList();
 
         // How to reach the brokers (TLS and SASL), for the gateway's Netty connections and for its
