@@ -12,7 +12,8 @@ import org.apache.kafka.common.record.internal.BaseRecords;
 import org.apache.kafka.common.record.internal.MemoryRecords;
 import org.apache.kafka.common.record.internal.Record;
 import org.apache.kafka.common.record.internal.RecordBatch;
-import org.apache.kafka.common.utils.BufferSupplier;
+import org.apache.kafka.common.record.internal.Records;
+import org.apache.kafka.common.utils.internals.BufferSupplier;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,8 +24,8 @@ import java.util.Objects;
 /// Applies a virtual topic's configured consume filter to a fetched partition's records:
 /// decodes the batch(es), drops records the filter rejects, and re-encodes a valid batch.
 ///
-/// Built on Kafka's own [MemoryRecords#filterTo(TopicPartition, MemoryRecords.RecordFilter,
-/// ByteBuffer, int, BufferSupplier)], the same decode-filter-reencode
+/// Built on Kafka's own [MemoryRecords#filterTo(MemoryRecords.RecordFilter, ByteBuffer, BufferSupplier, int)],
+/// the same decode-filter-reencode
 /// mechanism the broker's log cleaner (compaction) and client-side down-conversion use to drop
 /// records from a batch and re-emit a valid one - rather than hand-rolling batch encoding. A batch
 /// whose records are all kept is copied as it is.
@@ -129,7 +130,7 @@ public final class VirtualTopicRecordFilter {
 
     private static MemoryRecords filter(MemoryRecords records, EvaluatingRecordFilter recordFilter) {
         ByteBuffer output = ByteBuffer.allocate(records.sizeInBytes());
-        records.filterTo(recordFilter, output, BufferSupplier.NO_CACHING);
+        records.filterTo(recordFilter, output, BufferSupplier.NO_CACHING, Records.SOFT_MAX_ARRAY_LENGTH);
         output.flip();
         return MemoryRecords.readableRecords(output);
     }

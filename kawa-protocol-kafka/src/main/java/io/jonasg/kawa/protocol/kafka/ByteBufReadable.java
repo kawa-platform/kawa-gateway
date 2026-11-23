@@ -1,24 +1,30 @@
 package io.jonasg.kawa.protocol.kafka;
 
 import io.netty.buffer.ByteBuf;
+import org.apache.kafka.common.protocol.ByteBufferAccessor;
 import org.apache.kafka.common.protocol.Readable;
-import org.apache.kafka.common.utils.ByteUtils;
 
 import java.nio.ByteBuffer;
 
 /// Adapter exposing a Netty `ByteBuf` through kafka-clients' `Readable`. After
 /// the message has been read, call `consumed()` and advance the buffer's reader index
 /// by that amount.
+///
+/// Varints are decoded by Kafka's own [ByteBufferAccessor] over the same buffer, so they share its position.
+/// Everything else stays here: [#readByteBuffer(int)] in particular copies, because the `ByteBuf` is released
+/// once the message is decoded.
 public final class ByteBufReadable implements Readable {
 
     private final ByteBuffer buffer;
+    private final ByteBufferAccessor varints;
 
     public ByteBufReadable(ByteBuf buf) {
-        this.buffer = buf.nioBuffer(buf.readerIndex(), buf.readableBytes());
+        this(buf.nioBuffer(buf.readerIndex(), buf.readableBytes()));
     }
 
     private ByteBufReadable(ByteBuffer buffer) {
         this.buffer = buffer;
+        this.varints = new ByteBufferAccessor(buffer);
     }
 
     @Override
@@ -60,7 +66,7 @@ public final class ByteBufReadable implements Readable {
 
     @Override
     public int readUnsignedVarint() {
-        return ByteUtils.readUnsignedVarint(buffer);
+        return varints.readUnsignedVarint();
     }
 
     @Override
@@ -72,12 +78,12 @@ public final class ByteBufReadable implements Readable {
 
     @Override
     public int readVarint() {
-        return ByteUtils.readVarint(buffer);
+        return varints.readVarint();
     }
 
     @Override
     public long readVarlong() {
-        return ByteUtils.readVarlong(buffer);
+        return varints.readVarlong();
     }
 
     @Override
