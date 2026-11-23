@@ -1,11 +1,13 @@
 package io.jonasg.kawa.protocol.kafka;
 
 import io.netty.buffer.ByteBuf;
+import org.apache.kafka.common.protocol.ByteBufferAccessor;
 import org.apache.kafka.common.protocol.Writable;
-import org.apache.kafka.common.utils.ByteUtils;
 
 import java.nio.ByteBuffer;
 
+/// Adapter writing kafka-clients' `Writable` output into a Netty `ByteBuf`. Varints are encoded by Kafka's own
+/// [ByteBufferAccessor] into a scratch buffer and then copied over.
 public final class ByteBufWritable implements Writable {
 
     private final ByteBuf out;
@@ -46,10 +48,9 @@ public final class ByteBufWritable implements Writable {
 
     @Override
     public void writeUnsignedVarint(int value) {
-        ByteBuffer tmp = ByteBuffer.allocate(5);
-        ByteUtils.writeUnsignedVarint(value, tmp);
-        tmp.flip();
-        out.writeBytes(tmp);
+        ByteBuffer scratch = ByteBuffer.allocate(5);
+        new ByteBufferAccessor(scratch).writeUnsignedVarint(value);
+        out.writeBytes(scratch.flip());
     }
 
     @Override
@@ -59,17 +60,15 @@ public final class ByteBufWritable implements Writable {
 
     @Override
     public void writeVarint(int value) {
-        ByteBuffer tmp = ByteBuffer.allocate(5);
-        ByteUtils.writeVarint(value, tmp);
-        tmp.flip();
-        out.writeBytes(tmp);
+        ByteBuffer scratch = ByteBuffer.allocate(5);
+        new ByteBufferAccessor(scratch).writeVarint(value);
+        out.writeBytes(scratch.flip());
     }
 
     @Override
     public void writeVarlong(long value) {
-        ByteBuffer tmp = ByteBuffer.allocate(10);
-        ByteUtils.writeVarlong(value, tmp);
-        tmp.flip();
-        out.writeBytes(tmp);
+        ByteBuffer scratch = ByteBuffer.allocate(10);
+        new ByteBufferAccessor(scratch).writeVarlong(value);
+        out.writeBytes(scratch.flip());
     }
 }
