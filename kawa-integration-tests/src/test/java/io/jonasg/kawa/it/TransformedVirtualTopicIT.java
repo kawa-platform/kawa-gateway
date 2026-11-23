@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static org.apache.kafka.clients.CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.AUTO_OFFSET_RESET_CONFIG;
 import static org.apache.kafka.clients.consumer.ConsumerConfig.GROUP_ID_CONFIG;
@@ -31,7 +32,6 @@ import static org.apache.kafka.clients.producer.ProducerConfig.COMPRESSION_TYPE_
 import static org.apache.kafka.clients.producer.ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG;
 import static org.apache.kafka.clients.producer.ProducerConfig.LINGER_MS_CONFIG;
 import static org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG;
-import static org.assertj.core.api.Assertions.assertThat;
 
 /// End-to-end test for transformations on the fetch path: JSON orders are produced to the physical
 /// topic, and a consumer group member of the virtual topic receives them through the gateway as
@@ -82,10 +82,12 @@ class TransformedVirtualTopicIT extends GatewayTestSupport {
         consumerProps.put(VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         try (var consumer = new KafkaConsumer<String, String>(consumerProps)) {
             consumer.subscribe(List.of("orders-xml"));
-            long deadline = System.currentTimeMillis() + 30_000;
-            while (System.currentTimeMillis() < deadline && received.stream().noneMatch(record -> record.key().equals("o-2"))) {
+            eventually(() -> {
                 consumer.poll(Duration.ofMillis(200)).forEach(received::add);
-            }
+                assertThat(received).extracting(ConsumerRecord::key)
+                        .withFailMessage(() -> "The order 'o-2' was not delivered, got keys " + received.stream().map(ConsumerRecord::key).toList())
+                        .contains("o-2");
+            });
         }
 
         // then both orders arrive as XML without the risk score; the record that is not JSON is skipped
