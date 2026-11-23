@@ -121,6 +121,40 @@ class FetchSessionRegistryTest {
     }
 
     @Test
+    void startsTrackingASessionFirstSeenWithoutVirtualTopicsOnceAnIncrementalFetchNamesOne() {
+        // given a session whose full fetch named only plain topics
+        registry.bindSession(client, 1, Map.of(), Map.of(new TopicPartition("payments", 0), 3L));
+
+        // when the client adds the virtual topic `customers` to the session through an incremental fetch
+        registry.onFetchRequest(client, 1, Map.of("customers-v2", "customers"), List.of(), Map.of(CUSTOMERS_0, 5L), List.of());
+
+        // then
+        assertThat(registry.hasSession(client, 1))
+                .withFailMessage(() -> "The session the client added a virtual topic to was not remembered")
+                .isTrue();
+        assertThat(registry.virtualFor(client, 1, "customers-v2"))
+                .withFailMessage(() -> "The virtual topic the client added to its session was not remembered under the name it used")
+                .isEqualTo("customers");
+        assertThat(registry.fetchOffset(client, 1, CUSTOMERS_0))
+                .withFailMessage(() -> "The fetch offset the client sent when adding the virtual topic to its session was not remembered")
+                .hasValue(5L);
+    }
+
+    @Test
+    void doesNotTrackASessionWhoseIncrementalFetchNamesNoVirtualTopic() {
+        // given a session whose full fetch named only plain topics
+        registry.bindSession(client, 1, Map.of(), Map.of(new TopicPartition("payments", 0), 3L));
+
+        // when the client's incremental fetch names only plain topics again
+        registry.onFetchRequest(client, 1, Map.of(), List.of(), Map.of(new TopicPartition("payments", 0), 4L), List.of());
+
+        // then
+        assertThat(registry.hasSession(client, 1))
+                .withFailMessage(() -> "A session that never named a virtual topic was tracked")
+                .isFalse();
+    }
+
+    @Test
     void sessionsAreScopedPerClient() {
         registry.bindSession(client, 1, Map.of("customers-v2", "customers"));
 

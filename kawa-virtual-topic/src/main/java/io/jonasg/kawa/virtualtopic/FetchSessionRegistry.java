@@ -19,8 +19,11 @@ import java.util.concurrent.TimeUnit;
 /// session id) so idle incremental responses can still be renamed back to virtual names.
 ///
 /// Entries are bound when a session is created (full fetch response) and updated while it is
-/// alive. They are dropped when the client closes the session (final epoch), when the broker
-/// reports the session as unknown, when the client disconnects, or after an idle TTL.
+/// alive. A session whose full fetch named no virtual topic is not tracked until an incremental
+/// fetch names one: that request then binds it lazily with its mapping and fetch offsets, so
+/// sessions that never touch a virtual topic cost nothing. Entries are dropped when the client
+/// closes the session (final epoch), when the broker reports the session as unknown, when the
+/// client disconnects, or after an idle TTL.
 public final class FetchSessionRegistry {
 
     private static final long TTL_NANOS = TimeUnit.MINUTES.toNanos(5);
@@ -42,9 +45,10 @@ public final class FetchSessionRegistry {
 
     private final Map<Key, Entry> sessions = new ConcurrentHashMap<>();
 
-    /// Applies a fetch request to an existing session: merges newly renamed topics, forgets
-    /// the given physical topics and records activity. No-op for full fetches (session not yet
-    /// created) or unknown sessions.
+    /// Applies an incremental fetch request to its session: merges newly renamed topics, forgets
+    /// the given physical topics and records activity. An unknown session starts being tracked here
+    /// once a request names a virtual topic (non-empty `physicalToVirtual`); otherwise unknown
+    /// sessions stay untracked. No-op for full fetches (session not yet created).
     public void onFetchRequest(Object client, int sessionId, Map<String, String> physicalToVirtual,
                                List<String> forgottenPhysical) {
         onFetchRequest(client, sessionId, physicalToVirtual, forgottenPhysical, Map.of(), List.of());
@@ -64,7 +68,10 @@ public final class FetchSessionRegistry {
         var key = new Key(client, sessionId);
         Entry entry = sessions.get(key);
         if (entry == null) {
-            return;
+            if (physicalToVirtual.isEmpty()) {
+                return;
+            }
+            entry = sessions.computeIfAbsent(key, k -> new Entry(now));
         }
         entry.lastSeenNanos = now;
         entry.physicalToVirtual.putAll(physicalToVirtual);

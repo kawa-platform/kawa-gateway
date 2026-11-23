@@ -127,8 +127,14 @@ public final class FetchVirtualTopicTransform
     ) {
         VirtualTopicState state = VirtualTopicState.from(context);
         int sessionId = data.sessionId();
-        if (sessionId != 0 && data.errorCode() == Errors.FETCH_SESSION_ID_NOT_FOUND.code()) {
-            fetchSessions.removeSession(context.source(), sessionId);
+        if (data.errorCode() == Errors.FETCH_SESSION_ID_NOT_FOUND.code()) {
+            // The broker answers this error with session id 0: drop the session the request named.
+            if (state.fetchSessionId() != 0) {
+                fetchSessions.removeSession(context.source(), state.fetchSessionId());
+            }
+            if (sessionId != 0) {
+                fetchSessions.removeSession(context.source(), sessionId);
+            }
         }
         if (sessionId != 0 && state.fetchSessionId() == 0) {
             fetchSessions.bindSession(context.source(), sessionId, state.physicalToVirtual(), state.fetchOffsets());
