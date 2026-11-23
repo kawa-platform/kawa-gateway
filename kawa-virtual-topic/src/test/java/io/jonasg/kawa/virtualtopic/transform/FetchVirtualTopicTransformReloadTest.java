@@ -12,6 +12,7 @@ import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
 import org.apache.kafka.common.compress.Compression;
 import org.apache.kafka.common.message.FetchRequestData;
 import org.apache.kafka.common.message.FetchResponseData;
+import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.record.internal.MemoryRecords;
 import org.apache.kafka.common.record.internal.Record;
 import org.apache.kafka.common.record.internal.SimpleRecord;
@@ -101,6 +102,24 @@ class FetchVirtualTopicTransformReloadTest {
                 .until(() -> collected(outputFormat));
     }
 
+    @Test
+    void answersUnknownServerErrorOnceASnapshotWithAFilterThatDoesNotCompileIsPublished() {
+        // given a consumer that fetched `orders` while it kept values with a above 1
+        var virtualTopics = new VirtualTopicManager(Map.of("orders", filtered("value.a > 1")));
+        var transform = transform(virtualTopics);
+        fetch(transform);
+
+        // when a snapshot whose filter does not compile is prepared and published
+        virtualTopics.publish(virtualTopics.prepare(Map.of("orders", filtered("value.a >"))));
+        FetchResponseData.PartitionData partition = fetchPartition(transform);
+
+        // then
+        assertThat(partition.errorCode())
+                .withFailMessage(() -> "The fetch of a topic whose filter does not compile did not fail with UNKNOWN_SERVER_ERROR, got "
+                        + Errors.forCode(partition.errorCode()))
+                .isEqualTo(Errors.UNKNOWN_SERVER_ERROR.code());
+    }
+
     /// Makes `orders` a filtered virtual topic and fetches it; only the returned reference is kept.
     private WeakReference<CelFilterConfig> fetchThroughFilter(VirtualTopicManager virtualTopics, FetchVirtualTopicTransform transform) {
         var filter = new CelFilterConfig("value.a > 1");
@@ -139,6 +158,11 @@ class FetchVirtualTopicTransformReloadTest {
 
     /// Fetches partition 0 of `orders`; the broker answers with the values a = 1, 2 and 3.
     private MemoryRecords fetch(FetchVirtualTopicTransform transform) {
+        return (MemoryRecords) fetchPartition(transform).records();
+    }
+
+    /// Fetches partition 0 of `orders` like [#fetch] and answers the partition of the response.
+    private FetchResponseData.PartitionData fetchPartition(FetchVirtualTopicTransform transform) {
         var request = new FetchRequestData();
         request.topics().add(new FetchRequestData.FetchTopic().setTopic("orders"));
         transform.onRequest(context, request);
@@ -151,7 +175,7 @@ class FetchVirtualTopicTransformReloadTest {
                         .setHighWatermark(3)
                         .setRecords(MemoryRecords.withRecords(Compression.NONE, json("{\"a\":1}"), json("{\"a\":2}"), json("{\"a\":3}"))))));
         transform.onResponse(context, response);
-        return (MemoryRecords) response.responses().getFirst().partitions().getFirst().records();
+        return response.responses().getFirst().partitions().getFirst();
     }
 
     private static SimpleRecord json(String value) {

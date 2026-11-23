@@ -437,6 +437,32 @@ class DynamicConfigManagerTest {
     }
 
     @Test
+    void keepsThePreviousVirtualTopicsWhenGovernanceRefusesTheSnapshot() {
+        // given
+        var virtualTopics = new VirtualTopicManager(Map.of());
+        var manager = new DynamicConfigManager("localhost:9092", "__kawa",
+                virtualTopics,
+                new RbacAuthorizer(new RbacConfig(Map.of(), Map.of())),
+                new SaslAuthenticator(),
+                emptyGovernance());
+        manager.apply(config(Map.of("orders", new VirtualTopicConfig("orders-v2")), new RbacConfig(Map.of(), Map.of()), plainAuth(), null));
+        var broken = config(Map.of("customers", new VirtualTopicConfig("crm.customers")), new RbacConfig(Map.of(), Map.of()), plainAuth(),
+                new GovernanceConfig(Map.of("broken", rule("broken", "broken rule", "topic.partitions >="))));
+
+        // when
+        assertThatThrownBy(() -> manager.apply(broken))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // then
+        assertThat(virtualTopics.toPhysical("orders"))
+                .withFailMessage(() -> "A snapshot refused by governance removed the virtual topic 'orders' of the previous snapshot")
+                .isEqualTo("orders-v2");
+        assertThat(virtualTopics.toPhysical("customers"))
+                .withFailMessage(() -> "A snapshot refused by governance still published its virtual topic 'customers'")
+                .isEqualTo("customers");
+    }
+
+    @Test
     void appliesRuleExemptionsToPolicy() {
         // given
         var governancePolicy = new GovernancePolicy(new GovernanceConfig(null));
