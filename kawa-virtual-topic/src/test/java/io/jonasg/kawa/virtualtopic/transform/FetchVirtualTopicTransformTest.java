@@ -329,6 +329,50 @@ class FetchVirtualTopicTransformTest {
     }
 
     @Test
+    void answersCorruptMessageWhenAnIncrementalFetchAddsAVirtualTopicAtABadRecordToASessionOfPlainTopics() {
+        // given a fetch session the consumer created fetching only the plain topic `payments`
+        var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
+        fetchAlongsidePayments(transform, NO_SESSION, 0, 0L, null, false, SESSION);
+
+        // when the consumer's incremental fetch adds `orders` at the bad record at offset 5
+        FetchResponseData response = fetchAlongsidePayments(transform, SESSION, 1, null, 5L, true, SESSION);
+
+        // then
+        assertCorruptMessage(ordersPartition(response));
+    }
+
+    @Test
+    void answersCorruptMessageAgainWhenARetryLeavesOutAVirtualTopicAddedToASessionOfPlainTopics() {
+        // given a fetch session of the plain topic `payments` to which the consumer added `orders` at the bad record at offset 5
+        var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
+        fetchAlongsidePayments(transform, NO_SESSION, 0, 0L, null, false, SESSION);
+        fetchAlongsidePayments(transform, SESSION, 1, null, 5L, true, SESSION);
+
+        // when the consumer retries with an incremental fetch that leaves the unchanged partition out
+        FetchResponseData response = fetchAlongsidePayments(transform, SESSION, 2, null, null, true, SESSION);
+
+        // then
+        assertCorruptMessage(ordersPartition(response));
+    }
+
+    @Test
+    void answersAVirtualTopicAddedToASessionOfPlainTopicsUnderItsNameWhenAnIncrementalFetchLeavesItOut() {
+        // given a fetch session of the plain topic `payments` to which the consumer added `orders` at offset 1
+        var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
+        fetchAlongsidePayments(transform, NO_SESSION, 0, 0L, null, false, SESSION);
+        fetchAlongsidePayments(transform, SESSION, 1, null, 1L, true, SESSION);
+
+        // when the consumer's next incremental fetch leaves `orders` out, and the broker still answers with its records
+        FetchResponseData response = fetchAlongsidePayments(transform, SESSION, 2, null, null, true, SESSION);
+
+        // then
+        List<String> topics = response.responses().stream().map(FetchResponseData.FetchableTopicResponse::topic).toList();
+        assertThat(topics)
+                .withFailMessage(() -> "The consumer did not get its records under the virtual topic name `orders` it fetched, got " + topics)
+                .containsExactly("orders");
+    }
+
+    @Test
     void deliversTheRecordsAfterABadRecordOnceTheConsumerSeeksPastIt() {
         // given a transformed topic under the fail policy whose batch at offsets 1-7 holds a bad record at 5
         var transform = transform(renamingTopic(DecodeErrorPolicy.FAIL));
@@ -926,6 +970,57 @@ class FetchVirtualTopicTransformTest {
                                 json("not json"), json("{\"a\":6}"), json("{\"a\":7}"))))));
         transform.onResponse(fetchContext, response);
         return partition(response, 0);
+    }
+
+    /// Fetches partition 0 of the plain topic `payments` at `paymentsOffset` and partition 0 of `orders` at
+    /// `ordersOffset` (`null` leaves a partition out of the request, as an incremental fetch does when its offset
+    /// did not change); the broker answers, when `ordersInResponse`, with the batch of `orders.raw` at offsets 1-7
+    /// whose record at 5 is not JSON, and with a record of `payments` when the request named it.
+    private FetchResponseData fetchAlongsidePayments(FetchVirtualTopicTransform transform, int requestSession, int epoch,
+                                                     Long paymentsOffset, Long ordersOffset, boolean ordersInResponse,
+                                                     int responseSession) {
+        var fetchContext = new GatewayContext("consumer", System.nanoTime());
+        var request = new FetchRequestData().setSessionId(requestSession).setSessionEpoch(epoch);
+        if (paymentsOffset != null) {
+            request.topics().add(new FetchRequestData.FetchTopic().setTopic("payments").setPartitions(new ArrayList<>(List.of(
+                    new FetchRequestData.FetchPartition().setPartition(0).setFetchOffset(paymentsOffset)))));
+        }
+        if (ordersOffset != null) {
+            request.topics().add(new FetchRequestData.FetchTopic().setTopic("orders").setPartitions(new ArrayList<>(List.of(
+                    new FetchRequestData.FetchPartition().setPartition(0).setFetchOffset(ordersOffset)))));
+        }
+        transform.onRequest(fetchContext, request);
+
+        var response = new FetchResponseData().setSessionId(responseSession);
+        if (paymentsOffset != null) {
+            response.responses().add(new FetchResponseData.FetchableTopicResponse()
+                    .setTopic("payments")
+                    .setPartitions(new ArrayList<>(List.of(new FetchResponseData.PartitionData()
+                            .setPartitionIndex(0)
+                            .setHighWatermark(1)
+                            .setRecords(MemoryRecords.withRecords(Compression.NONE, json("{\"p\":1}")))))));
+        }
+        if (ordersInResponse) {
+            response.responses().add(new FetchResponseData.FetchableTopicResponse()
+                    .setTopic("orders.raw")
+                    .setPartitions(new ArrayList<>(List.of(new FetchResponseData.PartitionData()
+                            .setPartitionIndex(0)
+                            .setHighWatermark(8)
+                            .setRecords(MemoryRecords.withRecords(1L, Compression.NONE,
+                                    json("{\"a\":1}"), json("{\"a\":2}"), json("{\"a\":3}"), json("{\"a\":4}"),
+                                    json("not json"), json("{\"a\":6}"), json("{\"a\":7}")))))));
+        }
+        transform.onResponse(fetchContext, response);
+        return response;
+    }
+
+    /// Partition 0 of `orders`, whichever name the response gives the topic.
+    private static FetchResponseData.PartitionData ordersPartition(FetchResponseData response) {
+        return response.responses().stream()
+                .filter(topic -> !topic.topic().equals("payments"))
+                .findFirst()
+                .orElseThrow()
+                .partitions().getFirst();
     }
 
     private static List<Long> offsets(BaseRecords records) {
