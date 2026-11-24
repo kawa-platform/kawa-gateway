@@ -4,15 +4,17 @@ import io.jonasg.kawa.config.CelTransformationConfig;
 import io.jonasg.kawa.config.ConvertTransformationConfig;
 import io.jonasg.kawa.config.DefaultFieldTransformationConfig;
 import io.jonasg.kawa.config.DropFieldsTransformationConfig;
+import io.jonasg.kawa.config.DropHeadersTransformationConfig;
 import io.jonasg.kawa.config.RenameFieldTransformationConfig;
+import io.jonasg.kawa.config.SetHeaderTransformationConfig;
 import io.jonasg.kawa.config.TransformationConfig;
 import org.apache.kafka.common.record.internal.Record;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/// Compiles a virtual topic's transformation steps into one [ValueMapping], applied in order to
-/// the decoded record value on fetch.
+/// Compiles a virtual topic's value steps into one [ValueMapping], applied in order to the
+/// decoded record value on fetch.
 ///
 /// | Step           | Effect                                                                    |
 /// |----------------|---------------------------------------------------------------------------|
@@ -21,6 +23,7 @@ import java.util.List;
 /// | `defaultField` | sets an absent or `null` field ([DefaultFieldMapping])                    |
 /// | `cel`          | replaces the value with a CEL expression's result ([CelMapping])          |
 /// | `convert`      | none here: it picks the format the result is encoded in                   |
+/// | `dropHeaders`, `setHeader` | none here: they map headers ([HeaderMappings])                |
 ///
 /// Fields are addressed by dotted paths; a list on a path applies the step to every element.
 /// Picking one element of a list or building a new list is done with `cel` (`value.lines.map(l,
@@ -55,7 +58,8 @@ public final class ValueMappings {
                     case RenameFieldTransformationConfig config -> new RenameFieldMapping(config);
                     case DefaultFieldTransformationConfig config -> new DefaultFieldMapping(config);
                     case CelTransformationConfig config -> new CelMapping(config);
-                    case ConvertTransformationConfig _ -> null;
+                    case ConvertTransformationConfig _, DropHeadersTransformationConfig _,
+                         SetHeaderTransformationConfig _ -> null;
                 };
             } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException(label + ": " + e.getMessage(), e);
@@ -88,6 +92,8 @@ public final class ValueMappings {
             case DefaultFieldTransformationConfig _ -> "defaultField";
             case CelTransformationConfig _ -> "cel";
             case ConvertTransformationConfig _ -> "convert";
+            case DropHeadersTransformationConfig _ -> "dropHeaders";
+            case SetHeaderTransformationConfig _ -> "setHeader";
         };
     }
 
