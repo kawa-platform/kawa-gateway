@@ -58,11 +58,11 @@ final class GetTopicsHandler implements Router.Handler {
     private static @Nullable TopicFilterView toFilterView(@Nullable VirtualTopicFilterConfig filter) {
         return switch (filter) {
             case null -> null;
-            case HeaderEqualsFilterConfig cfg -> new TopicFilterView("header", cfg.header() + "=" + cfg.value());
-            case HeaderContainsFilterConfig cfg -> new TopicFilterView("headerContains", cfg.header() + " contains " + cfg.value());
-            case HeaderStartsWithFilterConfig cfg -> new TopicFilterView("headerStartsWith", cfg.header() + " starts with " + cfg.value());
-            case HeaderMatchesFilterConfig cfg -> new TopicFilterView("headerMatches", cfg.header() + " matches " + cfg.value());
-            case CelFilterConfig cfg -> new TopicFilterView("cel", cfg.expression());
+            case HeaderEqualsFilterConfig cfg -> new TopicFilterView("header", cfg.header() + "=" + cfg.value(), cfg.errorHeader());
+            case HeaderContainsFilterConfig cfg -> new TopicFilterView("headerContains", cfg.header() + " contains " + cfg.value(), cfg.errorHeader());
+            case HeaderStartsWithFilterConfig cfg -> new TopicFilterView("headerStartsWith", cfg.header() + " starts with " + cfg.value(), cfg.errorHeader());
+            case HeaderMatchesFilterConfig cfg -> new TopicFilterView("headerMatches", cfg.header() + " matches " + cfg.value(), cfg.errorHeader());
+            case CelFilterConfig cfg -> new TopicFilterView("cel", cfg.expression(), cfg.errorHeader());
         };
     }
 }

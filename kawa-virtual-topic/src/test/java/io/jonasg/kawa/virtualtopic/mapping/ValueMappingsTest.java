@@ -176,6 +176,14 @@ class ValueMappingsTest {
     }
 
     @Test
+    void leavesTheValueOutOfACelEvaluationError() {
+        assertThatThrownBy(() -> map(ORDER, new CelTransformationConfig("{\"n\": int(value.status)}")))
+                .isInstanceOf(PayloadMappingException.class)
+                .hasMessageContaining("transformations[0] (cel)")
+                .hasMessageNotContaining("PAID");
+    }
+
+    @Test
     void refusesAnInvalidCelExpressionWhenCompiled() {
         assertThatThrownBy(() -> ValueMappings.compile(List.of(
                 new DropFieldsTransformationConfig(List.of("a")),

@@ -57,7 +57,7 @@ public final class XmlPayloadEncoder implements PayloadEncoder {
             writer.writeEndDocument();
             writer.close();
         } catch (XMLStreamException e) {
-            throw new PayloadEncodeException("value cannot be written as XML: " + e.getMessage(), e);
+            throw new PayloadEncodeException("value cannot be written as XML" + XmlStax.at(e.getLocation()), e);
         }
         return out.toByteArray();
     }
@@ -115,7 +115,7 @@ public final class XmlPayloadEncoder implements PayloadEncoder {
         if (key instanceof String name) {
             return name;
         }
-        throw new PayloadEncodeException("XML names must be strings, got " + key + " at " + path);
+        throw new PayloadEncodeException("XML names must be strings, got " + kind(key) + " at " + path);
     }
 
     private static String text(Object value, String path) {
@@ -127,7 +127,7 @@ public final class XmlPayloadEncoder implements PayloadEncoder {
             default -> throw new PayloadEncodeException("cannot encode " + kind(value) + " at " + path + " as XML text");
         };
         text.codePoints().filter(c -> !isXmlChar(c)).findFirst().ifPresent(c -> {
-            throw new PayloadEncodeException("text at " + path + " holds U+" + String.format("%04X", c) + ", which XML cannot carry");
+            throw new PayloadEncodeException("text at " + path + " holds a character XML cannot carry");
         });
         return text;
     }

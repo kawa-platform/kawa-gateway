@@ -19,9 +19,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /// Rebuilds record batches the way Kafka's own `MemoryRecords.filterTo` rebuilds the batches it
-/// filters (log compaction): offsets, timestamps, keys and headers stay, as do the producer id,
-/// epoch and base sequence, the transactional flag, the partition leader epoch and the compression
-/// codec. Batches in the legacy formats (magic v0 and v1) come out as v2.
+/// filters (log compaction): offsets, timestamps, keys and headers (unless an [Entry] replaces
+/// them) stay, as do the producer id, epoch and base sequence, the transactional flag, the
+/// partition leader epoch and the compression codec. Batches in the legacy formats (magic v0 and v1) come out as v2.
 public final class RecordBatches {
 
     private RecordBatches() {

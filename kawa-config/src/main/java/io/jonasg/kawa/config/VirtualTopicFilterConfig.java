@@ -23,4 +23,9 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 public sealed interface VirtualTopicFilterConfig
         permits HeaderEqualsFilterConfig, HeaderContainsFilterConfig, HeaderStartsWithFilterConfig,
         HeaderMatchesFilterConfig, CelFilterConfig {
+
+    /// Whether a record this filter cannot decode, delivered anyway because the value format's
+    /// `onDecodeError` is `include`, carries the `kawa-error` headers that say why. Never `null`:
+    /// `true` when the config omits it.
+    Boolean errorHeader();
 }
