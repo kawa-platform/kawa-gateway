@@ -48,7 +48,7 @@ public final class AvroPayloadDecoder implements PayloadDecoder {
             value = new GenericDatumReader<>(schema, schema, AvroData.GENERIC).read(null, decoder);
         } catch (IOException | AvroRuntimeException | IndexOutOfBoundsException e) {
             throw new PayloadDecodeException(
-                    "record value is not valid Avro for schema id " + schemaId + ": " + e.getMessage(), e);
+                    "record value is not valid Avro for schema id " + schemaId + " (" + e.getClass().getSimpleName() + ")", e);
         }
         return AvroValues.adapt(value);
     }

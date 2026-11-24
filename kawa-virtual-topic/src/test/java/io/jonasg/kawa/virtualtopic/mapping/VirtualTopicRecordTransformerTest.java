@@ -45,6 +45,7 @@ import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -218,7 +219,7 @@ class VirtualTopicRecordTransformerTest {
         Record delivered = records(transform(topic, records)).getFirst();
 
         // then
-        assertThat(delivered.headers())
+        assertThat(withoutErrorHeaders(delivered.headers()))
                 .withFailMessage(() -> "The headers of the stored value were not mapped: " + List.of(delivered.headers()))
                 .containsExactly(header("content-type", "application/json"), header("region", "eu"));
     }
@@ -236,7 +237,7 @@ class VirtualTopicRecordTransformerTest {
         Record delivered = records(transform(topic, records)).getFirst();
 
         // then
-        assertThat(delivered.headers())
+        assertThat(withoutErrorHeaders(delivered.headers()))
                 .withFailMessage(() -> "The headers of the stored value were rewritten: " + List.of(delivered.headers()))
                 .containsExactly(formatHeaders());
     }
@@ -622,6 +623,11 @@ class VirtualTopicRecordTransformerTest {
     /// The fetched `records` of `topic` as its prepared transformer hands them to the consumer.
     private static BaseRecords transform(VirtualTopic topic, BaseRecords records) {
         return Objects.requireNonNull(topic.transformer(), "the topic has no transformations").apply(null, records);
+    }
+
+    /// `headers` without the `kawa-error` headers an include-policy failure adds (see `DecodeErrorHeadersTest`).
+    private static Header[] withoutErrorHeaders(Header[] headers) {
+        return Arrays.stream(headers).filter(header -> !header.key().startsWith("kawa-error")).toArray(Header[]::new);
     }
 
     private static SimpleRecord json(String value) {

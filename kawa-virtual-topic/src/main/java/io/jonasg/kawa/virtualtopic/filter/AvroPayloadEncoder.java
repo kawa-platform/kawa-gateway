@@ -83,7 +83,7 @@ public final class AvroPayloadEncoder implements PayloadEncoder {
             new GenericDatumWriter<>(target.schema(), AvroData.GENERIC).write(datum, encoder);
             encoder.flush();
         } catch (IOException | AvroRuntimeException e) {
-            throw new PayloadEncodeException("value cannot be written as Avro with schema id " + target.id() + ": " + e.getMessage(), e);
+            throw new PayloadEncodeException("value cannot be written as Avro with schema id " + target.id() + " (" + e.getClass().getSimpleName() + ")", e);
         }
         return out.toByteArray();
     }
@@ -203,7 +203,7 @@ public final class AvroPayloadEncoder implements PayloadEncoder {
         Map<String, Object> avroMap = new LinkedHashMap<>();
         for (Map.Entry<?, ?> entry : map.entrySet()) {
             if (!(entry.getKey() instanceof String key)) {
-                throw new PayloadEncodeException("Avro map keys must be strings, got " + entry.getKey() + " at '" + display(path) + "'");
+                throw new PayloadEncodeException("Avro map keys must be strings, got " + describe(entry.getKey()) + " at '" + display(path) + "'");
             }
             avroMap.put(key, toAvro(schema.getValueType(), entry.getValue(), path + "[" + key + "]", true));
         }
@@ -245,7 +245,7 @@ public final class AvroPayloadEncoder implements PayloadEncoder {
         };
         BigDecimal scaled = number.setScale(decimal.getScale(), RoundingMode.HALF_EVEN);
         if (scaled.precision() > decimal.getPrecision()) {
-            throw new PayloadEncodeException("value " + number + " at '" + display(path) + "' does not fit decimal("
+            throw new PayloadEncodeException("the number at '" + display(path) + "' does not fit decimal("
                     + decimal.getPrecision() + ", " + decimal.getScale() + ")");
         }
         return scaled;
@@ -255,14 +255,14 @@ public final class AvroPayloadEncoder implements PayloadEncoder {
         return new PayloadEncodeException("cannot encode " + describe(value) + " at '" + display(path) + "' as Avro " + schemaName(schema));
     }
 
-    /// Scalars with their value, containers by kind only, so a message never dumps a whole record.
+    /// The kind of `value`, never the value itself: failure messages reach the consumer in the
+    /// `kawa-error` header, which must not leak record content.
     private static String describe(Object value) {
         return switch (value) {
             case NullValue _ -> "null";
             case Map<?, ?> _ -> "an object";
             case List<?> _ -> "an array";
-            case String text -> "String \"" + text + "\"";
-            default -> value.getClass().getSimpleName() + " " + value;
+            default -> value.getClass().getSimpleName();
         };
     }
 

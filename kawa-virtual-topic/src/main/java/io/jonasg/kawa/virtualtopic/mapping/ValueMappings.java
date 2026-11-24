@@ -44,6 +44,9 @@ public final class ValueMappings {
     private ValueMappings() {
     }
 
+    /// The mapping's [PayloadMappingException]s start with `transformations[N] (type)` and carry N
+    /// as their [PayloadMappingException#step()].
+    ///
     /// @throws IllegalArgumentException if one of `steps` is invalid, with a message starting with
     ///                                  `transformations[N] (type)`, N being the step's 0-based index
     public static ValueMapping compile(List<TransformationConfig> steps) {
@@ -65,7 +68,7 @@ public final class ValueMappings {
                 throw new IllegalArgumentException(label + ": " + e.getMessage(), e);
             }
             if (mapping != null) {
-                mappings.add(labelled(label, mapping));
+                mappings.add(labelled(i, label, mapping));
             }
         }
         return switch (mappings.size()) {
@@ -75,12 +78,13 @@ public final class ValueMappings {
         };
     }
 
-    private static ValueMapping labelled(String label, ValueMapping mapping) {
+    /// `mapping`, its failures labelled with the step and carrying its [PayloadMappingException#step()].
+    private static ValueMapping labelled(int step, String label, ValueMapping mapping) {
         return (value, record) -> {
             try {
                 return mapping.apply(value, record);
             } catch (PayloadMappingException e) {
-                throw new PayloadMappingException(label + ": " + e.getMessage(), e);
+                throw new PayloadMappingException(label + ": " + e.getMessage(), e, step);
             }
         };
     }

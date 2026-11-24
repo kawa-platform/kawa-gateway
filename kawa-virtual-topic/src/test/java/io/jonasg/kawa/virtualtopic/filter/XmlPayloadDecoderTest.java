@@ -129,6 +129,15 @@ class XmlPayloadDecoderTest {
                 .hasMessageContaining("empty");
     }
 
+    @Test
+    void leavesTheValueOutOfAParseError() {
+        assertThatThrownBy(() -> decode(decoder, "<r>secret-7</q>"))
+                .isInstanceOf(PayloadDecodeException.class)
+                .hasMessageContaining("not valid XML at line 1")
+                .hasMessageNotContaining("secret")
+                .hasMessageNotContaining("q");
+    }
+
     static Object decode(XmlPayloadDecoder decoder, String xml) {
         return decoder.decode(ByteBuffer.wrap(xml.getBytes(StandardCharsets.UTF_8)));
     }

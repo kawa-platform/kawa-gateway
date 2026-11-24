@@ -104,7 +104,7 @@ public final class VirtualTopicManager {
                 ? null
                 : VirtualTopicRecordTransformer.of(config.valueFormat(), mapping,
                         HeaderMappings.compile(config.transformations()), outputFormat, avroSchemas,
-                        schemaRegistries.avroSubjectsFor(config.topic()));
+                        schemaRegistries.avroSubjectsFor(config.topic()), config.transformations());
         return new VirtualTopic(name, config.topic(), config.filter(), config.exposePhysicalTopic(),
                 config.valueFormat(), mapping, outputFormat, recordFilter, transformer);
     }

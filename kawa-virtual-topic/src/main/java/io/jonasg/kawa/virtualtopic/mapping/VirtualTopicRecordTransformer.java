@@ -1,10 +1,15 @@
 package io.jonasg.kawa.virtualtopic.mapping;
 
+import io.jonasg.kawa.config.ConvertTransformationConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
+import io.jonasg.kawa.config.DropHeadersTransformationConfig;
 import io.jonasg.kawa.config.PayloadFormatConfig;
+import io.jonasg.kawa.config.SetHeaderTransformationConfig;
+import io.jonasg.kawa.config.TransformationConfig;
 import io.jonasg.kawa.virtualtopic.filter.AvroSchemaResolver;
 import io.jonasg.kawa.virtualtopic.filter.AvroSubjectResolver;
 import io.jonasg.kawa.virtualtopic.filter.DecodedValue;
+import io.jonasg.kawa.virtualtopic.filter.ErrorHeaders;
 import io.jonasg.kawa.virtualtopic.filter.FailedRecordException;
 import io.jonasg.kawa.virtualtopic.filter.PayloadCodecs;
 import io.jonasg.kawa.virtualtopic.filter.PayloadDecodeException;
@@ -12,7 +17,9 @@ import io.jonasg.kawa.virtualtopic.filter.PayloadDecoder;
 import io.jonasg.kawa.virtualtopic.filter.PayloadEncodeException;
 import io.jonasg.kawa.virtualtopic.filter.PayloadEncoder;
 import io.jonasg.kawa.virtualtopic.filter.RecordBatches;
+import io.jonasg.kawa.virtualtopic.filter.Verdict;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
+import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.record.internal.BaseRecords;
 import org.apache.kafka.common.record.internal.MemoryRecords;
 import org.apache.kafka.common.record.internal.MutableRecordBatch;
@@ -45,7 +52,8 @@ import java.util.Objects;
 /// transformations decode with the same `valueFormat` and schemas, so they share one
 /// [DecodedValue]: each value is decoded at most once, and a record a header filter drops is never
 /// decoded. A value the filter could not decode but keeps (the `include` policy) is delivered as
-/// stored, as any value that cannot be transformed under `include`.
+/// stored, as any value that cannot be transformed under `include`; it carries the filter's
+/// [ErrorHeaders], and the value steps are not applied to it.
 ///
 /// Batches are rebuilt the way Kafka's own `MemoryRecords.filterTo` rebuilds the batches it
 /// filters (log compaction): offsets, timestamps and keys stay, as do the producer id,
@@ -66,8 +74,13 @@ import java.util.Objects;
 /// | Policy    | The consumer gets                                                                  |
 /// |-----------|------------------------------------------------------------------------------------|
 /// | `skip`    | nothing: the record is dropped, leaving an offset gap (the default)                |
-/// | `include` | the stored value, untransformed - visibly not in the format it expects            |
+/// | `include` | the stored value, untransformed, with the [ErrorHeaders] that say why              |
 /// | `fail`    | the records before it; the partition stops at it, as a `fail` filter does          |
+///
+/// The error headers name the failing step: a value that does not decode fails the first value
+/// step, one whose result does not encode the `convert` step (the last value step without one).
+/// Header steps never fail. A step with `errorHeader: false` delivers the records it fails on
+/// without them. They are added after the header steps ran, so no header step removes or forges them.
 ///
 /// A record the filter cannot decode is handled per the same policy; under `fail` the partition
 /// stops at the first record, in offset order, that the filter or the transformations fail on.
@@ -103,13 +116,16 @@ public final class VirtualTopicRecordTransformer {
     ///                     `null` when that cluster has no schema registry
     /// @param avroSubjects the subjects of the physical topic's cluster, to encode Avro values with,
     ///                     `null` when that cluster has no schema registry
+    /// @param steps        the transformations `mapping` and `headers` were compiled from, for the
+    ///                     `errorHeader` of the step a failure is blamed on
     public static VirtualTopicRecordTransformer of(
             @Nullable PayloadFormatConfig valueFormat,
             ValueMapping mapping,
             HeaderMapping headers,
             @Nullable PayloadFormatConfig outputFormat,
             @Nullable AvroSchemaResolver avroSchemas,
-            @Nullable AvroSubjectResolver avroSubjects
+            @Nullable AvroSubjectResolver avroSubjects,
+            List<TransformationConfig> steps
     ) {
         boolean sameFormat = Objects.equals(outputFormat, valueFormat);
         boolean headersOnly = mapping == ValueMapping.IDENTITY && sameFormat;
@@ -119,7 +135,37 @@ public final class VirtualTopicRecordTransformer {
                 : PayloadCodecs.encoder(outputFormat, avroSubjects);
         var codecs = new Codecs(decoder, encoder);
         DecodeErrorPolicy onError = valueFormat == null ? DecodeErrorPolicy.FAIL : valueFormat.onDecodeError();
-        return new VirtualTopicRecordTransformer(new Transformation(codecs, mapping, headers, onError, sameFormat, headersOnly));
+        var blame = new Blame(steps.stream().map(TransformationConfig::errorHeader).toList(), decodeStep(steps), encodeStep(steps));
+        return new VirtualTopicRecordTransformer(new Transformation(codecs, mapping, headers, onError, sameFormat, headersOnly, blame));
+    }
+
+    /// The step a value that does not decode fails: the first that reads the value.
+    private static int decodeStep(List<TransformationConfig> steps) {
+        for (int i = 0; i < steps.size(); i++) {
+            if (!isHeaderStep(steps.get(i))) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    /// The step a result that does not encode fails: the `convert` step, else the last value step.
+    private static int encodeStep(List<TransformationConfig> steps) {
+        for (int i = 0; i < steps.size(); i++) {
+            if (steps.get(i) instanceof ConvertTransformationConfig) {
+                return i;
+            }
+        }
+        for (int i = steps.size() - 1; i >= 0; i--) {
+            if (!isHeaderStep(steps.get(i))) {
+                return i;
+            }
+        }
+        return steps.size() - 1;
+    }
+
+    private static boolean isHeaderStep(TransformationConfig step) {
+        return step instanceof DropHeadersTransformationConfig || step instanceof SetHeaderTransformationConfig;
     }
 
     /// Returns the records of `records` that `filter` keeps, each value transformed, or `records`
@@ -172,7 +218,13 @@ public final class VirtualTopicRecordTransformer {
                     DecodedValue decoded = null;
                     if (filter != null) {
                         decoded = new DecodedValue(record, transformation.codecs().decoder());
-                        if (!filter.matches(record, decoded)) {
+                        Verdict verdict = filter.verdict(record, decoded);
+                        if (!verdict.keep()) {
+                            continue;
+                        }
+                        if (verdict.failure() != null && record.hasValue()) {
+                            // the value steps would fail on the same value: deliver it as stored
+                            kept.add(transformation.deliveredAsStored(record, verdict));
                             continue;
                         }
                     }
@@ -200,14 +252,36 @@ public final class VirtualTopicRecordTransformer {
     private record Stop(long offset, RuntimeException cause) {
     }
 
+    /// Which step a failure is blamed on, and whether it writes the error headers.
+    ///
+    /// @param errorHeaders the `errorHeader` of each step, by index
+    /// @param decodeStep   the step a value that does not decode fails
+    /// @param encodeStep   the step a result that does not encode fails
+    private record Blame(List<Boolean> errorHeaders, int decodeStep, int encodeStep) {
+
+        /// `headers` with the [ErrorHeaders] of `failure` at `step`, unless that step turns them off.
+        Header[] headers(Header[] headers, RuntimeException failure, int step) {
+            return errorHeaders.get(step) ? ErrorHeaders.with(headers, failure, ErrorHeaders.TRANSFORMATION_STAGE, step) : headers;
+        }
+    }
+
     private record Transformation(
             Codecs codecs,
             ValueMapping mapping,
             HeaderMapping headers,
             DecodeErrorPolicy onError,
             boolean sameFormat,
-            boolean headersOnly
+            boolean headersOnly,
+            Blame blame
     ) {
+
+        /// `record` as stored, after the filter failed on it under `include`: the header steps
+        /// run when the stored value is in the delivered format, then the filter's [ErrorHeaders]
+        /// are added.
+        RecordBatches.Entry deliveredAsStored(Record record, Verdict verdict) {
+            Header[] mapped = sameFormat ? headers.apply(record.headers()) : record.headers();
+            return new RecordBatches.Entry(record, record.value(), verdict.headers(mapped));
+        }
 
         /// `record` with its transformed value and mapped headers; on failure `record` as stored or
         /// `null` (dropped) per `onError`, or the failure itself under `fail`. Any other exception is no record error and
@@ -224,22 +298,30 @@ public final class VirtualTopicRecordTransformer {
                 Object value = decoded == null ? codecs.decoder().decode(record.value()) : decoded.get();
                 ByteBuffer encoded = ByteBuffer.wrap(codecs.encoder().encode(mapping.apply(value, record)));
                 return new RecordBatches.Entry(record, encoded, headers.apply(record.headers()));
-            } catch (PayloadDecodeException | PayloadMappingException | PayloadEncodeException e) {
-                return switch (onError) {
-                    case SKIP -> {
-                        log.debug("Dropping record at offset {}, its value cannot be transformed: {}", record.offset(), e.getMessage());
-                        yield null;
-                    }
-                    case INCLUDE -> {
-                        log.debug("Delivering record at offset {} untransformed: {}", record.offset(), e.getMessage());
-                        // the stored value is in the delivered format only when no convert changed it
-                        yield sameFormat
-                                ? new RecordBatches.Entry(record, record.value(), headers.apply(record.headers()))
-                                : new RecordBatches.Entry(record, record.value());
-                    }
-                    case FAIL -> throw e;
-                };
+            } catch (PayloadDecodeException e) {
+                return failed(record, e, blame.decodeStep());
+            } catch (PayloadMappingException e) {
+                return failed(record, e, e.step() == PayloadMappingException.UNKNOWN_STEP ? blame.decodeStep() : e.step());
+            } catch (PayloadEncodeException e) {
+                return failed(record, e, blame.encodeStep());
             }
+        }
+
+        /// @param step the index of the step the failure is blamed on
+        private RecordBatches.@Nullable Entry failed(Record record, RuntimeException e, int step) {
+            return switch (onError) {
+                case SKIP -> {
+                    log.debug("Dropping record at offset {}, its value cannot be transformed: {}", record.offset(), e.getMessage());
+                    yield null;
+                }
+                case INCLUDE -> {
+                    log.debug("Delivering record at offset {} untransformed: {}", record.offset(), e.getMessage());
+                    // the stored value is in the delivered format only when no convert changed it
+                    Header[] mapped = sameFormat ? headers.apply(record.headers()) : record.headers();
+                    yield new RecordBatches.Entry(record, record.value(), blame.headers(mapped, e, step));
+                }
+                case FAIL -> throw e;
+            };
         }
     }
 

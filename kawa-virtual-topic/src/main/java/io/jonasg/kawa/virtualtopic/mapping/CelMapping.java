@@ -24,7 +24,8 @@ final class CelMapping implements ValueMapping {
         try {
             return ValueTree.of(program.eval(RecordCel.bindings(record, value)));
         } catch (CelEvaluationException e) {
-            throw new PayloadMappingException(e.getMessage(), e);
+            // the evaluator's message can quote the value it failed on; its error code never does
+            throw new PayloadMappingException("evaluation failed: " + e.getErrorCode(), e);
         }
     }
 }

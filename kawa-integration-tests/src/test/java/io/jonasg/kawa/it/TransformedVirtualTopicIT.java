@@ -139,10 +139,15 @@ class TransformedVirtualTopicIT extends GatewayTestSupport {
         assertThat(List.of(virtual.getFirst().headers().toArray()))
                 .withFailMessage(() -> "The transformed invoice's headers do not describe XML: " + virtual.getFirst().headers())
                 .containsExactly(header("region", "eu"), header("content-type", "application/xml"));
-        // and the value delivered untransformed under include keeps the headers that describe it
+        // and the value delivered untransformed under include keeps the headers that describe it,
+        // followed by the error headers that say why it is untransformed
         assertThat(List.of(virtual.getLast().headers().toArray()))
                 .withFailMessage(() -> "The untransformed value's headers were rewritten: " + virtual.getLast().headers())
+                .filteredOn(header -> !header.key().startsWith("kawa-error"))
                 .containsExactlyElementsOf(jsonHeaders);
+        assertThat(virtual.getLast().headers().lastHeader("kawa-error-stage"))
+                .withFailMessage(() -> "The untransformed value does not say why: " + virtual.getLast().headers())
+                .isNotNull();
         // and the produce path stored the records as sent
         assertThat(stored).extracting(ConsumerRecord::value)
                 .withFailMessage(() -> "The stored values were changed on produce: " + stored.stream().map(ConsumerRecord::value).toList())

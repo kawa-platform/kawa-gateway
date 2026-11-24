@@ -31,7 +31,9 @@ public final class JsonPayloadDecoder implements PayloadDecoder {
         try {
             root = MAPPER.readTree(bytes);
         } catch (JacksonException e) {
-            throw new PayloadDecodeException("record value is not valid JSON: " + e.getOriginalMessage(), e);
+            var location = e.getLocation();
+            throw new PayloadDecodeException("record value is not valid JSON"
+                    + (location == null ? "" : " at line " + location.getLineNr() + ", column " + location.getColumnNr()), e);
         }
         if (root == null || root.isMissingNode()) {
             throw new PayloadDecodeException("record value is empty, expected JSON");

@@ -161,7 +161,8 @@ class AvroPayloadEncoderTest {
                 .isEqualTo(12.34);
         assertThatThrownBy(() -> encoder(5, decimal).encode(123456.0))
                 .isInstanceOf(PayloadEncodeException.class)
-                .hasMessageContaining("does not fit decimal(6, 2)");
+                .hasMessageContaining("does not fit decimal(6, 2)")
+                .hasMessageNotContaining("123456");
     }
 
     @Test
@@ -173,7 +174,8 @@ class AvroPayloadEncoderTest {
         // then
         assertThatThrownBy(() -> encoder(1, ORDER).encode(value))
                 .isInstanceOf(PayloadEncodeException.class)
-                .hasMessageContaining("String \"free\" at 'lines[1].price' as Avro double");
+                .hasMessageContaining("String at 'lines[1].price' as Avro double")
+                .hasMessageNotContaining("free");
     }
 
     @Test

@@ -75,7 +75,8 @@ public final class XmlPayloadDecoder implements PayloadDecoder {
             if (e instanceof PayloadDecodeException decodeException) {
                 throw decodeException;
             }
-            throw new PayloadDecodeException("record value is not valid XML: " + e.getMessage(), e);
+            throw new PayloadDecodeException("record value is not valid XML"
+                    + (e instanceof XMLStreamException stream ? XmlStax.at(stream.getLocation()) : " (" + e.getClass().getSimpleName() + ")"), e);
         } finally {
             close(reader);
         }

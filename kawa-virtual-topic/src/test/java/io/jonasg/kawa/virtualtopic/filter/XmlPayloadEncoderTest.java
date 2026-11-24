@@ -120,6 +120,9 @@ class XmlPayloadEncoderTest {
         Map<String, Object> controlChar = Map.of("a", "bell\u0007");
         Map<String, Object> nullAttribute = Map.of("@a", NullValue.NULL_VALUE);
 
+        assertThatThrownBy(() -> new XmlPayloadEncoder("r").encode(controlChar))
+                .withFailMessage(() -> "The failure quoted the character XML cannot carry")
+                .hasMessageNotContaining("0007");
         for (Object invalid : List.of(invalidName, objectAttribute, listInList, mixed, controlChar, nullAttribute, List.of("a"))) {
             assertThatThrownBy(() -> new XmlPayloadEncoder("r").encode(invalid))
                     .withFailMessage(() -> "A value XML cannot hold was encoded: " + invalid)

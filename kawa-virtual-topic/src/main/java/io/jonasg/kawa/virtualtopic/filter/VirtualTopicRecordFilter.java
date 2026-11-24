@@ -10,15 +10,20 @@ import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import org.apache.kafka.common.record.internal.BaseRecords;
 import org.apache.kafka.common.record.internal.MemoryRecords;
+import org.apache.kafka.common.record.internal.MutableRecordBatch;
 import org.apache.kafka.common.record.internal.Record;
 import org.apache.kafka.common.record.internal.RecordBatch;
 import org.apache.kafka.common.record.internal.Records;
 import org.apache.kafka.common.utils.internals.BufferSupplier;
+import org.apache.kafka.common.utils.internals.ByteBufferOutputStream;
+import org.apache.kafka.common.utils.internals.CloseableIterator;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /// Applies a virtual topic's configured consume filter to a fetched partition's records:
@@ -37,10 +42,14 @@ import java.util.Objects;
 ///
 /// A topic that also has transformations is not filtered here: the
 /// [io.jonasg.kawa.virtualtopic.mapping.VirtualTopicRecordTransformer] filters and transforms its
-/// records in one pass, asking [#matches(Record, DecodedValue)] of each record.
+/// records in one pass, asking [#verdict(Record, DecodedValue)] of each record.
 ///
 /// A record whose value does not decode is handled per the format's [DecodeErrorPolicy]; under
-/// `fail` the partition stops at it, see [FailedRecordException]. A schema
+/// `fail` the partition stops at it, see [FailedRecordException]. Under `include` it is delivered
+/// with the [ErrorHeaders] that say why, unless the filter turns them off (`errorHeader: false`).
+/// `filterTo` cannot change a record's headers, so a filter that can add them rebuilds the batches
+/// it changes with [RecordBatches], as the transformer does; a batch it keeps every record of,
+/// none of them flagged, is still copied as it is. A schema
 /// registry outage ([SchemaRegistryUnavailableException]) is not a record error and bypasses the
 /// policy: it is thrown whatever the policy, so the partition fails instead of records being
 /// dropped or included.
@@ -97,6 +106,10 @@ public final class VirtualTopicRecordFilter {
             return records;
         }
         EvaluatingRecordFilter prepared = prepared();
+        if (prepared.flags()) {
+            // under include, so no record stops the partition
+            return filterFlagging(memoryRecords, prepared);
+        }
         try {
             return filter(memoryRecords, prepared);
         } catch (Stop stop) {
@@ -109,16 +122,16 @@ public final class VirtualTopicRecordFilter {
 
     /// Whether the filter keeps `record`, a record of a data batch, reading its value from `value`:
     /// a value that does not decode is handled per the format's [DecodeErrorPolicy] - dropped
-    /// (`skip`), kept (`include`) or thrown (`fail`). The value is only decoded when the filter reads
-    /// it, so a header filter never decodes it.
+    /// (`skip`), kept with the failure (`include`) or thrown (`fail`). The value is only decoded when
+    /// the filter reads it, so a header filter never decodes it.
     ///
     /// @param value the record's value, decoded with the topic's `valueFormat` and the physical
     ///              topic's schemas, as this filter decodes it
     /// @throws PayloadDecodeException             when the value does not decode under the `fail` policy
     /// @throws SchemaRegistryUnavailableException when the schema registry is unavailable, whatever the policy
     /// @throws IllegalStateException              when the filter could not be prepared, or fails to evaluate
-    public boolean matches(Record record, DecodedValue value) {
-        return prepared().matches(record, value);
+    public Verdict verdict(Record record, DecodedValue value) {
+        return prepared().verdict(record, value);
     }
 
     private EvaluatingRecordFilter prepared() {
@@ -126,6 +139,38 @@ public final class VirtualTopicRecordFilter {
             throw Objects.requireNonNull(invalid);
         }
         return recordFilter;
+    }
+
+    /// Filters `records` as `filterTo` does, delivering a kept record the filter failed on with its
+    /// [ErrorHeaders].
+    private static MemoryRecords filterFlagging(MemoryRecords records, EvaluatingRecordFilter recordFilter) {
+        var output = new ByteBufferOutputStream(records.sizeInBytes());
+        for (MutableRecordBatch batch : records.batches()) {
+            if (batch.isControlBatch()) {
+                batch.writeTo(output);
+                continue;
+            }
+            List<RecordBatches.Entry> kept = new ArrayList<>();
+            boolean changed = false;
+            try (CloseableIterator<Record> iterator = batch.streamingIterator(BufferSupplier.NO_CACHING)) {
+                while (iterator.hasNext()) {
+                    Record record = iterator.next();
+                    Verdict verdict = recordFilter.verdict(record, new DecodedValue(record, recordFilter.valueDecoder));
+                    changed |= !verdict.keep() || verdict.flagged();
+                    if (verdict.keep()) {
+                        kept.add(new RecordBatches.Entry(record, record.value(), verdict.headers(record.headers())));
+                    }
+                }
+            }
+            if (changed) {
+                RecordBatches.write(batch, kept, batch.lastOffset(), output);
+            } else {
+                batch.writeTo(output);
+            }
+        }
+        ByteBuffer buffer = output.buffer();
+        buffer.flip();
+        return MemoryRecords.readableRecords(buffer);
     }
 
     private static MemoryRecords filter(MemoryRecords records, EvaluatingRecordFilter recordFilter) {
@@ -161,6 +206,8 @@ public final class VirtualTopicRecordFilter {
         private final RecordPredicate predicate;
         private final @Nullable PayloadDecoder valueDecoder;
         private final DecodeErrorPolicy onDecodeError;
+        private final boolean errorHeader;
+        private final boolean decodes;
 
         EvaluatingRecordFilter(VirtualTopicFilterConfig filterCfg) {
             this(filterCfg, null);
@@ -177,6 +224,14 @@ public final class VirtualTopicRecordFilter {
             this.valueDecoder = valueFormat == null ? null : PayloadCodecs.decoder(valueFormat, avroSchemas);
             this.predicate = predicateFor(filterCfg, valueDecoder != null);
             this.onDecodeError = valueFormat == null ? DecodeErrorPolicy.FAIL : valueFormat.onDecodeError();
+            this.errorHeader = filterCfg.errorHeader();
+            this.decodes = valueDecoder != null && filterCfg instanceof CelFilterConfig;
+        }
+
+        /// Whether a record can come out with [ErrorHeaders]: only a filter that decodes values can
+        /// fail on one, and only `include` delivers the record it fails on.
+        boolean flags() {
+            return decodes && errorHeader && onDecodeError == DecodeErrorPolicy.INCLUDE;
         }
 
         @Override
@@ -199,7 +254,7 @@ public final class VirtualTopicRecordFilter {
                 return true;
             }
             try {
-                return matches(record, new DecodedValue(record, valueDecoder));
+                return verdict(record, new DecodedValue(record, valueDecoder)).keep();
             } catch (PayloadDecodeException e) {
                 // only escapes matches under the fail policy
                 throw new Stop(record.offset(), e);
@@ -208,19 +263,26 @@ public final class VirtualTopicRecordFilter {
 
         /// A [SchemaRegistryUnavailableException] is not caught: it is no record error, and neither is
         /// any other exception, such as a filter that fails to evaluate.
-        boolean matches(Record record, DecodedValue value) {
+        Verdict verdict(Record record, DecodedValue value) {
             try {
-                return predicate.test(record, value);
+                return predicate.test(record, value) ? Verdict.KEEP : Verdict.DROP;
             } catch (PayloadDecodeException e) {
                 return switch (onDecodeError) {
                     case SKIP -> {
                         log.debug("Dropping record at offset {}: {}", record.offset(), e.getMessage());
-                        yield false;
+                        yield Verdict.DROP;
                     }
-                    case INCLUDE -> true;
+                    case INCLUDE -> {
+                        log.debug("Delivering record at offset {} unfiltered: {}", record.offset(), e.getMessage());
+                        yield Verdict.keptDespite(e, errorHeader);
+                    }
                     case FAIL -> throw e;
                 };
             }
+        }
+
+        boolean matches(Record record, DecodedValue value) {
+            return verdict(record, value).keep();
         }
 
         private static RecordPredicate predicateFor(VirtualTopicFilterConfig filterCfg, boolean decoded) {

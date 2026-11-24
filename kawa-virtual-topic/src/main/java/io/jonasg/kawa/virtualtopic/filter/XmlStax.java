@@ -1,7 +1,9 @@
 package io.jonasg.kawa.virtualtopic.filter;
 
+import org.jspecify.annotations.Nullable;
 import tools.jackson.dataformat.xml.XmlFactory;
 
+import javax.xml.stream.Location;
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLOutputFactory;
 
@@ -31,5 +33,13 @@ final class XmlStax {
     }
 
     private XmlStax() {
+    }
+
+    /// ` at line L, column C` for a StAX failure's location, empty when it has none. Failure
+    /// messages carry this instead of the parser's own message, which can quote the payload.
+    static String at(@Nullable Location location) {
+        return location == null || location.getLineNumber() < 0
+                ? ""
+                : " at line " + location.getLineNumber() + ", column " + location.getColumnNumber();
     }
 }

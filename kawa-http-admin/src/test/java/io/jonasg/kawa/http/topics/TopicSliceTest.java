@@ -562,6 +562,76 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void storesErrorHeadersTurnedOff() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var created = send("POST", "/topics", """
+                {
+                  "type": "virtual",
+                  "name": "paid-orders",
+                  "topic": "orders",
+                  "filter": {"type": "cel", "expression": "value.status == \\"PAID\\"", "errorHeader": false},
+                  "valueFormat": {"type": "json", "onDecodeError": "include"},
+                  "transformations": [{"type": "renameField", "from": "a", "to": "b", "errorHeader": false}]
+                }
+                """);
+
+        // then
+        assertThat(created.statusCode()).isEqualTo(201);
+        assertThat(repository.getActiveConfig().virtualTopics().get("paid-orders"))
+                .withFailMessage(() -> "'errorHeader: false' was not stored: " + repository.getActiveConfig().virtualTopics())
+                .isEqualTo(new VirtualTopicConfig("orders", new CelFilterConfig("value.status == \"PAID\"", false), false,
+                        new JsonFormatConfig(DecodeErrorPolicy.INCLUDE),
+                        List.of(new RenameFieldTransformationConfig("a", "b", false)), null));
+    }
+
+    @Test
+    void listsErrorHeadersTurnedOff() throws Exception {
+        // given
+        var config = new VirtualTopicConfig("orders", new CelFilterConfig("value.status == \"PAID\"", false), false,
+                new JsonFormatConfig(DecodeErrorPolicy.INCLUDE),
+                List.of(new RenameFieldTransformationConfig("a", "b", false)), null);
+        virtualTopics = new VirtualTopicManager(Map.of("paid-orders", config));
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("paid-orders", config));
+        cache = cacheWith(topic("orders", 1, 1));
+        startServer();
+
+        // when
+        var response = send("GET", "/topics", null);
+
+        // then
+        assertThatJson(response.body()).inPath("[0].filter").isEqualTo("""
+                {"kind": "cel", "expression": "value.status == \\"PAID\\"", "errorHeader": false}
+                """);
+        assertThatJson(response.body()).inPath("[0].transformations[0].errorHeader").isEqualTo(false);
+    }
+
+    @Test
+    void refusesAnErrorHeaderThatIsNotABoolean() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var response = send("POST", "/topics", """
+                {
+                  "type": "virtual",
+                  "name": "paid-orders",
+                  "topic": "orders",
+                  "valueFormat": {"type": "json"},
+                  "transformations": [{"type": "renameField", "from": "a", "to": "b", "errorHeader": "false"}]
+                }
+                """);
+
+        // then
+        assertThat(response.statusCode())
+                .withFailMessage(() -> "A string 'errorHeader' was accepted: " + response.body())
+                .isEqualTo(400);
+        assertThat(response.body()).contains("transformations[0] (renameField)");
+    }
+
+    @Test
     void createsVirtualTopicWithAvroValueFormat() throws Exception {
         // given
         startServer();

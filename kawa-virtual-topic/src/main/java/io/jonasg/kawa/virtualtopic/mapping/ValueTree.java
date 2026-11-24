@@ -3,6 +3,7 @@ package io.jonasg.kawa.virtualtopic.mapping;
 import dev.cel.common.values.CelByteString;
 import dev.cel.common.values.NullValue;
 import io.jonasg.kawa.virtualtopic.filter.NullDefaultingMap;
+import org.jspecify.annotations.Nullable;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -27,7 +28,7 @@ final class ValueTree {
                 Map<String, Object> object = new NullDefaultingMap();
                 for (Map.Entry<?, ?> entry : map.entrySet()) {
                     if (!(entry.getKey() instanceof String name)) {
-                        throw new PayloadMappingException("object keys must be strings, got " + entry.getKey());
+                        throw new PayloadMappingException("object keys must be strings, got " + typeName(entry.getKey()));
                     }
                     object.put(name, of(entry.getValue()));
                 }
@@ -45,8 +46,11 @@ final class ValueTree {
             case BigDecimal number -> number.doubleValue();
             case BigInteger number when number.bitLength() < Long.SIZE -> number.longValue();
             // e.g. CEL's uint, timestamp and duration: convert with int(), string() or similar first
-            default -> throw new PayloadMappingException("cannot map " + value.getClass().getSimpleName() + " " + value
-                    + " into a record value");
+            default -> throw new PayloadMappingException("cannot map a " + value.getClass().getSimpleName() + " into a record value");
         };
+    }
+
+    private static String typeName(@Nullable Object value) {
+        return value == null ? "null" : value.getClass().getSimpleName();
     }
 }

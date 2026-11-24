@@ -33,4 +33,11 @@ public sealed interface TransformationConfig
         permits DropFieldsTransformationConfig, RenameFieldTransformationConfig, DefaultFieldTransformationConfig,
         CelTransformationConfig, ConvertTransformationConfig, DropHeadersTransformationConfig,
         SetHeaderTransformationConfig {
+
+    /// Whether a record this step fails on, delivered untransformed because the value format's
+    /// `onDecodeError` is `include`, carries the `kawa-error` headers that say why. A value that
+    /// does not decode counts as a failure of the first value step, one that does not encode as a
+    /// failure of the `convert` step (the last value step without one). Header steps never fail, so
+    /// their setting has no effect. Never `null`: `true` when the config omits it.
+    Boolean errorHeader();
 }
