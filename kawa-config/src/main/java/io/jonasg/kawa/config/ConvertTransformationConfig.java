@@ -1,7 +1,7 @@
 package io.jonasg.kawa.config;
 
 /// Encodes the transformed value in another format than the virtual topic's `valueFormat`.
-/// Only allowed as the last step of a virtual topic's transformations.
+/// At most one per virtual topic, after every value step; header steps may follow it.
 ///
 /// @param format the format the value is encoded in
 public record ConvertTransformationConfig(PayloadFormatConfig format) implements TransformationConfig {

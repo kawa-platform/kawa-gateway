@@ -6,6 +6,7 @@ import io.jonasg.kawa.config.VirtualTopicFilterConfig;
 import io.jonasg.kawa.virtualtopic.filter.AvroSchemaResolver;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
+import io.jonasg.kawa.virtualtopic.mapping.HeaderMappings;
 import io.jonasg.kawa.virtualtopic.mapping.ValueMapping;
 import io.jonasg.kawa.virtualtopic.mapping.ValueMappings;
 import io.jonasg.kawa.virtualtopic.mapping.VirtualTopicRecordTransformer;
@@ -103,7 +104,8 @@ public final class VirtualTopicManager {
                 : VirtualTopicRecordFilter.of(name, config.filter(), config.valueFormat(), avroSchemas);
         VirtualTopicRecordTransformer transformer = outputFormat == null
                 ? null
-                : VirtualTopicRecordTransformer.of(config.valueFormat(), mapping, outputFormat, avroSchemas,
+                : VirtualTopicRecordTransformer.of(config.valueFormat(), mapping,
+                        HeaderMappings.compile(config.transformations()), outputFormat, avroSchemas,
                         schemaRegistries.avroSubjectsFor(config.topic()));
         return new VirtualTopic(name, config.topic(), config.filter(), config.exposePhysicalTopic(),
                 config.valueFormat(), mapping, outputFormat, recordFilter, transformer);

@@ -8,6 +8,7 @@ import io.jonasg.kawa.config.ConvertTransformationConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.DefaultFieldTransformationConfig;
 import io.jonasg.kawa.config.DropFieldsTransformationConfig;
+import io.jonasg.kawa.config.DropHeadersTransformationConfig;
 import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.GovernanceConfig;
 import io.jonasg.kawa.config.GovernanceRuleConfig.Expression;
@@ -20,6 +21,7 @@ import io.jonasg.kawa.config.HeaderStartsWithFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.ManagedBy;
 import io.jonasg.kawa.config.RenameFieldTransformationConfig;
+import io.jonasg.kawa.config.SetHeaderTransformationConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.XmlFormatConfig;
 import io.jonasg.kawa.governance.GovernancePolicy;
@@ -1212,6 +1214,91 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void createsVirtualTopicWithHeaderStepsAfterConvert() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var createTopicResp = send("POST", "/topics", """
+                {
+                  "type": "virtual",
+                  "name": "orders.public",
+                  "topic": "orders",
+                  "valueFormat": {"type": "json"},
+                  "transformations": [
+                    {"type": "convert", "format": {"type": "xml", "root": "order"}},
+                    {"type": "dropHeaders", "headers": ["__TypeId__"]},
+                    {"type": "setHeader", "header": "content-type", "value": "application/xml"}
+                  ]
+                }
+                """);
+
+        // then
+        assertThat(createTopicResp).hasStatusCode(201);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders.public").transformations())
+                .withFailMessage(() -> "The header steps were not persisted in order")
+                .containsExactly(
+                        new ConvertTransformationConfig(new XmlFormatConfig(DecodeErrorPolicy.SKIP, "order")),
+                        new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                        new SetHeaderTransformationConfig("content-type", "application/xml"));
+        assertThatJson(createTopicResp.body()).inPath("transformations").isEqualTo("""
+                [
+                  {"type": "convert", "format": {"type": "xml", "onDecodeError": "skip", "root": "order"}},
+                  {"type": "dropHeaders", "headers": ["__TypeId__"]},
+                  {"type": "setHeader", "header": "content-type", "value": "application/xml"}
+                ]
+                """);
+    }
+
+    @Test
+    void refusesInvalidHeaderStepsAndUnknownFormatsNamingTheStep() throws Exception {
+        // given
+        startServer();
+        Map<String, String> cases = Map.of(
+                "[{\"type\": \"dropHeaders\", \"headers\": []}]",
+                "transformations[0] (dropHeaders): dropHeaders transformation requires at least one header",
+                "[{\"type\": \"setHeader\", \"header\": \"content-type\"}]",
+                "transformations[0] (setHeader): setHeader transformation requires a 'value'",
+                "[{\"type\": \"convert\", \"format\": {\"type\": \"protobuf\"}}]",
+                "transformations[0] (convert): ");
+
+        for (var invalid : cases.entrySet()) {
+            String transformations = invalid.getKey();
+            String error = invalid.getValue();
+
+            // when
+            var createTopicResp = send("POST", "/topics", """
+                    {"type": "virtual", "name": "orders.public", "topic": "orders", "valueFormat": {"type": "json"},
+                     "transformations": %s}
+                    """.formatted(transformations));
+
+            // then
+            assertThat(createTopicResp).hasStatusCode(400);
+            assertThatJson(createTopicResp.body()).inPath("error").asString()
+                    .withFailMessage(() -> "Steps " + transformations + " were not refused with '" + error
+                            + "' but " + createTopicResp.body())
+                    .startsWith(error);
+        }
+    }
+
+    @Test
+    void refusesAnUnknownValueFormat() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var createTopicResp = send("POST", "/topics", """
+                {"type": "virtual", "name": "orders.public", "topic": "orders", "valueFormat": {"type": "protobuf"}}
+                """);
+
+        // then
+        assertThat(createTopicResp).hasStatusCode(400);
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "A virtual topic with an unknown value format was persisted")
+                .doesNotContainKey("orders.public");
+    }
+
+    @Test
     void listsTheTransformationsAndFullValueFormatOfVirtualTopics() throws Exception {
         // given
         var withSteps = new VirtualTopicConfig("orders", null, false, new AvroFormatConfig(DecodeErrorPolicy.SKIP, "orders-value", 3),
@@ -1261,7 +1348,8 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                 "[{\"type\": \"dropFields\", \"fields\": [\"a\"]}, {\"type\": \"cel\", \"expression\": \"{\\\"id\\\": value.id\"}]",
                 "transformations[1] (cel): Invalid CEL expression",
                 "[{\"type\": \"uppercase\"}]",
-                "transformations[0]: unsupported type 'uppercase', expected one of [dropFields, renameField, defaultField, cel, convert]",
+                "transformations[0]: unsupported type 'uppercase', expected one of "
+                        + "[dropFields, renameField, defaultField, cel, convert, dropHeaders, setHeader]",
                 "[{\"fields\": [\"a\"]}]",
                 "transformations[0]: 'type' is required",
                 "[{\"type\": \"dropFields\", \"fields\": []}]",
@@ -1269,7 +1357,7 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
                 "[{\"type\": \"renameField\", \"from\": \"a..b\", \"to\": \"c\"}]",
                 "transformations[0] (renameField): field path 'a..b' has an empty segment",
                 "[{\"type\": \"convert\", \"format\": {\"type\": \"json\"}}, {\"type\": \"dropFields\", \"fields\": [\"a\"]}]",
-                "transformations[0] (convert): must be the last step",
+                "transformations[0] (convert): only header steps may follow it",
                 "[{\"type\": \"dropFields\", \"fields\": [\"a\"], \"field\": \"b\"}]",
                 "transformations[0] (dropFields): unknown property 'field'",
                 "[{\"type\": \"defaultField\", \"field\": \"currency\"}]",

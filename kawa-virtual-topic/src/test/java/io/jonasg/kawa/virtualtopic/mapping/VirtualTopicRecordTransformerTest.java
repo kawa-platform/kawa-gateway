@@ -5,9 +5,11 @@ import io.jonasg.kawa.config.CelTransformationConfig;
 import io.jonasg.kawa.config.ConvertTransformationConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.DropFieldsTransformationConfig;
+import io.jonasg.kawa.config.DropHeadersTransformationConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.PayloadFormatConfig;
 import io.jonasg.kawa.config.RenameFieldTransformationConfig;
+import io.jonasg.kawa.config.SetHeaderTransformationConfig;
 import io.jonasg.kawa.config.TransformationConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.XmlFormatConfig;
@@ -101,6 +103,59 @@ class VirtualTopicRecordTransformerTest {
                 .containsExactly(headers));
         assertThat(transformed).extracting(VirtualTopicRecordTransformerTest::value)
                 .containsExactly("{\"b\":1}", "{\"b\":2}");
+    }
+
+    @Test
+    void describesTheConvertedFormatInTheHeadersOfTransformedRecords() {
+        // given JSON records with format headers, exposed as XML with the header steps rewriting them
+        VirtualTopic topic = topic(new JsonFormatConfig(),
+                new ConvertTransformationConfig(new XmlFormatConfig(DecodeErrorPolicy.SKIP, "order")),
+                new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                new SetHeaderTransformationConfig("content-type", "application/xml"));
+        var records = MemoryRecords.withRecords(Compression.NONE,
+                new SimpleRecord(0L, null, bytes("{\"id\":\"o-1\"}"), formatHeaders()));
+
+        // when
+        Record transformed = records(transform(topic, records)).getFirst();
+
+        // then
+        assertThat(transformed.headers())
+                .withFailMessage(() -> "The headers do not describe the XML value: " + List.of(transformed.headers()))
+                .containsExactly(header("region", "eu"), header("content-type", "application/xml"));
+    }
+
+    @Test
+    void keepsTheStoredHeadersOfARecordDeliveredUntransformedUnderIncludePolicy() {
+        // given a value that is not JSON, under the include policy, with header steps
+        VirtualTopic topic = topic(new JsonFormatConfig(DecodeErrorPolicy.INCLUDE),
+                new ConvertTransformationConfig(new XmlFormatConfig(DecodeErrorPolicy.SKIP, "order")),
+                new SetHeaderTransformationConfig("content-type", "application/xml"));
+        var records = MemoryRecords.withRecords(Compression.NONE,
+                new SimpleRecord(0L, null, bytes("not json"), formatHeaders()));
+
+        // when
+        Record delivered = records(transform(topic, records)).getFirst();
+
+        // then
+        assertThat(delivered.headers())
+                .withFailMessage(() -> "The headers of the stored value were rewritten: " + List.of(delivered.headers()))
+                .containsExactly(formatHeaders());
+    }
+
+    @Test
+    void keepsTheStoredHeadersOfATombstone() {
+        // given a tombstone with headers, and header steps
+        VirtualTopic topic = topic(new JsonFormatConfig(),
+                new DropHeadersTransformationConfig(List.of("content-type", "__TypeId__", "region")));
+        var records = MemoryRecords.withRecords(Compression.NONE, new SimpleRecord(0L, bytes("k"), null, formatHeaders()));
+
+        // when
+        Record tombstone = records(transform(topic, records)).getFirst();
+
+        // then
+        assertThat(tombstone.headers())
+                .withFailMessage(() -> "The headers of the tombstone were rewritten: " + List.of(tombstone.headers()))
+                .containsExactly(formatHeaders());
     }
 
     @Test
@@ -482,6 +537,14 @@ class VirtualTopicRecordTransformerTest {
             throw new UncheckedIOException(e);
         }
         return new SimpleRecord(out.toByteArray());
+    }
+
+    private static Header[] formatHeaders() {
+        return new Header[]{header("content-type", "application/json"), header("__TypeId__", "com.acme.Order"), header("region", "eu")};
+    }
+
+    private static Header header(String key, String value) {
+        return new RecordHeader(key, bytes(value));
     }
 
     private static byte[] bytes(String text) {

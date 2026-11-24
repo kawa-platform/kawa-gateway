@@ -353,7 +353,7 @@ class PatchTopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(patchTopicResp).hasStatusCode(400);
         assertThatJson(patchTopicResp.body()).isEqualTo("""
-                {"error": "transformations[1] (convert): must be the last step"}
+                {"error": "transformations[1] (convert): only header steps may follow it"}
                 """);
     }
 

@@ -1899,11 +1899,13 @@ components:
           description: Root element name. Required when this format is a transformation output; when set, decoding refuses another root.
     Transformation:
       description: |
-        One value transformation step. Steps run in order on the decoded record value, on fetch only; keys and headers
-        are never changed. Fields are addressed by dotted paths (`customer.name`); a list on a path applies the step to
+        One transformation step. Steps run in order, on fetch only. Value steps rewrite the decoded record value;
+        header steps (`dropHeaders`, `setHeader`) rewrite the headers of a record whose value was transformed, so
+        format headers match the delivered value. A record delivered as stored (a tombstone, or an untransformable
+        value under `include`) keeps its stored headers. Keys are never changed. Fields are addressed by dotted paths (`customer.name`); a list on a path applies the step to
         every element. Rules (violations answer `400`):
         - a virtual topic with steps needs a `valueFormat`
-        - `convert` may only be the last step
+        - at most one `convert`, and only header steps may follow it
         - the output format (the `convert` step's, else `valueFormat`) needs `subject` when Avro and `root` when XML
         - Avro, as the `valueFormat` or a `convert` format, needs a `schemaRegistry` on the cluster
         - paths are non-blank without empty segments (`a..b`, `.a`, `a.` are refused)
@@ -1918,6 +1920,8 @@ components:
         - $ref: '#/components/schemas/DefaultFieldTransformation'
         - $ref: '#/components/schemas/CelTransformation'
         - $ref: '#/components/schemas/ConvertTransformation'
+        - $ref: '#/components/schemas/DropHeadersTransformation'
+        - $ref: '#/components/schemas/SetHeaderTransformation'
       discriminator:
         propertyName: type
         mapping:
@@ -1926,6 +1930,8 @@ components:
           defaultField: '#/components/schemas/DefaultFieldTransformation'
           cel: '#/components/schemas/CelTransformation'
           convert: '#/components/schemas/ConvertTransformation'
+          dropHeaders: '#/components/schemas/DropHeadersTransformation'
+          setHeader: '#/components/schemas/SetHeaderTransformation'
     DropFieldsTransformation:
       type: object
       required:
@@ -2005,6 +2011,39 @@ components:
             - convert
         format:
           $ref: '#/components/schemas/PayloadFormat'
+    DropHeadersTransformation:
+      type: object
+      required:
+        - type
+        - headers
+      properties:
+        type:
+          type: string
+          enum:
+            - dropHeaders
+        headers:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          description: Names of the headers to remove, matched exactly (case-sensitive); every header with one of them is removed.
+    SetHeaderTransformation:
+      type: object
+      required:
+        - type
+        - header
+        - value
+      properties:
+        type:
+          type: string
+          enum:
+            - setHeader
+        header:
+          type: string
+          description: Header name, matched exactly (case-sensitive); every header with this name is replaced by this one.
+        value:
+          type: string
+          description: Header value, encoded as UTF-8.
     VirtualTopicFilter:
       oneOf:
         - $ref: '#/components/schemas/HeaderEqualsFilter'

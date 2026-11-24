@@ -3,8 +3,10 @@ package io.jonasg.kawa.it;
 import io.jonasg.kawa.config.ConvertTransformationConfig;
 import io.jonasg.kawa.config.DecodeErrorPolicy;
 import io.jonasg.kawa.config.DropFieldsTransformationConfig;
+import io.jonasg.kawa.config.DropHeadersTransformationConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.RenameFieldTransformationConfig;
+import io.jonasg.kawa.config.SetHeaderTransformationConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
 import io.jonasg.kawa.config.XmlFormatConfig;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -12,10 +14,13 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,21 +40,28 @@ import static org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_
 
 /// End-to-end test for transformations on the fetch path: JSON orders are produced to the physical
 /// topic, and a consumer group member of the virtual topic receives them through the gateway as
-/// XML, with the mapping applied - over compressed batches and the consumer's fetch session.
+/// XML, with the mapping applied - over compressed batches and the consumer's fetch session. Header
+/// steps make the format headers of a transformed record describe the XML it is delivered as.
 class TransformedVirtualTopicIT extends GatewayTestSupport {
 
     @Override
     protected Map<String, VirtualTopicConfig> filteredVirtualTopics() {
-        return Map.of("orders-xml", new VirtualTopicConfig("orders-json", null, false, new JsonFormatConfig(DecodeErrorPolicy.SKIP),
-                List.of(new DropFieldsTransformationConfig(List.of("internal_risk_score")),
-                        new RenameFieldTransformationConfig("order_id", "id"),
-                        new ConvertTransformationConfig(new XmlFormatConfig(DecodeErrorPolicy.SKIP, "order"))),
-                null));
+        return Map.of(
+                "orders-xml", new VirtualTopicConfig("orders-json", null, false, new JsonFormatConfig(DecodeErrorPolicy.SKIP),
+                        List.of(new DropFieldsTransformationConfig(List.of("internal_risk_score")),
+                                new RenameFieldTransformationConfig("order_id", "id"),
+                                new ConvertTransformationConfig(new XmlFormatConfig(DecodeErrorPolicy.SKIP, "order"))),
+                        null),
+                "invoices-xml", new VirtualTopicConfig("invoices-json", null, false, new JsonFormatConfig(DecodeErrorPolicy.INCLUDE),
+                        List.of(new ConvertTransformationConfig(new XmlFormatConfig(DecodeErrorPolicy.SKIP, "invoice")),
+                                new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                                new SetHeaderTransformationConfig("content-type", "application/xml")),
+                        null));
     }
 
     @Override
     protected List<NewTopic> initialTopics() {
-        return List.of(new NewTopic("orders-json", 1, (short) 1));
+        return List.of(new NewTopic("orders-json", 1, (short) 1), new NewTopic("invoices-json", 1, (short) 1));
     }
 
     @Override
@@ -98,5 +110,67 @@ class TransformedVirtualTopicIT extends GatewayTestSupport {
         assertThat(received).extracting(ConsumerRecord::offset)
                 .withFailMessage(() -> "The delivered orders did not keep their offsets")
                 .containsExactly(0L, 2L);
+    }
+
+    @Test
+    void consumesHeadersDescribingTheConvertedFormatWhileTheStoredRecordKeepsItsOwn() throws Exception {
+        // given a JSON invoice and a value that is not JSON, produced through the gateway with JSON format headers
+        List<Header> jsonHeaders = List.of(header("content-type", "application/json"), header("__TypeId__", "com.acme.Invoice"),
+                header("region", "eu"));
+        Properties producerProps = saslProps(gatewayBootstrap);
+        producerProps.put(KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        producerProps.put(VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
+        try (var producer = new KafkaProducer<String, String>(producerProps)) {
+            producer.send(new ProducerRecord<>("invoices-xml", null, "i-1", "{\"id\":\"i-1\"}", jsonHeaders)).get();
+            producer.send(new ProducerRecord<>("invoices-xml", null, "broken", "not json", jsonHeaders)).get();
+        }
+
+        // when a consumer reads the virtual topic through the gateway, and another the physical topic from the broker
+        List<ConsumerRecord<String, String>> virtual = consumeTwo(gatewayBootstrap, "invoices-xml", true);
+        List<ConsumerRecord<String, String>> stored = consumeTwo(brokerBootstrap, "invoices-json", false);
+
+        // then the transformed invoice's headers describe its XML value
+        assertThat(virtual.getFirst().value())
+                .withFailMessage(() -> "The invoice was not delivered as XML, got " + virtual.getFirst().value())
+                .isEqualTo("<invoice><id>i-1</id></invoice>");
+        assertThat(List.of(virtual.getFirst().headers().toArray()))
+                .withFailMessage(() -> "The transformed invoice's headers do not describe XML: " + virtual.getFirst().headers())
+                .containsExactly(header("region", "eu"), header("content-type", "application/xml"));
+        // and the value delivered untransformed under include keeps the headers that describe it
+        assertThat(List.of(virtual.getLast().headers().toArray()))
+                .withFailMessage(() -> "The untransformed value's headers were rewritten: " + virtual.getLast().headers())
+                .containsExactlyElementsOf(jsonHeaders);
+        // and the produce path stored the records as sent
+        assertThat(stored).extracting(ConsumerRecord::value)
+                .withFailMessage(() -> "The stored values were changed on produce: " + stored.stream().map(ConsumerRecord::value).toList())
+                .containsExactly("{\"id\":\"i-1\"}", "not json");
+        assertThat(stored).allSatisfy(record -> assertThat(List.of(record.headers().toArray()))
+                .withFailMessage(() -> "The stored headers were changed on produce: " + record.headers())
+                .containsExactlyElementsOf(jsonHeaders));
+    }
+
+    /// The first two records of `topic`, read from offset 0 at `bootstrap`.
+    private List<ConsumerRecord<String, String>> consumeTwo(String bootstrap, String topic, boolean sasl) {
+        Properties consumerProps = sasl ? saslProps(bootstrap) : new Properties();
+        consumerProps.put(BOOTSTRAP_SERVERS_CONFIG, bootstrap);
+        consumerProps.put(GROUP_ID_CONFIG, groupId() + "-" + topic);
+        consumerProps.put(AUTO_OFFSET_RESET_CONFIG, "earliest");
+        consumerProps.put(KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        consumerProps.put(VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        List<ConsumerRecord<String, String>> received = new ArrayList<>();
+        try (var consumer = new KafkaConsumer<String, String>(consumerProps)) {
+            consumer.subscribe(List.of(topic));
+            eventually(() -> {
+                consumer.poll(Duration.ofMillis(200)).forEach(received::add);
+                assertThat(received)
+                        .withFailMessage(() -> "Both records of '" + topic + "' were not delivered, got " + received.size())
+                        .hasSizeGreaterThanOrEqualTo(2);
+            });
+        }
+        return received.subList(0, 2);
+    }
+
+    private static Header header(String key, String value) {
+        return new RecordHeader(key, value.getBytes(StandardCharsets.UTF_8));
     }
 }

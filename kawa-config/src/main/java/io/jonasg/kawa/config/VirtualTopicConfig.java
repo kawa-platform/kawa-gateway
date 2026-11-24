@@ -13,9 +13,9 @@ import java.util.List;
 ///                            (renamed to the virtual name in place) - hidden by default
 /// @param valueFormat         optional encoding of record values; when set, content-based filters
 ///                            see the decoded value instead of the raw string
-/// @param transformations     steps applied in order to the record value on fetch; empty (the
+/// @param transformations     steps applied in order to the record value and headers on fetch; empty (the
 ///                            default) passes the value through unchanged. Requires `valueFormat`,
-///                            and a [ConvertTransformationConfig] may only be the last step. An Avro
+///                            and only header steps may follow a [ConvertTransformationConfig]. An Avro
 ///                            output format must name the [AvroFormatConfig#subject] to encode with,
 ///                            an XML one its [XmlFormatConfig#root]
 /// @param managedBy           the owner of this entry, or `null` when it is unmanaged
@@ -33,9 +33,14 @@ public record VirtualTopicConfig(
         if (!transformations.isEmpty() && valueFormat == null) {
             throw new IllegalArgumentException("transformations require a 'valueFormat' to decode the record value");
         }
-        for (int i = 0; i < transformations.size() - 1; i++) {
-            if (transformations.get(i) instanceof ConvertTransformationConfig) {
-                throw new IllegalArgumentException("transformations[" + i + "] (convert): must be the last step");
+        int convert = -1;
+        for (int i = 0; i < transformations.size(); i++) {
+            TransformationConfig step = transformations.get(i);
+            if (convert >= 0 && !isHeaderStep(step)) {
+                throw new IllegalArgumentException("transformations[" + convert + "] (convert): only header steps may follow it");
+            }
+            if (step instanceof ConvertTransformationConfig) {
+                convert = i;
             }
         }
         if (!transformations.isEmpty()) {
@@ -50,14 +55,22 @@ public record VirtualTopicConfig(
         }
     }
 
-    /// The format transformed values are encoded in: the trailing `convert` step's, else `valueFormat`;
+    /// The format transformed values are encoded in: the `convert` step's, else `valueFormat`;
     /// `null` when there are no transformations.
     public @Nullable PayloadFormatConfig outputFormat() {
         return transformations.isEmpty() ? null : outputFormat(valueFormat, transformations);
     }
 
+    private static boolean isHeaderStep(TransformationConfig step) {
+        return step instanceof DropHeadersTransformationConfig || step instanceof SetHeaderTransformationConfig;
+    }
+
     private static PayloadFormatConfig outputFormat(PayloadFormatConfig valueFormat, List<TransformationConfig> transformations) {
-        return transformations.getLast() instanceof ConvertTransformationConfig convert ? convert.format() : valueFormat;
+        return transformations.stream()
+                .filter(ConvertTransformationConfig.class::isInstance)
+                .map(step -> ((ConvertTransformationConfig) step).format())
+                .findFirst()
+                .orElse(valueFormat);
     }
 
     public VirtualTopicConfig(String topic) {

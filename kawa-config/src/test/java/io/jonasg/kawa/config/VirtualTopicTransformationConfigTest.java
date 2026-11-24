@@ -86,7 +86,7 @@ class VirtualTopicTransformationConfigTest {
     }
 
     @Test
-    void refusesAConvertThatIsNotTheLastStepNamingIt() {
+    void refusesAValueStepAfterConvertNamingTheConvert() {
         // given
         var steps = List.<TransformationConfig>of(
                 new DropFieldsTransformationConfig(List.of("internal")),
@@ -96,7 +96,7 @@ class VirtualTopicTransformationConfigTest {
         // when / then
         assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(), steps, null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("transformations[1] (convert): must be the last step");
+                .hasMessage("transformations[1] (convert): only header steps may follow it");
     }
 
     @Test
@@ -233,5 +233,96 @@ class VirtualTopicTransformationConfigTest {
                 }}}
                 """, DynamicConfig.class))
                 .hasMessageContaining("Invalid transformation for virtual topic 'orders.virtual'");
+    }
+
+    @Test
+    void roundTripsHeaderStepsAfterConvertThroughTheConfigTopic() throws Exception {
+        // given
+        var virtualTopic = new VirtualTopicConfig("orders.raw", null, false, new AvroFormatConfig(),
+                List.of(new DropFieldsTransformationConfig(List.of("internal_risk_score")),
+                        new ConvertTransformationConfig(new JsonFormatConfig()),
+                        new DropHeadersTransformationConfig(List.of("__TypeId__", "content-type")),
+                        new SetHeaderTransformationConfig("content-type", "application/json")),
+                null);
+        var config = DynamicConfig.empty().upsertVirtualTopic("orders.virtual", virtualTopic);
+
+        // when
+        String json = mapper.writeValueAsString(config);
+
+        // then
+        var read = mapper.readValue(json, DynamicConfig.class).virtualTopics().get("orders.virtual");
+        assertThat(read)
+                .withFailMessage(() -> "The header steps did not survive the config-topic round trip: " + json)
+                .isEqualTo(virtualTopic);
+        assertThat(read.outputFormat())
+                .withFailMessage(() -> "The convert format followed by header steps was not the output format: " + read.outputFormat())
+                .isEqualTo(new JsonFormatConfig());
+    }
+
+    @Test
+    void readsHeaderStepsBeforeConvert() {
+        // when
+        var virtualTopic = new VirtualTopicConfig("orders.raw", null, false, new AvroFormatConfig(),
+                List.of(new SetHeaderTransformationConfig("content-type", "application/json"),
+                        new ConvertTransformationConfig(new JsonFormatConfig())),
+                null);
+
+        // then
+        assertThat(virtualTopic.outputFormat())
+                .withFailMessage(() -> "The convert format was not the output format: " + virtualTopic.outputFormat())
+                .isEqualTo(new JsonFormatConfig());
+    }
+
+    @Test
+    void refusesASecondConvertNamingTheFirst() {
+        // given
+        var steps = List.<TransformationConfig>of(
+                new ConvertTransformationConfig(new JsonFormatConfig()),
+                new DropHeadersTransformationConfig(List.of("content-type")),
+                new ConvertTransformationConfig(new JsonFormatConfig()));
+
+        // when / then
+        assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(), steps, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("transformations[0] (convert): only header steps may follow it");
+    }
+
+    @Test
+    void refusesInvalidHeaderSteps() {
+        assertThatThrownBy(() -> new DropHeadersTransformationConfig(List.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("dropHeaders transformation requires at least one header");
+        assertThatThrownBy(() -> new DropHeadersTransformationConfig(List.of("content-type", " ")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("dropHeaders transformation: header names must not be blank");
+        assertThatThrownBy(() -> new SetHeaderTransformationConfig(" ", "application/json"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("setHeader transformation requires a 'header'");
+        assertThatThrownBy(() -> new SetHeaderTransformationConfig("content-type", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("setHeader transformation requires a 'value'");
+    }
+
+    @Test
+    void refusesAnUnknownOutputFormat() {
+        assertThatThrownBy(() -> mapper.readValue("""
+                {"virtualTopics": {"orders.virtual": {
+                  "topic": "orders.raw",
+                  "valueFormat": {"type": "json"},
+                  "transformations": [{"type": "convert", "format": {"type": "protobuf"}}]
+                }}}
+                """, DynamicConfig.class))
+                .hasMessageContaining("Invalid transformation for virtual topic 'orders.virtual'");
+    }
+
+    @Test
+    void refusesAnUnknownValueFormat() {
+        assertThatThrownBy(() -> mapper.readValue("""
+                {"virtualTopics": {"orders.virtual": {
+                  "topic": "orders.raw",
+                  "valueFormat": {"type": "protobuf"}
+                }}}
+                """, DynamicConfig.class))
+                .hasMessageContaining("protobuf");
     }
 }

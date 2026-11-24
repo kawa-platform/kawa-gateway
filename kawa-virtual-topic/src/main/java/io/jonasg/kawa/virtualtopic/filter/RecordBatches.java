@@ -1,6 +1,7 @@
 package io.jonasg.kawa.virtualtopic.filter;
 
 import org.apache.kafka.common.compress.Compression;
+import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.record.TimestampType;
 import org.apache.kafka.common.record.internal.DefaultRecordBatch;
 import org.apache.kafka.common.record.internal.MemoryRecords;
@@ -26,8 +27,13 @@ public final class RecordBatches {
     private RecordBatches() {
     }
 
-    /// A record to write, with the value to write it with (`null` for a tombstone).
-    public record Entry(Record record, @Nullable ByteBuffer value) {
+    /// A record to write, with the value (`null` for a tombstone) and headers to write it with.
+    public record Entry(Record record, @Nullable ByteBuffer value, Header[] headers) {
+
+        /// The record with `value` and its own headers.
+        public Entry(Record record, @Nullable ByteBuffer value) {
+            this(record, value, record.headers());
+        }
     }
 
     /// The records of `records` a consumer fetching at `fetchOffset` reads: the broker returns whole
@@ -146,7 +152,7 @@ public final class RecordBatches {
                 original.deleteHorizonMs().orElse(RecordBatch.NO_TIMESTAMP))) {
             for (Entry entry : records) {
                 Record record = entry.record();
-                builder.appendWithOffset(record.offset(), record.timestamp(), record.key(), entry.value(), record.headers());
+                builder.appendWithOffset(record.offset(), record.timestamp(), record.key(), entry.value(), entry.headers());
             }
             if (!legacy) {
                 builder.overrideLastOffset(lastOffset);

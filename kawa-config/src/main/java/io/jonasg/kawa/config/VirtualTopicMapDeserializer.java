@@ -29,6 +29,11 @@ import java.util.Map;
 ///         fields: [internal_risk_score]
 ///       - type: convert
 ///         format: {type: json}
+///       - type: dropHeaders
+///         headers: [content-type]
+///       - type: setHeader
+///         header: content-type
+///         value: application/json
 /// ```
 public final class VirtualTopicMapDeserializer extends ValueDeserializer<Map<String, VirtualTopicConfig>> {
 

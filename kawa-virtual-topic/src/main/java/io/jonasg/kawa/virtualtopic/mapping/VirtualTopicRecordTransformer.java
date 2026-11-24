@@ -29,8 +29,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /// Applies a virtual topic's transformations to a fetched partition's records: each record value
-/// is decoded with the topic's `valueFormat`, mapped, and encoded in its output format, and every
-/// batch is rebuilt around the new values.
+/// is decoded with the topic's `valueFormat`, mapped, and encoded in its output format, its
+/// headers are mapped by the header steps, and every batch is rebuilt around the new records.
+///
+/// Headers describe the delivered bytes: the header steps run only on a record whose value was
+/// transformed. A record delivered as stored - a tombstone, or a value that cannot be transformed
+/// under `include` - keeps its stored headers.
 ///
 /// A topic that also has a consume filter is filtered in the same pass: each record is first asked
 /// of the filter, and only the records it keeps are transformed. The filter and the
@@ -40,7 +44,7 @@ import java.util.List;
 /// stored, as any value that cannot be transformed under `include`.
 ///
 /// Batches are rebuilt the way Kafka's own `MemoryRecords.filterTo` rebuilds the batches it
-/// filters (log compaction): offsets, timestamps, keys and headers stay, as do the producer id,
+/// filters (log compaction): offsets, timestamps and keys stay, as do the producer id,
 /// epoch and base sequence, the transactional flag and the partition leader epoch; the batch keeps
 /// its last offset, so a consumer moves past it even when its last records were dropped, and its
 /// compression codec. Batches in the legacy formats (magic v0 and v1) come out as v2. So
@@ -80,14 +84,15 @@ public final class VirtualTopicRecordTransformer {
         this.transformation = transformation;
     }
 
-    /// Prepares the transformations of one virtual topic - its value decoder, compiled mapping and
+    /// Prepares the transformations of one virtual topic - its value decoder, compiled mappings and
     /// encoder - once, so every fetch applies them without preparation work. Built for each virtual
     /// topic of a [io.jonasg.kawa.virtualtopic.VirtualTopicManager] snapshot, so it lives exactly as
     /// long as the configuration it was prepared for.
     ///
     /// @param valueFormat  how stored values are decoded; its `onDecodeError` policy handles a value
     ///                     that cannot be transformed
-    /// @param mapping      the compiled transformations
+    /// @param mapping      the compiled value steps
+    /// @param headers      the compiled header steps
     /// @param outputFormat the format transformed values are encoded in
     /// @param avroSchemas  the schemas of the physical topic's cluster, to decode Avro values with,
     ///                     `null` when that cluster has no schema registry
@@ -96,12 +101,13 @@ public final class VirtualTopicRecordTransformer {
     public static VirtualTopicRecordTransformer of(
             PayloadFormatConfig valueFormat,
             ValueMapping mapping,
+            HeaderMapping headers,
             PayloadFormatConfig outputFormat,
             @Nullable AvroSchemaResolver avroSchemas,
             @Nullable AvroSubjectResolver avroSubjects
     ) {
         var codecs = new Codecs(PayloadCodecs.decoder(valueFormat, avroSchemas), PayloadCodecs.encoder(outputFormat, avroSubjects));
-        return new VirtualTopicRecordTransformer(new Transformation(codecs, mapping, valueFormat.onDecodeError()));
+        return new VirtualTopicRecordTransformer(new Transformation(codecs, mapping, headers, valueFormat.onDecodeError()));
     }
 
     /// Returns the records of `records` that `filter` keeps, each value transformed, or `records`
@@ -149,7 +155,7 @@ public final class VirtualTopicRecordTransformer {
         try (CloseableIterator<Record> records = batch.streamingIterator(BufferSupplier.NO_CACHING)) {
             while (records.hasNext()) {
                 Record record = records.next();
-                ByteBuffer value;
+                RecordBatches.Entry transformed;
                 try {
                     DecodedValue decoded = null;
                     if (filter != null) {
@@ -162,7 +168,7 @@ public final class VirtualTopicRecordTransformer {
                         kept.add(new RecordBatches.Entry(record, null));
                         continue;
                     }
-                    value = transformation.apply(record, decoded);
+                    transformed = transformation.apply(record, decoded);
                 } catch (PayloadDecodeException | PayloadMappingException | PayloadEncodeException e) {
                     // only escapes the filter or apply under the fail policy
                     if (!kept.isEmpty() || record.offset() > batch.baseOffset()) {
@@ -170,8 +176,8 @@ public final class VirtualTopicRecordTransformer {
                     }
                     return new Stop(record.offset(), e);
                 }
-                if (value != null) {
-                    kept.add(new RecordBatches.Entry(record, value));
+                if (transformed != null) {
+                    kept.add(transformed);
                 }
             }
         }
@@ -182,17 +188,18 @@ public final class VirtualTopicRecordTransformer {
     private record Stop(long offset, RuntimeException cause) {
     }
 
-    private record Transformation(Codecs codecs, ValueMapping mapping, DecodeErrorPolicy onError) {
+    private record Transformation(Codecs codecs, ValueMapping mapping, HeaderMapping headers, DecodeErrorPolicy onError) {
 
-        /// The transformed value of `record`; on failure its stored value or `null` (dropped) per
-        /// `onError`, or the failure itself under `fail`. Any other exception is no record error and
+        /// `record` with its transformed value and mapped headers; on failure `record` as stored or
+        /// `null` (dropped) per `onError`, or the failure itself under `fail`. Any other exception is no record error and
         /// is not handled per `onError` either. A [io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException] is not caught: it is no record error.
         ///
         /// @param decoded the value of `record` the filter may already have decoded, `null` to decode it here
-        @Nullable ByteBuffer apply(Record record, @Nullable DecodedValue decoded) {
+        RecordBatches.@Nullable Entry apply(Record record, @Nullable DecodedValue decoded) {
             try {
                 Object value = decoded == null ? codecs.decoder().decode(record.value()) : decoded.get();
-                return ByteBuffer.wrap(codecs.encoder().encode(mapping.apply(value, record)));
+                ByteBuffer encoded = ByteBuffer.wrap(codecs.encoder().encode(mapping.apply(value, record)));
+                return new RecordBatches.Entry(record, encoded, headers.apply(record.headers()));
             } catch (PayloadDecodeException | PayloadMappingException | PayloadEncodeException e) {
                 return switch (onError) {
                     case SKIP -> {
@@ -201,7 +208,7 @@ public final class VirtualTopicRecordTransformer {
                     }
                     case INCLUDE -> {
                         log.debug("Delivering record at offset {} untransformed: {}", record.offset(), e.getMessage());
-                        yield record.value();
+                        yield new RecordBatches.Entry(record, record.value());
                     }
                     case FAIL -> throw e;
                 };
