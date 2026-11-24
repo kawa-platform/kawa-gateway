@@ -1251,6 +1251,28 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void createsHeaderOnlyVirtualTopicWithoutValueFormat() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var createTopicResp = send("POST", "/topics", """
+                {
+                  "type": "virtual",
+                  "name": "orders.public",
+                  "topic": "orders",
+                  "transformations": [{"type": "dropHeaders", "headers": ["__TypeId__"]}]
+                }
+                """);
+
+        // then
+        assertThat(createTopicResp).hasStatusCode(201);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders.public").transformations())
+                .withFailMessage(() -> "The header-only transformations were not persisted")
+                .containsExactly(new DropHeadersTransformationConfig(List.of("__TypeId__")));
+    }
+
+    @Test
     void refusesInvalidHeaderStepsAndUnknownFormatsNamingTheStep() throws Exception {
         // given
         startServer();

@@ -9,8 +9,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 /// the record value decoded with the topic's `valueFormat`, and an optional
 /// [ConvertTransformationConfig] after them picks the format the result is encoded in (the
 /// `valueFormat` otherwise). Header steps ([DropHeadersTransformationConfig],
-/// [SetHeaderTransformationConfig]) rewrite the headers of a transformed record, so they can be
-/// kept consistent with the format delivered; they may come before or after `convert`. Keys are
+/// [SetHeaderTransformationConfig]) rewrite the headers of the records a topic delivers, so they
+/// describe the format delivered; they may come before or after `convert`. Keys are
 /// never changed.
 ///
 /// The `type` discriminator selects the concrete step. New steps are added by implementing this

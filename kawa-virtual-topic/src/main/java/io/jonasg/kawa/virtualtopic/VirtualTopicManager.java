@@ -102,7 +102,7 @@ public final class VirtualTopicManager {
         VirtualTopicRecordFilter recordFilter = config.filter() == null
                 ? null
                 : VirtualTopicRecordFilter.of(name, config.filter(), config.valueFormat(), avroSchemas);
-        VirtualTopicRecordTransformer transformer = outputFormat == null
+        VirtualTopicRecordTransformer transformer = config.transformations().isEmpty()
                 ? null
                 : VirtualTopicRecordTransformer.of(config.valueFormat(), mapping,
                         HeaderMappings.compile(config.transformations()), outputFormat, avroSchemas,
@@ -195,9 +195,9 @@ public final class VirtualTopicManager {
         return Optional.ofNullable(snapshot.byVirtual().get(virtual));
     }
 
-    /// @param mapping      the compiled transformations, [ValueMapping#IDENTITY] when there are none
-    /// @param outputFormat the format transformed values are encoded in, `null` when there are no
-    ///                     transformations (values are then passed through unchanged)
+    /// @param mapping      the compiled value steps, [ValueMapping#IDENTITY] when there are none
+    /// @param outputFormat the format delivered values are in: the `convert` format, else `valueFormat`;
+    ///                     `null` when there are no transformations, or only header steps without a `valueFormat`
     /// @param recordFilter `filter` prepared for fetched records, `null` when there is no filter
     /// @param transformer  the transformations prepared for fetched records, `null` when there are none
     public record VirtualTopic(

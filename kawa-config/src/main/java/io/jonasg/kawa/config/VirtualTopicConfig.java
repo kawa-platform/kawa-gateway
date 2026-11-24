@@ -13,11 +13,12 @@ import java.util.List;
 ///                            (renamed to the virtual name in place) - hidden by default
 /// @param valueFormat         optional encoding of record values; when set, content-based filters
 ///                            see the decoded value instead of the raw string
-/// @param transformations     steps applied in order to the record value and headers on fetch; empty (the
-///                            default) passes the value through unchanged. Requires `valueFormat`,
-///                            and only header steps may follow a [ConvertTransformationConfig]. An Avro
-///                            output format must name the [AvroFormatConfig#subject] to encode with,
-///                            an XML one its [XmlFormatConfig#root]
+/// @param transformations     steps applied in order on fetch; empty (the default) passes the record
+///                            through unchanged. Value steps and a [ConvertTransformationConfig] decode
+///                            and re-encode the value, so they require `valueFormat`; header steps alone
+///                            do not, and leave the value bytes untouched. Only header steps may follow a
+///                            [ConvertTransformationConfig]. An Avro output format must name the
+///                            [AvroFormatConfig#subject] to encode with, an XML one its [XmlFormatConfig#root]
 /// @param managedBy           the owner of this entry, or `null` when it is unmanaged
 public record VirtualTopicConfig(
         String topic,
@@ -30,8 +31,8 @@ public record VirtualTopicConfig(
 
     public VirtualTopicConfig {
         transformations = transformations == null ? List.of() : List.copyOf(transformations);
-        if (!transformations.isEmpty() && valueFormat == null) {
-            throw new IllegalArgumentException("transformations require a 'valueFormat' to decode the record value");
+        if (valueFormat == null && transformations.stream().anyMatch(step -> !isHeaderStep(step))) {
+            throw new IllegalArgumentException("value transformations and convert require a 'valueFormat' to decode the record value");
         }
         int convert = -1;
         for (int i = 0; i < transformations.size(); i++) {
@@ -43,8 +44,9 @@ public record VirtualTopicConfig(
                 convert = i;
             }
         }
-        if (!transformations.isEmpty()) {
-            switch (outputFormat(valueFormat, transformations)) {
+        PayloadFormatConfig output = transformations.isEmpty() ? null : outputFormat(valueFormat, transformations);
+        if (output != null) {
+            switch (output) {
                 case AvroFormatConfig avro when avro.subject() == null ->
                         throw new IllegalArgumentException("encoding transformed values as Avro requires a 'subject'");
                 case XmlFormatConfig xml when xml.root() == null ->
@@ -56,7 +58,7 @@ public record VirtualTopicConfig(
     }
 
     /// The format transformed values are encoded in: the `convert` step's, else `valueFormat`;
-    /// `null` when there are no transformations.
+    /// `null` when there are no transformations, or only header steps and no `valueFormat`.
     public @Nullable PayloadFormatConfig outputFormat() {
         return transformations.isEmpty() ? null : outputFormat(valueFormat, transformations);
     }
@@ -65,7 +67,10 @@ public record VirtualTopicConfig(
         return step instanceof DropHeadersTransformationConfig || step instanceof SetHeaderTransformationConfig;
     }
 
-    private static PayloadFormatConfig outputFormat(PayloadFormatConfig valueFormat, List<TransformationConfig> transformations) {
+    private static @Nullable PayloadFormatConfig outputFormat(
+            @Nullable PayloadFormatConfig valueFormat,
+            List<TransformationConfig> transformations
+    ) {
         return transformations.stream()
                 .filter(ConvertTransformationConfig.class::isInstance)
                 .map(step -> ((ConvertTransformationConfig) step).format())

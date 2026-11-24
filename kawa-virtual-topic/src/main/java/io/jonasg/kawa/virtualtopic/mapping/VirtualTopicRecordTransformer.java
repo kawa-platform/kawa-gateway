@@ -27,14 +27,18 @@ import org.slf4j.LoggerFactory;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /// Applies a virtual topic's transformations to a fetched partition's records: each record value
 /// is decoded with the topic's `valueFormat`, mapped, and encoded in its output format, its
 /// headers are mapped by the header steps, and every batch is rebuilt around the new records.
 ///
-/// Headers describe the delivered bytes: the header steps run only on a record whose value was
-/// transformed. A record delivered as stored - a tombstone, or a value that cannot be transformed
-/// under `include` - keeps its stored headers.
+/// Headers describe the delivered bytes. The header steps run on every record with a value, except
+/// a value delivered as stored after a failed transformation when the topic has a `convert`: that
+/// value is still in the stored format, so its headers stay. A tombstone keeps its headers.
+///
+/// A topic whose steps are header steps only (no value step, no `convert`) decodes and re-encodes
+/// nothing: its values pass through as stored, and it needs no `valueFormat` unless it filters.
 ///
 /// A topic that also has a consume filter is filtered in the same pass: each record is first asked
 /// of the filter, and only the records it keeps are transformed. The filter and the
@@ -72,8 +76,9 @@ import java.util.List;
 /// bypasses the policy: it is thrown, whatever the policy, so the partition fails instead of
 /// records being dropped or delivered untransformed.
 ///
-/// Every record of a transformed topic is decoded, mapped and re-encoded on every fetch: the cost
-/// grows with the number and size of the records, and it is paid again by every consumer.
+/// Every record of a topic with value steps or a `convert` is decoded, mapped and re-encoded on every
+/// fetch: the cost grows with the number and size of the records, and it is paid again by every
+/// consumer. A topic with only header steps pays none of it.
 public final class VirtualTopicRecordTransformer {
 
     private static final Logger log = LoggerFactory.getLogger(VirtualTopicRecordTransformer.class);
@@ -89,25 +94,32 @@ public final class VirtualTopicRecordTransformer {
     /// topic of a [io.jonasg.kawa.virtualtopic.VirtualTopicManager] snapshot, so it lives exactly as
     /// long as the configuration it was prepared for.
     ///
-    /// @param valueFormat  how stored values are decoded; its `onDecodeError` policy handles a value
-    ///                     that cannot be transformed
+    /// @param valueFormat  how stored values are decoded, `null` when the topic has none: then it has
+    ///                     only header steps, and no value is decoded
     /// @param mapping      the compiled value steps
     /// @param headers      the compiled header steps
-    /// @param outputFormat the format transformed values are encoded in
+    /// @param outputFormat the format delivered values are in, `null` only without a `valueFormat`
     /// @param avroSchemas  the schemas of the physical topic's cluster, to decode Avro values with,
     ///                     `null` when that cluster has no schema registry
     /// @param avroSubjects the subjects of the physical topic's cluster, to encode Avro values with,
     ///                     `null` when that cluster has no schema registry
     public static VirtualTopicRecordTransformer of(
-            PayloadFormatConfig valueFormat,
+            @Nullable PayloadFormatConfig valueFormat,
             ValueMapping mapping,
             HeaderMapping headers,
-            PayloadFormatConfig outputFormat,
+            @Nullable PayloadFormatConfig outputFormat,
             @Nullable AvroSchemaResolver avroSchemas,
             @Nullable AvroSubjectResolver avroSubjects
     ) {
-        var codecs = new Codecs(PayloadCodecs.decoder(valueFormat, avroSchemas), PayloadCodecs.encoder(outputFormat, avroSubjects));
-        return new VirtualTopicRecordTransformer(new Transformation(codecs, mapping, headers, valueFormat.onDecodeError()));
+        boolean sameFormat = Objects.equals(outputFormat, valueFormat);
+        boolean headersOnly = mapping == ValueMapping.IDENTITY && sameFormat;
+        PayloadDecoder decoder = valueFormat == null ? null : PayloadCodecs.decoder(valueFormat, avroSchemas);
+        PayloadEncoder encoder = headersOnly || outputFormat == null
+                ? null
+                : PayloadCodecs.encoder(outputFormat, avroSubjects);
+        var codecs = new Codecs(decoder, encoder);
+        DecodeErrorPolicy onError = valueFormat == null ? DecodeErrorPolicy.FAIL : valueFormat.onDecodeError();
+        return new VirtualTopicRecordTransformer(new Transformation(codecs, mapping, headers, onError, sameFormat, headersOnly));
     }
 
     /// Returns the records of `records` that `filter` keeps, each value transformed, or `records`
@@ -188,14 +200,26 @@ public final class VirtualTopicRecordTransformer {
     private record Stop(long offset, RuntimeException cause) {
     }
 
-    private record Transformation(Codecs codecs, ValueMapping mapping, HeaderMapping headers, DecodeErrorPolicy onError) {
+    private record Transformation(
+            Codecs codecs,
+            ValueMapping mapping,
+            HeaderMapping headers,
+            DecodeErrorPolicy onError,
+            boolean sameFormat,
+            boolean headersOnly
+    ) {
 
         /// `record` with its transformed value and mapped headers; on failure `record` as stored or
         /// `null` (dropped) per `onError`, or the failure itself under `fail`. Any other exception is no record error and
         /// is not handled per `onError` either. A [io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException] is not caught: it is no record error.
         ///
+        /// A header-only topic maps the headers of `record` and keeps its value bytes; nothing is decoded.
+        ///
         /// @param decoded the value of `record` the filter may already have decoded, `null` to decode it here
         RecordBatches.@Nullable Entry apply(Record record, @Nullable DecodedValue decoded) {
+            if (headersOnly) {
+                return new RecordBatches.Entry(record, record.value(), headers.apply(record.headers()));
+            }
             try {
                 Object value = decoded == null ? codecs.decoder().decode(record.value()) : decoded.get();
                 ByteBuffer encoded = ByteBuffer.wrap(codecs.encoder().encode(mapping.apply(value, record)));
@@ -208,7 +232,10 @@ public final class VirtualTopicRecordTransformer {
                     }
                     case INCLUDE -> {
                         log.debug("Delivering record at offset {} untransformed: {}", record.offset(), e.getMessage());
-                        yield new RecordBatches.Entry(record, record.value());
+                        // the stored value is in the delivered format only when no convert changed it
+                        yield sameFormat
+                                ? new RecordBatches.Entry(record, record.value(), headers.apply(record.headers()))
+                                : new RecordBatches.Entry(record, record.value());
                     }
                     case FAIL -> throw e;
                 };
@@ -216,6 +243,9 @@ public final class VirtualTopicRecordTransformer {
         }
     }
 
-    private record Codecs(PayloadDecoder decoder, PayloadEncoder encoder) {
+    /// The codecs of a topic. The decoder is `null` without a `valueFormat`, the encoder when the
+    /// topic only maps headers.
+    private record Codecs(@Nullable PayloadDecoder decoder, @Nullable PayloadEncoder encoder) {
     }
+
 }

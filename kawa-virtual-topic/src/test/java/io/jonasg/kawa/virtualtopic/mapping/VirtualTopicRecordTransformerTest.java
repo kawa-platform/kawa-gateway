@@ -125,6 +125,61 @@ class VirtualTopicRecordTransformerTest {
     }
 
     @Test
+    void passesTheValueBytesOfAHeaderOnlyTopicThroughUntouched() {
+        // given a header-only topic and a value whose bytes a JSON re-encoding would change
+        VirtualTopic topic = headerOnlyTopic(new DropHeadersTransformationConfig(List.of("__TypeId__")));
+        var records = MemoryRecords.withRecords(Compression.NONE,
+                new SimpleRecord(0L, null, bytes("{ \"a\" :  1.0,\"b\":[ 2 ] }"), formatHeaders()));
+
+        // when
+        Record delivered = records(transform(topic, records)).getFirst();
+
+        // then
+        assertThat(value(delivered))
+                .withFailMessage(() -> "The value bytes were rewritten: " + value(delivered))
+                .isEqualTo("{ \"a\" :  1.0,\"b\":[ 2 ] }");
+        assertThat(delivered.headers())
+                .withFailMessage(() -> "The header was not dropped: " + List.of(delivered.headers()))
+                .containsExactly(header("content-type", "application/json"), header("region", "eu"));
+    }
+
+    @Test
+    void deliversAValueThatIsNotJsonFromAHeaderOnlyTopic() {
+        // given a header-only topic and a value that is not JSON, under the default skip policy
+        VirtualTopic topic = headerOnlyTopic(new SetHeaderTransformationConfig("content-type", "text/plain"));
+        var records = MemoryRecords.withRecords(Compression.NONE,
+                new SimpleRecord(0L, null, bytes("not json"), formatHeaders()));
+
+        // when
+        List<Record> delivered = records(transform(topic, records));
+
+        // then
+        assertThat(delivered).extracting(VirtualTopicRecordTransformerTest::value)
+                .withFailMessage(() -> "The value that does not decode was dropped: " + delivered.size())
+                .containsExactly("not json");
+        assertThat(delivered.getFirst().headers())
+                .withFailMessage(() -> "The header was not set: " + List.of(delivered.getFirst().headers()))
+                .containsExactly(header("__TypeId__", "com.acme.Order"), header("region", "eu"),
+                        header("content-type", "text/plain"));
+    }
+
+    @Test
+    void mapsTheHeadersOfAStoredValueDeliveredUnderIncludeWhenNoConvertChangedTheFormat() {
+        // given a value step under the include policy, without a convert: the stored value stays in the delivered format
+        VirtualTopic topic = topic(new JsonFormatConfig(DecodeErrorPolicy.INCLUDE), new RenameFieldTransformationConfig("a", "b"),
+                new DropHeadersTransformationConfig(List.of("__TypeId__")));
+        var records = MemoryRecords.withRecords(Compression.NONE, new SimpleRecord(0L, null, bytes("not json"), formatHeaders()));
+
+        // when
+        Record delivered = records(transform(topic, records)).getFirst();
+
+        // then
+        assertThat(delivered.headers())
+                .withFailMessage(() -> "The headers of the stored value were not mapped: " + List.of(delivered.headers()))
+                .containsExactly(header("content-type", "application/json"), header("region", "eu"));
+    }
+
+    @Test
     void keepsTheStoredHeadersOfARecordDeliveredUntransformedUnderIncludePolicy() {
         // given a value that is not JSON, under the include policy, with header steps
         VirtualTopic topic = topic(new JsonFormatConfig(DecodeErrorPolicy.INCLUDE),
@@ -513,6 +568,11 @@ class VirtualTopicRecordTransformerTest {
     private static VirtualTopic topic(SchemaRegistries registries, PayloadFormatConfig valueFormat, TransformationConfig... steps) {
         var config = new VirtualTopicConfig("orders.raw", null, false, valueFormat, List.of(steps), null);
         return new VirtualTopicManager(Map.of("orders", config), registries).virtualTopic("orders").orElseThrow();
+    }
+
+    private static VirtualTopic headerOnlyTopic(TransformationConfig... steps) {
+        var config = new VirtualTopicConfig("orders.raw", null, false, null, List.of(steps), null);
+        return new VirtualTopicManager(Map.of("orders", config), SchemaRegistries.NONE).virtualTopic("orders").orElseThrow();
     }
 
     /// The fetched `records` of `topic` as its prepared transformer hands them to the consumer.

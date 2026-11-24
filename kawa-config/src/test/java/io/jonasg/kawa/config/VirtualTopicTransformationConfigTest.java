@@ -86,6 +86,34 @@ class VirtualTopicTransformationConfigTest {
     }
 
     @Test
+    void acceptsHeaderStepsWithoutAValueFormat() throws Exception {
+        // given a topic that only rewrites headers
+        String json = """
+                {"virtualTopics": {"orders.virtual": {
+                  "topic": "orders.raw",
+                  "transformations": [{"type": "dropHeaders", "headers": ["__TypeId__"]}]
+                }}}
+                """;
+
+        // when
+        var virtualTopic = mapper.readValue(json, DynamicConfig.class).virtualTopics().get("orders.virtual");
+
+        // then
+        assertThat(virtualTopic.transformations()).containsExactly(new DropHeadersTransformationConfig(List.of("__TypeId__")));
+        assertThat(virtualTopic.outputFormat())
+                .withFailMessage(() -> "A header-only topic got an output format: " + virtualTopic.outputFormat())
+                .isNull();
+    }
+
+    @Test
+    void refusesAConvertWithoutAValueFormat() {
+        assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, null,
+                List.of(new ConvertTransformationConfig(new JsonFormatConfig())), null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("require a 'valueFormat'");
+    }
+
+    @Test
     void refusesAValueStepAfterConvertNamingTheConvert() {
         // given
         var steps = List.<TransformationConfig>of(
