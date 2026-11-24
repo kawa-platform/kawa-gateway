@@ -1900,11 +1900,12 @@ components:
     Transformation:
       description: |
         One transformation step. Steps run in order, on fetch only. Value steps rewrite the decoded record value;
-        header steps (`dropHeaders`, `setHeader`) rewrite the headers of a record whose value was transformed, so
-        format headers match the delivered value. A record delivered as stored (a tombstone, or an untransformable
-        value under `include`) keeps its stored headers. Keys are never changed. Fields are addressed by dotted paths (`customer.name`); a list on a path applies the step to
+        header steps (`dropHeaders`, `setHeader`) rewrite the headers of the records the topic delivers, so format
+        headers match the delivered value. A topic with only header steps decodes no value. The exception is a value
+        delivered as stored after a failed transformation while the topic has a `convert`, and a tombstone: both keep
+        their stored headers. Keys are never changed. Fields are addressed by dotted paths (`customer.name`); a list on a path applies the step to
         every element. Rules (violations answer `400`):
-        - a virtual topic with steps needs a `valueFormat`
+        - value steps and `convert` need a `valueFormat`; header steps alone do not
         - at most one `convert`, and only header steps may follow it
         - the output format (the `convert` step's, else `valueFormat`) needs `subject` when Avro and `root` when XML
         - Avro, as the `valueFormat` or a `convert` format, needs a `schemaRegistry` on the cluster

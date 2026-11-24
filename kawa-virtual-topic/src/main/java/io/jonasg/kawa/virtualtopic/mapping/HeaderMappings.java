@@ -23,8 +23,9 @@ import java.util.Set;
 /// Names match exactly, as Kafka header names are case-sensitive. Headers the steps do not name
 /// keep their order; a set header goes last.
 ///
-/// The mapping runs only on records whose value was transformed, so that the headers always
-/// describe the delivered bytes: a record delivered as stored keeps its stored headers.
+/// The mapping runs on every record with a value, except a value delivered as stored after a failed
+/// transformation while the topic has a `convert`: that value is still in the stored format. A
+/// tombstone keeps its headers.
 public final class HeaderMappings {
 
     private HeaderMappings() {

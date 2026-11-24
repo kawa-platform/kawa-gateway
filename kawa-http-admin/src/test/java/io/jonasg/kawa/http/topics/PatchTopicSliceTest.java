@@ -307,7 +307,7 @@ class PatchTopicSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(patchTopicResp).hasStatusCode(400);
         assertThatJson(patchTopicResp.body()).isEqualTo("""
-                {"error": "transformations require a 'valueFormat' to decode the record value"}
+                {"error": "value transformations and convert require a 'valueFormat' to decode the record value"}
                 """);
     }
 

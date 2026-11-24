@@ -3,12 +3,9 @@ package io.jonasg.kawa.virtualtopic.transform;
 import io.jonasg.kawa.core.GatewayContext;
 import io.jonasg.kawa.core.ShortCircuitResult;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
-import io.jonasg.kawa.virtualtopic.VirtualTopicManager.VirtualTopic;
 import io.jonasg.kawa.virtualtopic.filter.FailedRecordException;
 import io.jonasg.kawa.virtualtopic.filter.RecordBatches;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistryUnavailableException;
-import io.jonasg.kawa.virtualtopic.filter.VirtualTopicRecordFilter;
-import io.jonasg.kawa.virtualtopic.mapping.VirtualTopicRecordTransformer;
 import io.jonasg.kawa.virtualtopic.FetchSessionRegistry;
 import io.jonasg.kawa.virtualtopic.VirtualTopicState;
 import org.apache.kafka.common.TopicPartition;
@@ -62,11 +59,11 @@ public final class FetchVirtualTopicTransform
     private static final Logger log = LoggerFactory.getLogger(FetchVirtualTopicTransform.class);
     private static final int FINAL_EPOCH = -1;
 
-    private final VirtualTopicManager virtualTopics;
+    private final VirtualTopicManager virtualTopicManager;
     private final FetchSessionRegistry fetchSessions;
 
-    public FetchVirtualTopicTransform(VirtualTopicManager virtualTopics, FetchSessionRegistry fetchSessions) {
-        this.virtualTopics = virtualTopics;
+    public FetchVirtualTopicTransform(VirtualTopicManager virtualTopicManager, FetchSessionRegistry fetchSessions) {
+        this.virtualTopicManager = virtualTopicManager;
         this.fetchSessions = fetchSessions;
     }
 
@@ -81,12 +78,12 @@ public final class FetchVirtualTopicTransform
             FetchRequestData data
     ) {
         VirtualTopicState state = VirtualTopicState.from(context);
-        if (!virtualTopics.sharedPhysicalTopics(data.topics().stream().map(FetchRequestData.FetchTopic::topic).toList()).isEmpty()) {
+        if (!virtualTopicManager.sharedPhysicalTopics(data.topics().stream().map(FetchRequestData.FetchTopic::topic).toList()).isEmpty()) {
             context.shortCircuit(new ShortCircuitResult(apiKey(), state.apiVersion(), refusal(data)));
             return;
         }
         for (FetchRequestData.FetchTopic topic : data.topics()) {
-            String physical = virtualTopics.toPhysical(topic.topic());
+            String physical = virtualTopicManager.toPhysical(topic.topic());
             if (!Objects.equals(physical, topic.topic())) {
                 state.record(physical, topic.topic());
                 topic.setTopic(physical);
@@ -97,7 +94,7 @@ public final class FetchVirtualTopicTransform
         }
         List<TopicPartition> forgottenPartitions = new ArrayList<>();
         for (FetchRequestData.ForgottenTopic forgotten : data.forgottenTopicsData()) {
-            forgotten.setTopic(virtualTopics.toPhysical(forgotten.topic()));
+            forgotten.setTopic(virtualTopicManager.toPhysical(forgotten.topic()));
             for (int partition : forgotten.partitions()) {
                 forgottenPartitions.add(new TopicPartition(forgotten.topic(), partition));
             }
@@ -162,17 +159,18 @@ public final class FetchVirtualTopicTransform
     }
 
     private void rewriteRecords(FetchResponseData data, GatewayContext context, int sessionId) {
-        VirtualTopicState state = VirtualTopicState.from(context);
+        var virtualTopicState = VirtualTopicState.from(context);
         for (FetchResponseData.FetchableTopicResponse topic : data.responses()) {
             // Only a topic fetched by its virtual name is filtered and transformed: an exposed
             // physical topic delivers its records as they are stored.
-            VirtualTopic virtualTopic = virtualTopics.virtualTopic(topic.topic()).orElse(null);
+            var virtualTopic = virtualTopicManager.virtualTopic(topic.topic())
+                    .orElse(null);
             if (virtualTopic == null) {
                 continue;
             }
-            VirtualTopicRecordFilter filter = virtualTopic.recordFilter();
-            VirtualTopicRecordTransformer transformer = virtualTopic.transformer();
-            if (filter == null && transformer == null) {
+            var virtualTopicRecordFilter = virtualTopic.recordFilter();
+            var virtualTopicRecordTransformer = virtualTopic.transformer();
+            if (virtualTopicRecordFilter == null && virtualTopicRecordTransformer == null) {
                 continue;
             }
             String physical = virtualTopic.physical();
@@ -180,10 +178,13 @@ public final class FetchVirtualTopicTransform
                 BaseRecords records = partition.records();
                 try {
                     if (records instanceof MemoryRecords memoryRecords && memoryRecords.sizeInBytes() > 0) {
-                        records = fromFetchOffset(memoryRecords, state, context.source(), sessionId, new TopicPartition(physical, partition.partitionIndex()));
+                        records = fromFetchOffset(memoryRecords, virtualTopicState, context.source(), sessionId,
+                                new TopicPartition(physical, partition.partitionIndex()));
                     }
                     try {
-                        records = transformer != null ? transformer.apply(filter, records) : filter.apply(records);
+                        records = virtualTopicRecordTransformer != null
+                                ? virtualTopicRecordTransformer.apply(virtualTopicRecordFilter, records)
+                                : virtualTopicRecordFilter.apply(records);
                     } catch (FailedRecordException stop) {
                         records = stop.recordsBefore();
                         if (records.sizeInBytes() == 0) {

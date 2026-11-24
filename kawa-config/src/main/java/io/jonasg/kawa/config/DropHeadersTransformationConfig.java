@@ -2,11 +2,13 @@ package io.jonasg.kawa.config;
 
 import java.util.List;
 
-/// Removes headers from a transformed record, typically ones that describe the stored format
-/// (`content-type`, `__TypeId__`) after a [ConvertTransformationConfig] changed it.
+/// Removes headers, for example ones that describe the stored format (`content-type`, `__TypeId__`)
+/// after a [ConvertTransformationConfig] changed it.
 ///
-/// Applied only to records whose value was transformed: a record delivered as stored keeps its
-/// stored headers, so headers always describe the delivered bytes.
+/// Like every header step, it runs on every record with a value, and a topic with only header
+/// steps never decodes its values. The one exception is a value delivered as stored after a failed
+/// transformation while the topic has a `convert`: that value is still in the stored format, so its
+/// headers stay. A tombstone keeps its headers too.
 ///
 /// @param headers the names of the headers to remove, matched exactly (Kafka header names are
 ///                case-sensitive); every header with one of these names is removed, and a name the

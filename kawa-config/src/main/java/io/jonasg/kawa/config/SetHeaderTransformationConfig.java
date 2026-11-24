@@ -1,10 +1,12 @@
 package io.jonasg.kawa.config;
 
-/// Sets a header on a transformed record, typically one that describes the format the
-/// transformations encode in (`content-type: application/json`).
+/// Sets a header, typically one that describes the format the transformations encode in
+/// (`content-type: application/json`).
 ///
-/// Applied only to records whose value was transformed: a record delivered as stored keeps its
-/// stored headers, so headers always describe the delivered bytes.
+/// Like every header step, it runs on every record with a value, and a topic with only header
+/// steps never decodes its values. The one exception is a value delivered as stored after a failed
+/// transformation while the topic has a `convert`: that value is still in the stored format, so its
+/// headers stay. A tombstone keeps its headers too.
 ///
 /// @param header the header name, matched exactly (Kafka header names are case-sensitive); every
 ///               header the record already has with this name is replaced by this one
