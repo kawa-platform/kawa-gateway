@@ -7,6 +7,8 @@ import io.jonasg.kawa.http.AdminHttpSliceTestBase;
 import io.jonasg.kawa.http.FakeDynamicConfigRepository;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
+
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 
@@ -59,6 +61,25 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
                   {"id":"rbac","enabled":true,"available":true},
                   {"id":"virtual-topics","enabled":false,"available":true}
                 ]
+                """);
+    }
+
+    @Test
+    void listsAModuleWhoseStoredEntryHasNoValueWithItsDefaultState() throws Exception {
+        // given
+        repository = new FakeDynamicConfigRepository(snapshotWithoutAValueFor("rbac"));
+        startServer();
+
+        // when
+        var response = send("GET", "/modules");
+
+        // then
+        assertThat(response).hasStatusCode(200);
+        assertThatJson(response.body()).inPath("[?(@.id == 'rbac')]").isEqualTo("""
+                [{"id":"rbac","enabled":true,"available":true}]
+                """);
+        assertThatJson(response.body()).inPath("[?(@.id == 'governance')]").isEqualTo("""
+                [{"id":"governance","enabled":false,"available":true}]
                 """);
     }
 
@@ -141,6 +162,46 @@ class ModuleSliceTest extends AdminHttpSliceTestBase {
         assertThatJson(response.body()).isEqualTo("""
                 {"id":"rbac","enabled":true,"available":true}
                 """);
+    }
+
+    @Test
+    void getsAModuleWhoseStoredEntryHasNoValueWithItsDefaultState() throws Exception {
+        // given
+        repository = new FakeDynamicConfigRepository(snapshotWithoutAValueFor("rbac"));
+        startServer();
+
+        // when
+        var response = send("GET", "/modules/rbac");
+
+        // then
+        assertThat(response).hasStatusCode(200);
+        assertThatJson(response.body()).isEqualTo("""
+                {"id":"rbac","enabled":true,"available":true}
+                """);
+    }
+
+    @Test
+    void getsAModuleOffByDefaultWhoseStoredEntryHasNoValueAsOff() throws Exception {
+        // given
+        repository = new FakeDynamicConfigRepository(snapshotWithoutAValueFor("mcp"));
+        startServer();
+
+        // when
+        var response = send("GET", "/modules/mcp");
+
+        // then
+        assertThat(response).hasStatusCode(200);
+        assertThatJson(response.body()).isEqualTo("""
+                {"id":"mcp","enabled":false,"available":true}
+                """);
+    }
+
+    /// A snapshot with module `governance` switched off and an entry without a value for `idWithoutValue`.
+    private static DynamicConfig snapshotWithoutAValueFor(String idWithoutValue) {
+        var modules = new HashMap<String, ModuleConfig>();
+        modules.put(idWithoutValue, null);
+        modules.put("governance", new ModuleConfig(ModuleId.GOVERNANCE, false));
+        return new DynamicConfig(null, null, null, null, null, modules, null);
     }
 
     @Test

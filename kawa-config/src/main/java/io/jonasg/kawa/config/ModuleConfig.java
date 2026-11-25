@@ -17,6 +17,7 @@ public record ModuleConfig(ModuleId id, boolean enabled) {
 
     /// The state of module `id` in a modules section ([DynamicConfig#modules]): its stored entry,
     /// or [ModuleId#enabledByDefault] when it has none. The one place that applies a module's default.
+    /// An entry with no value counts as none; [DynamicConfig] drops such entries, so `modules` holds none.
     public static ModuleConfig stateOf(ModuleId id, Map<String, ModuleConfig> modules) {
         return modules.getOrDefault(id.id(), new ModuleConfig(id, id.enabledByDefault()));
     }

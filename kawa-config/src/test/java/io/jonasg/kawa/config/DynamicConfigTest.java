@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -187,6 +188,43 @@ class DynamicConfigTest {
         assertThat(restored.modules())
                 .withFailMessage(() -> "modules changed in the round trip: " + restored.modules())
                 .isEqualTo(config.modules());
+    }
+
+    @Test
+    void aModuleEntryWithoutAValueIsDroppedAndTheModuleGetsItsDefaultState() {
+        // given
+        var modules = new HashMap<String, ModuleConfig>();
+        modules.put("rbac", null);
+        modules.put("governance", new ModuleConfig(ModuleId.GOVERNANCE, false));
+
+        // when
+        var config = new DynamicConfig(null, null, null, null, null, modules, null);
+
+        // then
+        assertThat(config.modules())
+                .withFailMessage(() -> "the module entry without a value was kept: " + config.modules())
+                .doesNotContainKey("rbac")
+                .containsExactlyEntriesOf(Map.of("governance", new ModuleConfig(ModuleId.GOVERNANCE, false)));
+        assertThat(ModuleConfig.stateOf(ModuleId.RBAC, config.modules()))
+                .withFailMessage(() -> "module 'rbac' without a value did not get its default state: " + config.modules())
+                .isEqualTo(new ModuleConfig(ModuleId.RBAC, ModuleId.RBAC.enabledByDefault()));
+    }
+
+    @Test
+    void aSnapshotWithAModuleEntryWithoutAValueIsSerializedWithoutThatEntry() {
+        // given
+        var mapper = JsonMapper.builder().build();
+        var modules = new HashMap<String, ModuleConfig>();
+        modules.put("rbac", null);
+        var config = new DynamicConfig(null, null, null, null, null, modules, null);
+
+        // when
+        String json = mapper.writeValueAsString(config);
+
+        // then
+        assertThat(json)
+                .withFailMessage(() -> "the module entry without a value was written: " + json)
+                .contains("\"modules\":{}");
     }
 
     @Test

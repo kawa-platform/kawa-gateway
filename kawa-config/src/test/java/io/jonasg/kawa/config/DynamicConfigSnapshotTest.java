@@ -260,6 +260,24 @@ class DynamicConfigSnapshotTest {
                 .containsEntry("orders", new VirtualTopicConfig("orders-v2"));
     }
 
+    @Test
+    void readsAModuleEntryWithoutAValueAsNoEntrySoTheModuleGetsItsDefaultState() {
+        // when
+        DynamicConfig config = read("""
+                {"modules": {"rbac": null, "governance": {"id": "governance", "enabled": false}}}
+                """);
+
+        // then
+        assertThat(config.modules())
+                .withFailMessage(() -> "the module entry without a value was kept: " + config.modules())
+                .doesNotContainKey("rbac")
+                .doesNotContainValue(null)
+                .containsEntry("governance", new ModuleConfig(ModuleId.GOVERNANCE, false));
+        assertThat(ModuleConfig.stateOf(ModuleId.RBAC, config.modules()))
+                .withFailMessage(() -> "module 'rbac' without a value did not get its default state: " + config.modules())
+                .isEqualTo(new ModuleConfig(ModuleId.RBAC, ModuleId.RBAC.enabledByDefault()));
+    }
+
     private DynamicConfig read(String json) {
         return mapper.readValue(json, DynamicConfig.class);
     }

@@ -16,7 +16,8 @@ import java.util.stream.Collectors;
 /// @param rbac          role-based access control configuration
 /// @param governance    topic governance configuration
 /// @param adminUsers    admin API users, keyed by their gateway-assigned UUID
-/// @param modules       gateway modules switched on or off, keyed by [ModuleId#id]
+/// @param modules       gateway modules switched on or off, keyed by [ModuleId#id]. An entry with no value
+///                      is dropped, so that module has its default ([ModuleConfig#stateOf])
 /// @param oauthClients  OAuth clients MCP clients sign in with, keyed by [OAuthClientConfig#id]
 public record DynamicConfig(
         @JsonDeserialize(using = VirtualTopicMapDeserializer.class) Map<String, VirtualTopicConfig> virtualTopics,
@@ -43,9 +44,7 @@ public record DynamicConfig(
         if (adminUsers == null) {
             adminUsers = Map.of();
         }
-        if (modules == null) {
-            modules = Map.of();
-        }
+        modules = withoutEmptyEntries(modules);
         if (oauthClients == null) {
             oauthClients = Map.of();
         }
@@ -178,6 +177,17 @@ public record DynamicConfig(
         var clients = new HashMap<>(oauthClients);
         clients.remove(id);
         return withOAuthClients(Map.copyOf(clients));
+    }
+
+    /// The modules section without its entries that have no value (JSON `"rbac": null`): such an
+    /// entry counts as no entry, so the module keeps its default ([ModuleConfig#stateOf]).
+    private static Map<String, ModuleConfig> withoutEmptyEntries(Map<String, ModuleConfig> modules) {
+        if (modules == null) {
+            return Map.of();
+        }
+        return modules.entrySet().stream()
+                .filter(entry -> entry.getKey() != null && entry.getValue() != null)
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
     }
 
     private DynamicConfig withAdminUsers(Map<String, AdminUserConfig> adminUsers) {
