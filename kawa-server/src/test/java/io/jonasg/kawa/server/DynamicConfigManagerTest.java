@@ -48,6 +48,7 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -205,6 +206,86 @@ class DynamicConfigManagerTest {
         assertThat(ran)
                 .withFailMessage(() -> "A rejected snapshot switched module 'rbac' off")
                 .containsExactly("rbac");
+    }
+
+    @Test
+    void appliesEverySectionOfASnapshotWithAModuleEntryWithoutAValue() {
+        // given: rbac switched off by an earlier snapshot
+        var ran = new ArrayList<String>();
+        var pipeline = rbacAndGovernancePipeline(ran);
+        var authorizer = new RbacAuthorizer(new RbacConfig(Map.of(), Map.of()));
+        var manager = new DynamicConfigManager(new FakeConfigTopicWriter(), new VirtualTopicManager(Map.of()),
+                authorizer, new SaslAuthenticator(), emptyGovernance(), pipeline, Duration.ofSeconds(1));
+        manager.apply(config(Map.of(), null, null, null).upsertModule(new ModuleConfig(ModuleId.RBAC, false)));
+        var config = new DynamicConfig(Map.of(), null, rbacAllowingReadOnOrders(), null, null,
+                modulesWithoutAValueFor("rbac", new ModuleConfig(ModuleId.GOVERNANCE, false)), null);
+
+        // when
+        manager.apply(config);
+        pipeline.onRequest(new GatewayContext("source", 0L), null);
+
+        // then
+        assertThat(ran)
+                .withFailMessage(() -> "module 'rbac' without a value did not run in its default (on) state, "
+                        + "or module 'governance' was not switched off: " + ran)
+                .containsExactly("rbac");
+        assertThat(authorizer.isAuthorized("alice", ResourceType.TOPIC, "orders", AclOperation.READ))
+                .withFailMessage(() -> "the ACLs of a snapshot with a module entry without a value were not applied")
+                .isTrue();
+        assertThat(manager.getActiveConfig())
+                .withFailMessage(() -> "the active config is not the applied snapshot: " + manager.getActiveConfig())
+                .isEqualTo(config);
+        assertThat(manager.getActiveConfig().modules())
+                .withFailMessage(() -> "the active config kept the module entry without a value: " + manager.getActiveConfig().modules())
+                .doesNotContainKey("rbac");
+    }
+
+    @Test
+    void writesASnapshotWhoseMutationLeavesAModuleEntryWithoutAValueWithoutThatEntry() {
+        // given
+        var writer = new FakeConfigTopicWriter();
+        var manager = manager(writer, Duration.ofSeconds(1));
+        manager.apply(config(Map.of(), null, null, null).upsertModule(new ModuleConfig(ModuleId.RBAC, false)));
+
+        // when
+        manager.update(c -> new DynamicConfig(c.virtualTopics(), c.auth(), c.rbac(), c.governance(), c.adminUsers(),
+                modulesWithoutAValueFor("rbac", new ModuleConfig(ModuleId.GOVERNANCE, false)), c.oauthClients()));
+
+        // then
+        assertThat(writer.committed)
+                .withFailMessage(() -> "the snapshot with a module entry without a value was not written")
+                .hasSize(1);
+        assertThat(writer.committed.getLast().modules())
+                .withFailMessage(() -> "the written snapshot kept the module entry without a value: " + writer.committed.getLast().modules())
+                .doesNotContainKey("rbac")
+                .containsExactlyEntriesOf(Map.of("governance", new ModuleConfig(ModuleId.GOVERNANCE, false)));
+    }
+
+    /// A modules section holding `others` plus an entry for `idWithoutValue` that has no value.
+    private static Map<String, ModuleConfig> modulesWithoutAValueFor(String idWithoutValue, ModuleConfig... others) {
+        var modules = new HashMap<String, ModuleConfig>();
+        modules.put(idWithoutValue, null);
+        for (ModuleConfig other : others) {
+            modules.put(other.id().id(), other);
+        }
+        return modules;
+    }
+
+    /// A pipeline with one recording interceptor in each of the `rbac` and `governance` modules.
+    private static InterceptorPipeline rbacAndGovernancePipeline(List<String> ran) {
+        return InterceptorPipeline.builder()
+                .module(ModuleId.RBAC, recording("rbac", ran))
+                .module(ModuleId.GOVERNANCE, recording("governance", ran))
+                .build();
+    }
+
+    private static Interceptor recording(String name, List<String> ran) {
+        return new Interceptor() {
+            @Override
+            public void onRequest(GatewayContext context, Request request) {
+                ran.add(name);
+            }
+        };
     }
 
     /// A pipeline with one interceptor in the `rbac` module that records into `ran` when it runs.
