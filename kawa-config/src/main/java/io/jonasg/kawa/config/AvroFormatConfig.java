@@ -16,7 +16,7 @@ import org.jspecify.annotations.Nullable;
 ///
 /// @param onDecodeError what to do with a record that cannot be decoded - [DecodeErrorPolicy#SKIP] by default
 /// @param subject       the registry subject of the schema transformed values are encoded with; required
-///                      when this format is a transformation's output, ignored for decoding
+///                      when transformed values are encoded in this format, ignored for decoding
 /// @param version       the subject version to encode with, `null` for the latest
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record AvroFormatConfig(

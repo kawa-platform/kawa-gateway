@@ -144,6 +144,50 @@ class VirtualTopicRecordTransformerTest {
     }
 
     @Test
+    void deliversTheStoredAvroValueOfAHeaderOnlyTopicWithoutASubjectByteForByte() {
+        // given an Avro topic without a subject that only rewrites headers
+        SchemaRegistries registries = SchemaRegistries.of(id -> Schema.create(Schema.Type.STRING), null);
+        VirtualTopic topic = topic(registries, new AvroFormatConfig(),
+                new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                new SetHeaderTransformationConfig("content-type", "application/avro"));
+        SimpleRecord stored = avro(9, "o-1");
+        byte[] storedValue = toArray(stored.value());
+        var records = MemoryRecords.withRecords(Compression.NONE, new SimpleRecord(0L, null, storedValue, formatHeaders()));
+
+        // when
+        Record delivered = records(transform(topic, records)).getFirst();
+
+        // then
+        assertThat(toArray(delivered.value()))
+                .withFailMessage(() -> "The stored Avro value was not delivered byte for byte")
+                .isEqualTo(storedValue);
+        assertThat(delivered.headers())
+                .withFailMessage(() -> "The header steps were not applied: " + List.of(delivered.headers()))
+                .containsExactly(header("region", "eu"), header("content-type", "application/avro"));
+    }
+
+    @Test
+    void deliversTheStoredXmlValueOfAHeaderOnlyTopicWithoutARootByteForByte() {
+        // given an XML topic without a root that only rewrites headers, and a value whose bytes a re-encoding would change
+        VirtualTopic topic = topic(new XmlFormatConfig(),
+                new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                new SetHeaderTransformationConfig("content-type", "application/xml"));
+        String storedValue = "<?xml version=\"1.0\"?>\n<order  id='o-1'>\n  <status>PAID</status>\n</order>";
+        var records = MemoryRecords.withRecords(Compression.NONE, new SimpleRecord(0L, null, bytes(storedValue), formatHeaders()));
+
+        // when
+        Record delivered = records(transform(topic, records)).getFirst();
+
+        // then
+        assertThat(value(delivered))
+                .withFailMessage(() -> "The stored XML value was not delivered byte for byte: " + value(delivered))
+                .isEqualTo(storedValue);
+        assertThat(delivered.headers())
+                .withFailMessage(() -> "The header steps were not applied: " + List.of(delivered.headers()))
+                .containsExactly(header("region", "eu"), header("content-type", "application/xml"));
+    }
+
+    @Test
     void deliversAValueThatIsNotJsonFromAHeaderOnlyTopic() {
         // given a header-only topic and a value that is not JSON, under the default skip policy
         VirtualTopic topic = headerOnlyTopic(new SetHeaderTransformationConfig("content-type", "text/plain"));
@@ -609,6 +653,13 @@ class VirtualTopicRecordTransformerTest {
 
     private static byte[] bytes(String text) {
         return text.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] toArray(ByteBuffer buffer) {
+        ByteBuffer copy = buffer.duplicate();
+        byte[] array = new byte[copy.remaining()];
+        copy.get(array);
+        return array;
     }
 
     private static String value(Record record) {

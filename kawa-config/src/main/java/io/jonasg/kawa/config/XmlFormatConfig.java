@@ -9,7 +9,7 @@ import org.jspecify.annotations.Nullable;
 /// `root` is left out of the JSON while unset.
 ///
 /// @param onDecodeError what to do with a record that isn't decodable XML - [DecodeErrorPolicy#SKIP] by default
-/// @param root          the root element name; required when this format is a transformation's output,
+/// @param root          the root element name; required when transformed values are encoded in this format,
 ///                      and when set, decoding refuses a document with another root
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record XmlFormatConfig(DecodeErrorPolicy onDecodeError, @Nullable String root) implements PayloadFormatConfig {
