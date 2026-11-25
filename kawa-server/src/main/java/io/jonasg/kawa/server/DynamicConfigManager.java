@@ -50,6 +50,9 @@ import java.util.function.UnaryOperator;
 /// newer snapshot, so a mutation always sees every change committed before its own and its checks
 /// (such as "not the last enabled admin user") hold on what is written. Writes on one replica are
 /// serialized. A mutation may therefore run more than once and must be a pure function of its base.
+/// Before it is committed, the result goes through the same first phase as an applied snapshot, so
+/// a snapshot the gateway would reject is refused with an [IllegalArgumentException] and never
+/// reaches the config topic.
 ///
 /// [getActiveConfig] reports this replica's own newest committed snapshot until the consumer has
 /// applied it, then the last applied one, so the admin API reads its own writes.
@@ -265,6 +268,8 @@ public final class DynamicConfigManager implements DynamicConfigRepository, Auto
                 awaitConsumedPosition(Math.max(writer.committedEndOffset(), own == null ? 0 : own.offset() + 1));
                 DynamicConfig base = current;
                 DynamicConfig next = mutation.apply(base != null ? base : DynamicConfig.empty());
+                // the same check the consumer applies with: a snapshot every replica would reject is never written
+                prepare(next);
                 try {
                     long offset = writer.commit(next);
                     lastCommitted = new Committed(next, offset);

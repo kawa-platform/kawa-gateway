@@ -249,6 +249,25 @@ class DynamicConfigManagerTest {
     }
 
     @Test
+    void refusesToWriteASnapshotTheGatewayWouldReject() {
+        // given
+        var writer = new FakeConfigTopicWriter();
+        var manager = manager(writer, Duration.ofSeconds(1));
+        var good = config(Map.of(), rbacAllowingReadOnOrders(), plainAuth(), null);
+        manager.apply(good);
+
+        // when / then
+        assertThatThrownBy(() -> manager.update(c -> c.updateGovernance(
+                new GovernanceConfig(Map.of("broken", rule("broken", "broken rule", "topic.partitions >="))))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("topic.partitions >=");
+        assertThat(writer.committed)
+                .withFailMessage(() -> "A snapshot with an invalid governance rule was written to the config topic")
+                .isEmpty();
+        assertThat(manager.getActiveConfig()).isSameAs(good);
+    }
+
+    @Test
     void updateBuildsOnLastAppliedConfigBeforeFirstPersist() {
         // given
         var writer = new FakeConfigTopicWriter();
