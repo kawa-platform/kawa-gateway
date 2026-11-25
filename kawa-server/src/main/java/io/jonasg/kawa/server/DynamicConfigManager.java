@@ -30,16 +30,14 @@ import java.util.function.UnaryOperator;
 /// [DynamicConfigRepository] the admin HTTP surface uses to read the current snapshot and
 /// persist changes.
 ///
-/// A snapshot is applied in an order that keeps the application atomic in the failure case:
-/// [VirtualTopicManager#prepare] compiles the virtual topics first without changing what they
-/// answer (an invalid transformation throws), then [RbacAuthorizer#reload] and
-/// [GovernancePolicy#reload], the other consumers that can reject a snapshot (an unknown role
-/// reference or an invalid CEL expression throws), run. Each of them is atomic on its own - a
-/// failed reload keeps the previous state - and the prepared virtual topics are published
-/// ([VirtualTopicManager#publish]) and [SaslAuthenticator] reloaded only after all of them have
-/// succeeded. The [InterceptorPipeline] goes last, so a rejected
-/// snapshot never switches a module on or off: switching RBAC off is fail-open, so it must only
-/// happen with a snapshot the gateway accepted.
+/// A snapshot is applied whole or not at all, in two phases. First every consumer that can reject
+/// it compiles its section without changing what it answers: [RbacAuthorizer#prepare] (an unknown
+/// role reference throws), [GovernancePolicy#prepare] (an invalid CEL expression throws) and
+/// [VirtualTopicManager#prepare] (an invalid transformation throws). Only when all of them have
+/// succeeded are the compiled sections published, which cannot fail, and [SaslAuthenticator]
+/// reloaded. A rejected snapshot therefore leaves every consumer on the previous one. The
+/// [InterceptorPipeline] goes last, so a rejected snapshot never switches a module on or off:
+/// switching RBAC off is fail-open, so it must only happen with a snapshot the gateway accepted.
 ///
 /// [awaitInitialLoad] blocks until the config topic has been caught up from the earliest
 /// offset, so the gateway can refuse to serve until it has applied the config that existed
@@ -192,13 +190,32 @@ public final class DynamicConfigManager implements DynamicConfigRepository, Auto
     }
 
     private void applyConsumers(DynamicConfig config) {
-        // prepared before anything is applied: an invalid transformation refuses the whole snapshot
-        var prepared = virtualTopics.prepare(config.virtualTopics());
-        authorizer.reload(config.rbac()); // risky: can throw on unknown role
-        governance.reload(config.governance()); // risky: can throw on invalid CEL expression
-        virtualTopics.publish(prepared); // cannot throw: a snapshot refused above leaves virtual topics unchanged
+        Prepared prepared = prepare(config);
+        authorizer.publish(prepared.rbac());
+        governance.publish(prepared.governance());
+        virtualTopics.publish(prepared.virtualTopics());
         saslAuthenticator.reload(config.auth().mechanisms(), config.auth().clients());
-        pipeline.reload(config.modules()); // last: a rejected snapshot never switches a module
+        pipeline.reload(config.modules()); // last: switching RBAC off is fail-open
+    }
+
+    /// Compiles every section of `config` that can be invalid, without changing what any consumer
+    /// answers.
+    ///
+    /// @throws IllegalArgumentException naming the first invalid section: an unknown role reference,
+    ///                                  an invalid CEL expression or an invalid transformation
+    private Prepared prepare(DynamicConfig config) {
+        return new Prepared(
+                authorizer.prepare(config.rbac()),
+                governance.prepare(config.governance()),
+                virtualTopics.prepare(config.virtualTopics()));
+    }
+
+    /// The compiled sections of one snapshot, ready to publish.
+    private record Prepared(
+            RbacAuthorizer.Snapshot rbac,
+            GovernancePolicy.Snapshot governance,
+            VirtualTopicManager.Snapshot virtualTopics
+    ) {
     }
 
     /// Starts the config-topic consumer. Idempotent.

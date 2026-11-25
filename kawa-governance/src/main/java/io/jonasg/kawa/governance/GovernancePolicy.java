@@ -108,14 +108,36 @@ public final class GovernancePolicy {
         reload(config);
     }
 
-    /// Replaces the compiled rule snapshot with one built from `config`.
-    ///
-    /// Safe to call concurrently with readers: the new snapshot is assigned to a single
-    /// `volatile` reference, so readers see either the previous or the new snapshot, never a
-    /// partially-applied one. Throws [IllegalArgumentException] if any rule expression fails
-    /// to compile; the previous snapshot is left untouched in that case.
+    /// Replaces the compiled rule snapshot with one built from `config`: [#publish] of [#prepare].
+    /// An expression that fails to compile throws and leaves the previous snapshot in place.
     public void reload(GovernanceConfig config) {
-        this.governanceManifest = compile(config);
+        publish(prepare(config));
+    }
+
+    /// Compiles `config` without changing what this policy evaluates. Pass it to [#publish] to
+    /// make it current.
+    ///
+    /// @throws IllegalArgumentException if any rule, exemption or variable fails to compile
+    public Snapshot prepare(GovernanceConfig config) {
+        return new Snapshot(compile(config));
+    }
+
+    /// Makes `snapshot`, built by [#prepare], the current rule set.
+    ///
+    /// Safe to call concurrently with readers: the snapshot is assigned to a single `volatile`
+    /// reference, so readers see either the previous or the new rules, never a partially-applied one.
+    public void publish(Snapshot snapshot) {
+        this.governanceManifest = snapshot.manifest;
+    }
+
+    /// A compiled governance config, built by [#prepare].
+    public static final class Snapshot {
+
+        private final GovernanceManifest manifest;
+
+        private Snapshot(GovernanceManifest manifest) {
+            this.manifest = manifest;
+        }
     }
 
     /// Evaluates all rules against a physical topic creation request. Returns every violation,
