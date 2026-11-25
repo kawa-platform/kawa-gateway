@@ -28,14 +28,36 @@ public final class RbacAuthorizer {
         reload(config);
     }
 
-    /// Replaces the per-user ACL map with a new snapshot built from `config`.
-    ///
-    /// Safe to call concurrently with readers: the new map is assigned to a single `volatile`
-    /// reference, so readers see either the previous or the new ACL set, never a
-    /// partially-applied one. Throws [IllegalArgumentException] if `config` references an
-    /// unknown role; the previous snapshot is left untouched in that case.
+    /// Replaces the per-user ACL map with a new snapshot built from `config`: [#publish] of
+    /// [#prepare]. An unknown role reference throws and leaves the previous snapshot in place.
     public void reload(RbacConfig config) {
-        this.aclsByUser = flatten(config);
+        publish(prepare(config));
+    }
+
+    /// Resolves `config` into the per-user ACL map without changing what this authorizer answers.
+    /// Pass it to [#publish] to make it current.
+    ///
+    /// @throws IllegalArgumentException if `config` references an unknown role
+    public Snapshot prepare(RbacConfig config) {
+        return new Snapshot(flatten(config));
+    }
+
+    /// Makes `snapshot`, built by [#prepare], the current ACL set.
+    ///
+    /// Safe to call concurrently with readers: the map is assigned to a single `volatile`
+    /// reference, so readers see either the previous or the new ACL set, never a partially-applied one.
+    public void publish(Snapshot snapshot) {
+        this.aclsByUser = snapshot.aclsByUser;
+    }
+
+    /// A resolved RBAC config, built by [#prepare].
+    public static final class Snapshot {
+
+        private final Map<String, List<AclConfig>> aclsByUser;
+
+        private Snapshot(Map<String, List<AclConfig>> aclsByUser) {
+            this.aclsByUser = aclsByUser;
+        }
     }
 
     /// Whether any principal has any ACLs configured. When `false`, every request is denied

@@ -463,6 +463,33 @@ class DynamicConfigManagerTest {
     }
 
     @Test
+    void keepsThePreviousRbacWhenGovernanceRefusesTheSnapshot() {
+        // given
+        var authorizer = new RbacAuthorizer(new RbacConfig(Map.of(), Map.of()));
+        var sasl = new SaslAuthenticator();
+        var manager = new DynamicConfigManager("localhost:9092", "__kawa",
+                new VirtualTopicManager(Map.of()), authorizer, sasl, emptyGovernance());
+        var broken = config(Map.of(), rbacAllowingReadOnOrders(), plainAuth(),
+                new GovernanceConfig(Map.of("broken", rule("broken", "broken rule", "topic.partitions >="))));
+
+        // when
+        assertThatThrownBy(() -> manager.apply(broken))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        // then
+        assertThat(authorizer.isAuthorized("alice", ResourceType.TOPIC, "orders", AclOperation.READ))
+                .withFailMessage(() -> "A snapshot refused by governance still granted 'alice' read on 'orders'")
+                .isFalse();
+        var session = new ClientSession(new EmbeddedChannel());
+        sasl.handleHandshake(session, new SaslHandshakeRequestData().setMechanism("PLAIN"));
+        assertThat(sasl.handleAuthenticate(session, new SaslAuthenticateRequestData()
+                .setAuthBytes("\u0000alice\u0000secret".getBytes(StandardCharsets.UTF_8))))
+                .withFailMessage(() -> "A snapshot refused by governance still let client 'alice' authenticate")
+                .isNotInstanceOf(AuthenticationResult.Success.class);
+        assertThat(manager.getActiveConfig()).isNull();
+    }
+
+    @Test
     void appliesRuleExemptionsToPolicy() {
         // given
         var governancePolicy = new GovernancePolicy(new GovernanceConfig(null));
