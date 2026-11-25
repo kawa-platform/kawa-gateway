@@ -197,7 +197,7 @@ public final class DynamicConfigManager implements DynamicConfigRepository, Auto
         authorizer.publish(prepared.rbac());
         governance.publish(prepared.governance());
         virtualTopics.publish(prepared.virtualTopics());
-        saslAuthenticator.reload(config.auth().mechanisms(), config.auth().clients());
+        saslAuthenticator.reload(config.auth());
         pipeline.reload(config.modules()); // last: switching RBAC off is fail-open
     }
 
@@ -215,9 +215,9 @@ public final class DynamicConfigManager implements DynamicConfigRepository, Auto
 
     /// The compiled sections of one snapshot, ready to publish.
     private record Prepared(
-            RbacAuthorizer.Snapshot rbac,
-            GovernancePolicy.Snapshot governance,
-            VirtualTopicManager.Snapshot virtualTopics
+            RbacAuthorizer.State rbac,
+            GovernancePolicy.State governance,
+            VirtualTopicManager.State virtualTopics
     ) {
     }
 

@@ -53,8 +53,8 @@ import java.util.regex.Pattern;
 /// - Variables ([GovernanceVariableConfig]) are declared with their CEL type in every
 ///   environment and bound on every evaluation.
 ///
-/// The compiled snapshot is an immutable object replaced atomically via [reload]: a reader on
-/// the hot path sees either the previous or the new snapshot, never a partially-applied one.
+/// The compiled state is an immutable object replaced atomically via [reload]: a reader on
+/// the hot path sees either the previous or the new state, never a partially-applied one.
 public final class GovernancePolicy {
 
     /// Context variable per governed resource type.
@@ -99,45 +99,35 @@ public final class GovernancePolicy {
     /// Environments without variables, for validating a lone expression.
     private static final Environments NO_VARIABLES = environments(List.of());
 
-    /// Bound on [GovernanceManifest#decisions]; the cache is cleared when it fills up.
+    /// Bound on [State#decisions]; the cache is cleared when it fills up.
     private static final int MAX_CACHED_DECISIONS = 10_000;
 
-    private volatile GovernanceManifest governanceManifest;
+    private volatile State state;
 
     public GovernancePolicy(GovernanceConfig config) {
         reload(config);
     }
 
-    /// Replaces the compiled rule snapshot with one built from `config`: [#publish] of [#prepare].
-    /// An expression that fails to compile throws and leaves the previous snapshot in place.
+    /// Replaces the compiled rule state with one built from `config`: [#publish] of [#prepare].
+    /// An expression that fails to compile throws and leaves the previous state in place.
     public void reload(GovernanceConfig config) {
         publish(prepare(config));
     }
 
-    /// Compiles `config` without changing what this policy evaluates. Pass it to [#publish] to
-    /// make it current.
+    /// Compiles `config` without changing what this policy evaluates. Pass the result to
+    /// [#publish] to make it current.
     ///
     /// @throws IllegalArgumentException if any rule, exemption or variable fails to compile
-    public Snapshot prepare(GovernanceConfig config) {
-        return new Snapshot(compile(config));
+    public State prepare(GovernanceConfig config) {
+        return compile(config);
     }
 
-    /// Makes `snapshot`, built by [#prepare], the current rule set.
+    /// Makes `state`, built by [#prepare], the current rule set.
     ///
-    /// Safe to call concurrently with readers: the snapshot is assigned to a single `volatile`
+    /// Safe to call concurrently with readers: the state is assigned to a single `volatile`
     /// reference, so readers see either the previous or the new rules, never a partially-applied one.
-    public void publish(Snapshot snapshot) {
-        this.governanceManifest = snapshot.manifest;
-    }
-
-    /// A compiled governance config, built by [#prepare].
-    public static final class Snapshot {
-
-        private final GovernanceManifest manifest;
-
-        private Snapshot(GovernanceManifest manifest) {
-            this.manifest = manifest;
-        }
+    public void publish(State state) {
+        this.state = state;
     }
 
     /// Evaluates all rules against a physical topic creation request. Returns every violation,
@@ -161,19 +151,19 @@ public final class GovernancePolicy {
     /// Group and transactional-id verdicts are cached per request until the next [#reload]; a
     /// rule that fails to evaluate is not cached, so it is retried.
     public List<Violation> evaluate(GovernanceRequest request) {
-        GovernanceManifest manifest = governanceManifest;
+        State current = state;
         if (request.resourceType() == ResourceType.TOPIC) {
-            return violations(dryRun(manifest, request));
+            return violations(dryRun(current, request));
         }
-        List<Violation> cached = manifest.decisions().get(request);
+        List<Violation> cached = current.decisions().get(request);
         if (cached != null) {
             return cached;
         }
-        List<Violation> violations = violations(dryRun(manifest, request));
-        if (manifest.decisions().size() >= MAX_CACHED_DECISIONS) {
-            manifest.decisions().clear();
+        List<Violation> violations = violations(dryRun(current, request));
+        if (current.decisions().size() >= MAX_CACHED_DECISIONS) {
+            current.decisions().clear();
         }
-        manifest.decisions().put(request, violations);
+        current.decisions().put(request, violations);
         return violations;
     }
 
@@ -195,10 +185,10 @@ public final class GovernancePolicy {
     /// Evaluates every stored rule for the request's resource type and topic kind, without
     /// side effects, and reports each rule, sub-rule and check.
     public GovernanceTrace dryRun(GovernanceRequest request) {
-        return dryRun(governanceManifest, request);
+        return dryRun(state, request);
     }
 
-    private static GovernanceTrace dryRun(GovernanceManifest current, GovernanceRequest request) {
+    private static GovernanceTrace dryRun(State current, GovernanceRequest request) {
         Map<String, Object> bindings = bindings(current, request);
         for (CompiledExemption exemption : current.exemptions()) {
             if (holds(exemption.program(), bindings)) {
@@ -221,7 +211,7 @@ public final class GovernancePolicy {
     ///
     /// @throws IllegalArgumentException if the rule does not compile
     public GovernanceTrace dryRun(GovernanceRequest request, GovernanceRuleConfig rule) {
-        GovernanceManifest current = governanceManifest;
+        State current = state;
         CompiledRule compiled = compileRule(current.environments(), rule.name(), rule);
         List<GovernanceTrace.RuleTrace> rules = applies(compiled, request)
                 ? List.of(trace(compiled, bindings(current, request)))
@@ -232,7 +222,7 @@ public final class GovernancePolicy {
     /// Whether any stored rule runs on physical topics for `operation`; when none does, the
     /// gateway skips reading a topic's current state for a change.
     public boolean hasPhysicalTopicRules(Operation operation) {
-        return governanceManifest.rules().stream().anyMatch(rule -> rule.resourceType() == ResourceType.TOPIC
+        return state.rules().stream().anyMatch(rule -> rule.resourceType() == ResourceType.TOPIC
                                                                     && rule.scope() != TopicScope.VIRTUAL
                                                                     && rule.operations().contains(operation));
     }
@@ -253,7 +243,7 @@ public final class GovernancePolicy {
                 || rule.scope() == (request.virtual() ? TopicScope.VIRTUAL : TopicScope.PHYSICAL);
     }
 
-    private static Map<String, Object> bindings(GovernanceManifest current, GovernanceRequest request) {
+    private static Map<String, Object> bindings(State current, GovernanceRequest request) {
         Map<String, Object> bindings = new HashMap<>(current.variables());
         bindings.put("principal", request.principal());
         bindings.put("service", request.service());
@@ -509,7 +499,7 @@ public final class GovernancePolicy {
         }
     }
 
-    private static GovernanceManifest compile(GovernanceConfig config) {
+    private static State compile(GovernanceConfig config) {
         Environments environments = environments(config.variables().values());
         Map<String, Object> variables = new HashMap<>();
         for (GovernanceVariableConfig variable : config.variables().values()) {
@@ -529,7 +519,7 @@ public final class GovernancePolicy {
         for (Map.Entry<String, GovernanceRuleConfig> entry : config.rules().entrySet()) {
             rules.add(compileRule(environments, entry.getKey(), entry.getValue()));
         }
-        return new GovernanceManifest(List.copyOf(rules), List.copyOf(globalExemptions), Map.copyOf(variables), environments);
+        return new State(List.copyOf(rules), List.copyOf(globalExemptions), Map.copyOf(variables), environments);
     }
 
     /// Compiles the rule's selector, exemptions and every check on its own, so a trace can
@@ -653,21 +643,44 @@ public final class GovernancePolicy {
         }
     }
 
-    /// @param variables    the value bound for each variable name
-    /// @param environments the compilers, kept to compile unsaved rules for a dry run
-    /// @param decisions    group and transactional-id verdicts, which clients ask for on every
-    ///                     heartbeat and commit; it lives and dies with the snapshot, so a reload
-    ///                     starts empty
-    private record GovernanceManifest(
-            List<CompiledRule> rules,
-            List<CompiledExemption> exemptions,
-            Map<String, Object> variables,
-            Environments environments,
-            Map<GovernanceRequest, List<Violation>> decisions
-    ) {
+    /// The compiled rules, built by [#prepare]; immutable so a reload is observed as a whole.
+    /// `decisions` caches group and transactional-id verdicts, which clients ask for on every
+    /// heartbeat and commit; it lives and dies with the state, so a reload starts empty.
+    public static final class State {
 
-        GovernanceManifest(List<CompiledRule> rules, List<CompiledExemption> exemptions, Map<String, Object> variables, Environments environments) {
-            this(rules, exemptions, variables, environments, new ConcurrentHashMap<>());
+        private final List<CompiledRule> rules;
+        private final List<CompiledExemption> exemptions;
+        /// The value bound for each variable name.
+        private final Map<String, Object> variables;
+        /// The compilers, kept to compile unsaved rules for a dry run.
+        private final Environments environments;
+        private final Map<GovernanceRequest, List<Violation>> decisions = new ConcurrentHashMap<>();
+
+        private State(List<CompiledRule> rules, List<CompiledExemption> exemptions, Map<String, Object> variables, Environments environments) {
+            this.rules = rules;
+            this.exemptions = exemptions;
+            this.variables = variables;
+            this.environments = environments;
+        }
+
+        private List<CompiledRule> rules() {
+            return rules;
+        }
+
+        private List<CompiledExemption> exemptions() {
+            return exemptions;
+        }
+
+        private Map<String, Object> variables() {
+            return variables;
+        }
+
+        private Environments environments() {
+            return environments;
+        }
+
+        private Map<GovernanceRequest, List<Violation>> decisions() {
+            return decisions;
         }
     }
 

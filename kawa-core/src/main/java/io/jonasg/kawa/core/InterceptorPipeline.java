@@ -19,8 +19,8 @@ import java.util.stream.Collectors;
 /// module. The pipeline holds which modules are switched on: it starts from their defaults
 /// ([ModuleConfig#stateOf] of an empty modules section) and [#reload] applies the modules section of
 /// every config-topic snapshot the gateway applied, swapping in the list of interceptors to run, so a
-/// request only ever iterates interceptors that apply. The list is replaced as a whole through a
-/// `volatile` field, never changed in place.
+/// request only ever iterates interceptors that apply. The state (the enabled modules and the list
+/// of interceptors) is replaced as a whole through a `volatile` field, never changed in place.
 ///
 /// A request reads the list once per hook: one that is in flight while a module is switched may
 /// run that module's `onRequest` without its `onResponse`, or the other way around. Switching a
@@ -31,18 +31,18 @@ public final class InterceptorPipeline {
 
     private final List<ModuleBinding> bindings;
 
-    private Set<ModuleId> enabled = enabledIn(Map.of());
-    private volatile List<Interceptor> interceptors;
+    private volatile State state;
 
     /// A pipeline of interceptors that always run.
     public InterceptorPipeline(List<Interceptor> interceptors) {
         this.bindings = interceptors.stream().map(interceptor -> new ModuleBinding(null, interceptor)).toList();
-        this.interceptors = List.copyOf(interceptors);
+        this.state = new State(enabledIn(Map.of()), List.copyOf(interceptors));
     }
 
     private InterceptorPipeline(Builder builder) {
         this.bindings = List.copyOf(builder.bindings);
-        this.interceptors = interceptorsOf(enabled);
+        Set<ModuleId> enabled = enabledIn(Map.of());
+        this.state = new State(enabled, interceptorsOf(enabled));
     }
 
     public static Builder builder() {
@@ -54,11 +54,10 @@ public final class InterceptorPipeline {
     /// without an entry gets its default. Does nothing when no module changed.
     public synchronized void reload(Map<String, ModuleConfig> modules) {
         Set<ModuleId> next = enabledIn(modules);
-        if (next.equals(enabled)) {
+        if (next.equals(state.enabled())) {
             return;
         }
-        enabled = next;
-        interceptors = interceptorsOf(next);
+        state = new State(next, interceptorsOf(next));
         if (!next.contains(ModuleId.RBAC)) {
             // RBAC is fail-open: switched off, nothing authorizes the Kafka path
             log.warn("RBAC disabled - no authorization is enforced on the Kafka path; "
@@ -88,7 +87,7 @@ public final class InterceptorPipeline {
             Request request
     ) {
         List<CompletableFuture<?>> pending = null;
-        for (Interceptor interceptor : interceptors) {
+        for (Interceptor interceptor : state.interceptors()) {
             if (interceptor.appliesToRequest(request)) {
                 CompletionStage<?> stage = interceptor.prepare(context, request);
                 if (stage != null) {
@@ -110,7 +109,7 @@ public final class InterceptorPipeline {
             GatewayContext context,
             Request request
     ) {
-        for (Interceptor interceptor : interceptors) {
+        for (Interceptor interceptor : state.interceptors()) {
             if (interceptor.appliesToRequest(request)) {
                 interceptor.onRequest(context, request);
                 if (context.isShortCircuited()) {
@@ -124,7 +123,7 @@ public final class InterceptorPipeline {
             GatewayContext context,
             Response response
     ) {
-        for (Interceptor interceptor : interceptors) {
+        for (Interceptor interceptor : state.interceptors()) {
             if (interceptor.appliesToResponse(response)) {
                 interceptor.onResponse(context, response);
             }
@@ -133,6 +132,10 @@ public final class InterceptorPipeline {
 
     /// An interceptor bound to the module it belongs to, or to `null` when it always runs.
     private record ModuleBinding(@Nullable ModuleId module, Interceptor interceptor) {
+    }
+
+    /// The enabled modules and the interceptors that run for them, immutable so a reload is observed as a whole.
+    private record State(Set<ModuleId> enabled, List<Interceptor> interceptors) {
     }
 
     /// Declares the interceptors in the order they run.

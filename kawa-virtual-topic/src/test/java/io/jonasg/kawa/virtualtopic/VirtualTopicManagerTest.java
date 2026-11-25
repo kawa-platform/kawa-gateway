@@ -209,7 +209,7 @@ class VirtualTopicManagerTest {
     }
 
     @Test
-    void keepsThePreviousSnapshotWhenATransformationDoesNotCompile() {
+    void keepsThePreviousMappingWhenATransformationDoesNotCompile() {
         // given
         var invalid = new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(),
                 List.of(new CelTransformationConfig("value.")), null);
@@ -219,48 +219,48 @@ class VirtualTopicManagerTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Invalid transformations for virtual topic 'orders'");
         assertThat(virtualTopics.toPhysical("orders"))
-                .withFailMessage(() -> "A failed reload replaced the previous snapshot")
+                .withFailMessage(() -> "A failed reload replaced the previous mapping")
                 .isEqualTo("orders-v2");
     }
 
     @Test
-    void keepsAnsweringThePreviousMappingUntilAPreparedSnapshotIsPublished() {
+    void keepsAnsweringThePreviousMappingUntilAPreparedStateIsPublished() {
         // when
         virtualTopics.prepare(Map.of("payments", new VirtualTopicConfig("payments-v1")));
 
         // then
         assertThat(virtualTopics.toPhysical("orders"))
-                .withFailMessage(() -> "Preparing a snapshot stopped 'orders' from mapping to 'orders-v2' before it was published")
+                .withFailMessage(() -> "Preparing a mapping stopped 'orders' from mapping to 'orders-v2' before it was published")
                 .isEqualTo("orders-v2");
         assertThat(virtualTopics.toPhysical("payments"))
-                .withFailMessage(() -> "Preparing a snapshot made 'payments' a virtual topic before it was published")
+                .withFailMessage(() -> "Preparing a mapping made 'payments' a virtual topic before it was published")
                 .isEqualTo("payments");
         assertThat(virtualTopics.virtualTopics())
-                .withFailMessage(() -> "Preparing a snapshot changed the virtual topics before it was published, got %s"
+                .withFailMessage(() -> "Preparing a mapping changed the virtual topics before it was published, got %s"
                         .formatted(virtualTopics.virtualTopics()))
                 .containsOnlyKeys("orders", "customers", "legacy");
     }
 
     @Test
-    void answersExactlyTheMappingOfThePublishedSnapshot() {
+    void answersExactlyTheMappingOfThePublishedState() {
         // given
-        VirtualTopicManager.Snapshot snapshot = virtualTopics.prepare(Map.of("payments", new VirtualTopicConfig("payments-v1")));
+        VirtualTopicManager.State state = virtualTopics.prepare(Map.of("payments", new VirtualTopicConfig("payments-v1")));
 
         // when
-        virtualTopics.publish(snapshot);
+        virtualTopics.publish(state);
 
         // then
         assertThat(virtualTopics.toPhysical("payments"))
-                .withFailMessage(() -> "The published snapshot did not map 'payments' to 'payments-v1'")
+                .withFailMessage(() -> "The published mapping did not map 'payments' to 'payments-v1'")
                 .isEqualTo("payments-v1");
         assertThat(virtualTopics.virtualTopics())
-                .withFailMessage(() -> "The published snapshot did not replace the previous virtual topics, got %s"
+                .withFailMessage(() -> "The published mapping did not replace the previous virtual topics, got %s"
                         .formatted(virtualTopics.virtualTopics()))
                 .containsOnlyKeys("payments");
     }
 
     @Test
-    void refusesToPrepareASnapshotWithAnInvalidTransformationNamingTheVirtualTopic() {
+    void refusesToPrepareAMappingWithAnInvalidTransformationNamingTheVirtualTopic() {
         // given
         var invalid = new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(),
                 List.of(new CelTransformationConfig("value.")), null);
@@ -269,32 +269,19 @@ class VirtualTopicManagerTest {
         assertThatThrownBy(() -> virtualTopics.prepare(Map.of("orders", invalid)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("virtual topic 'orders'");
-    }
-
-    @Test
-    void keepsTheCurrentMappingWhenPreparingASnapshotWithAnInvalidTransformation() {
-        // given
-        var invalid = new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(),
-                List.of(new CelTransformationConfig("value.")), null);
-
-        // when
-        assertThatThrownBy(() -> virtualTopics.prepare(Map.of("orders", invalid)))
-                .isInstanceOf(IllegalArgumentException.class);
-
-        // then
         assertThat(virtualTopics.toPhysical("orders"))
-                .withFailMessage(() -> "A refused snapshot replaced the mapping of 'orders' to 'orders-v2'")
+                .withFailMessage(() -> "A refused mapping replaced the mapping of 'orders' to 'orders-v2'")
                 .isEqualTo("orders-v2");
     }
 
     @Test
-    void preparesASnapshotWhoseConsumeFilterDoesNotCompile() {
+    void acceptsAMappingWhoseConsumeFilterDoesNotCompile() {
         // given
         var unfilterable = new VirtualTopicConfig("orders.raw", new CelFilterConfig("value.a >"), false, new JsonFormatConfig());
 
         // when / then
-        assertThatCode(() -> virtualTopics.prepare(Map.of("orders", unfilterable)))
-                .withFailMessage(() -> "A consume filter that does not compile refused the whole snapshot")
+        assertThatCode(() -> virtualTopics.reload(Map.of("orders", unfilterable)))
+                .withFailMessage(() -> "A consume filter that does not compile refused the whole mapping")
                 .doesNotThrowAnyException();
     }
 }
