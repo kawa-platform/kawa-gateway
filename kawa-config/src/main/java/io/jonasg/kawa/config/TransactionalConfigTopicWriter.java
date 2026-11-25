@@ -1,14 +1,17 @@
 package io.jonasg.kawa.config;
 
+import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.IsolationLevel;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.errors.InvalidProducerEpochException;
+import org.apache.kafka.common.errors.InvalidTxnStateException;
 import org.apache.kafka.common.errors.ProducerFencedException;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
@@ -21,6 +24,7 @@ import java.time.Duration;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.Set;
+import java.util.function.Supplier;
 
 /// The Kafka [ConfigTopicWriter]: writes full [DynamicConfig] snapshots to the compacted
 /// gateway-config topic, each in its own transaction. The consumer side ([ConfigTopicConsumer])
@@ -30,7 +34,12 @@ import java.util.Set;
 /// Every snapshot is sent with the same key so compaction keeps only the latest one. All replicas
 /// writing to one topic share the `transactional.id` `kawa-config-writer-<topic>`: initializing the
 /// producer (taking over) fences every other replica's producer, so whoever took over last is the
-/// only one that can commit. A fenced producer is closed and the next call takes over again.
+/// only one that can commit. A write that loses to another writer fails with
+/// [ConfigWriteFencedException], a conflict the caller resolves by retrying on the newer snapshot.
+/// It is reported as such when the broker fences the producer (`ProducerFencedException`,
+/// `InvalidProducerEpochException`) or reports the transaction in an invalid state
+/// (`InvalidTxnStateException`), which concurrent takeovers can produce instead of a fence. The
+/// fenced producer is closed and the next call takes over again with a fresh one.
 ///
 /// Requires brokers with transaction support and, where ACLs are enforced, `WRITE` and `DESCRIBE` on
 /// that transactional id for the gateway's principal.
@@ -43,21 +52,35 @@ public final class TransactionalConfigTopicWriter implements ConfigTopicWriter {
 
     private final String topic;
     private final TopicPartition partition;
-    private final Properties producerProps;
-    private final KafkaConsumer<String, String> offsets;
+    private final Supplier<Producer<String, String>> producers;
+    private final Consumer<String, String> offsets;
     private final JsonMapper mapper = JsonMapper.builder().build();
 
-    private @Nullable KafkaProducer<String, String> producer;
+    private @Nullable Producer<String, String> producer;
 
     /// @param bootstrapServers `host:port` list of the cluster hosting the config topic
     /// @param topic            the config topic name
     /// @param extraProps       extra client properties (e.g. SASL/security settings for the config
     ///                         topic) on top of the base configuration
     public TransactionalConfigTopicWriter(String bootstrapServers, String topic, Properties extraProps) {
+        this(topic, producerFactory(producerProps(bootstrapServers, topic, extraProps)),
+                new KafkaConsumer<>(offsetsConsumerProps(bootstrapServers, extraProps)));
+    }
+
+    /// @param topic     the config topic name
+    /// @param producers supplies a new, uninitialized transactional producer whenever this writer takes
+    ///                  over: initially and after giving up a fenced producer. The writer calls
+    ///                  `initTransactions()` on it.
+    /// @param offsets   the `read_committed` consumer [#committedEndOffset()] reads the end offset with
+    TransactionalConfigTopicWriter(String topic, Supplier<Producer<String, String>> producers, Consumer<String, String> offsets) {
         this.topic = topic;
         this.partition = new TopicPartition(topic, 0);
-        this.producerProps = producerProps(bootstrapServers, topic, extraProps);
-        this.offsets = new KafkaConsumer<>(offsetsConsumerProps(bootstrapServers, extraProps));
+        this.producers = producers;
+        this.offsets = offsets;
+    }
+
+    private static Supplier<Producer<String, String>> producerFactory(Properties props) {
+        return () -> new KafkaProducer<>(props);
     }
 
     /// The `transactional.id` every replica writing to `topic` shares.
@@ -67,7 +90,7 @@ public final class TransactionalConfigTopicWriter implements ConfigTopicWriter {
 
     @Override
     public synchronized long commit(DynamicConfig config) {
-        KafkaProducer<String, String> current = takeOver();
+        Producer<String, String> current = takeOver();
         try {
             current.beginTransaction();
             RecordMetadata metadata = current.send(new ProducerRecord<>(topic, CONFIG_KEY, serialize(config))).get();
@@ -97,9 +120,9 @@ public final class TransactionalConfigTopicWriter implements ConfigTopicWriter {
 
     /// The producer, initialized now if this writer has none: initializing fences every other
     /// writer sharing the transactional id.
-    private KafkaProducer<String, String> takeOver() {
+    private Producer<String, String> takeOver() {
         if (producer == null) {
-            var created = new KafkaProducer<String, String>(producerProps);
+            Producer<String, String> created = producers.get();
             try {
                 created.initTransactions();
             } catch (RuntimeException e) {
@@ -111,7 +134,7 @@ public final class TransactionalConfigTopicWriter implements ConfigTopicWriter {
         return producer;
     }
 
-    private void abort(KafkaProducer<String, String> current) {
+    private void abort(Producer<String, String> current) {
         try {
             current.abortTransaction();
         } catch (RuntimeException e) {
@@ -127,9 +150,19 @@ public final class TransactionalConfigTopicWriter implements ConfigTopicWriter {
         }
     }
 
+    /// Whether the write lost to another writer sharing the transactional id, anywhere in the cause chain.
+    ///
+    /// Besides the fences (`ProducerFencedException`, `InvalidProducerEpochException`), concurrent
+    /// takeovers can make the broker report this writer's transaction as `InvalidTxnStateException`,
+    /// from the send as well as from the commit. Treating that as a conflict is safe: the transaction
+    /// is no longer ongoing, so the snapshot was not committed and the caller's retry cannot apply it
+    /// twice. Only another writer sharing the transactional id can put the transaction in that state,
+    /// as this writer is the only one using its producer and does so under the writer's lock.
     private static boolean isFenced(Throwable e) {
         for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-            if (cause instanceof ProducerFencedException || cause instanceof InvalidProducerEpochException) {
+            if (cause instanceof ProducerFencedException
+                    || cause instanceof InvalidProducerEpochException
+                    || cause instanceof InvalidTxnStateException) {
                 return true;
             }
         }
