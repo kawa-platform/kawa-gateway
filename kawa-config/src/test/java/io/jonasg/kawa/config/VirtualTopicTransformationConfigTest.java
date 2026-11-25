@@ -2,6 +2,7 @@ package io.jonasg.kawa.config;
 
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.dataformat.yaml.YAMLMapper;
 
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class VirtualTopicTransformationConfigTest {
 
     private final JsonMapper mapper = JsonMapper.builder().build();
+
+    private final YAMLMapper yamlMapper = YAMLMapper.builder().build();
 
     @Test
     void readsTransformationsFromTheConfigTopic() throws Exception {
@@ -209,6 +212,176 @@ class VirtualTopicTransformationConfigTest {
         assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new XmlFormatConfig(), steps, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("XML requires a 'root'");
+    }
+
+    @Test
+    void acceptsHeaderStepsOnAnAvroValueFormatWithoutASubject() {
+        // given a topic that only rewrites the headers of Avro records
+        var steps = List.<TransformationConfig>of(
+                new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                new SetHeaderTransformationConfig("content-type", "application/avro"));
+
+        // when
+        var virtualTopic = new VirtualTopicConfig("orders.raw", null, false, new AvroFormatConfig(), steps, null);
+
+        // then
+        assertThat(virtualTopic.transformations())
+                .withFailMessage(() -> "The header steps on an Avro topic without a subject were not kept: " + virtualTopic.transformations())
+                .isEqualTo(steps);
+    }
+
+    @Test
+    void acceptsHeaderStepsOnAnXmlValueFormatWithoutARoot() {
+        // given a topic that only rewrites the headers of XML records
+        var steps = List.<TransformationConfig>of(
+                new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                new SetHeaderTransformationConfig("content-type", "application/xml"));
+
+        // when
+        var virtualTopic = new VirtualTopicConfig("orders.raw", null, false, new XmlFormatConfig(), steps, null);
+
+        // then
+        assertThat(virtualTopic.transformations())
+                .withFailMessage(() -> "The header steps on an XML topic without a root were not kept: " + virtualTopic.transformations())
+                .isEqualTo(steps);
+    }
+
+    @Test
+    void loadsAHeaderOnlyAvroVirtualTopicWithoutASubjectFromYaml() throws Exception {
+        // given
+        String yaml = """
+                virtualTopics:
+                  orders.virtual:
+                    topic: orders.raw
+                    valueFormat:
+                      type: avro
+                    transformations:
+                      - type: dropHeaders
+                        headers: [__TypeId__]
+                      - type: setHeader
+                        header: content-type
+                        value: application/avro
+                """;
+
+        // when
+        var virtualTopic = yamlMapper.readValue(yaml, DynamicConfig.class).virtualTopics().get("orders.virtual");
+
+        // then
+        assertThat(virtualTopic.transformations())
+                .withFailMessage(() -> "The header-only Avro topic without a subject was not loaded from YAML: " + virtualTopic)
+                .containsExactly(
+                        new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                        new SetHeaderTransformationConfig("content-type", "application/avro"));
+    }
+
+    @Test
+    void loadsAHeaderOnlyXmlVirtualTopicWithoutARootFromYaml() throws Exception {
+        // given
+        String yaml = """
+                virtualTopics:
+                  orders.virtual:
+                    topic: orders.raw
+                    valueFormat:
+                      type: xml
+                    transformations:
+                      - type: dropHeaders
+                        headers: [__TypeId__]
+                      - type: setHeader
+                        header: content-type
+                        value: application/xml
+                """;
+
+        // when
+        var virtualTopic = yamlMapper.readValue(yaml, DynamicConfig.class).virtualTopics().get("orders.virtual");
+
+        // then
+        assertThat(virtualTopic.transformations())
+                .withFailMessage(() -> "The header-only XML topic without a root was not loaded from YAML: " + virtualTopic)
+                .containsExactly(
+                        new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                        new SetHeaderTransformationConfig("content-type", "application/xml"));
+    }
+
+    @Test
+    void refusesACelStepWithHeaderStepsOnAnAvroValueFormatWithoutASubject() {
+        // given a value step that re-encodes the value as Avro, next to header steps
+        var steps = List.<TransformationConfig>of(
+                new CelTransformationConfig("{'id': value.id}"),
+                new SetHeaderTransformationConfig("content-type", "application/avro"));
+
+        // when / then
+        assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new AvroFormatConfig(), steps, null))
+                .withFailMessage(() -> "A cel step encoding Avro without a subject was accepted because header steps came along")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encoding transformed values as Avro requires a 'subject'");
+    }
+
+    @Test
+    void refusesACelStepWithHeaderStepsOnAnXmlValueFormatWithoutARoot() {
+        // given a value step that re-encodes the value as XML, next to header steps
+        var steps = List.<TransformationConfig>of(
+                new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                new CelTransformationConfig("{'id': value.id}"));
+
+        // when / then
+        assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new XmlFormatConfig(), steps, null))
+                .withFailMessage(() -> "A cel step encoding XML without a root was accepted because header steps came along")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encoding transformed values as XML requires a 'root'");
+    }
+
+    @Test
+    void refusesAConvertToAvroWithoutASubject() {
+        // given
+        var steps = List.<TransformationConfig>of(new ConvertTransformationConfig(new AvroFormatConfig()));
+
+        // when / then
+        assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(), steps, null))
+                .withFailMessage(() -> "A convert to Avro without a subject was accepted")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encoding transformed values as Avro requires a 'subject'");
+    }
+
+    @Test
+    void refusesAConvertToXmlWithoutARoot() {
+        // given
+        var steps = List.<TransformationConfig>of(new ConvertTransformationConfig(new XmlFormatConfig()));
+
+        // when / then
+        assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(), steps, null))
+                .withFailMessage(() -> "A convert to XML without a root was accepted")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encoding transformed values as XML requires a 'root'");
+    }
+
+    @Test
+    void refusesAConvertToAvroWithoutASubjectFollowedByHeaderSteps() {
+        // given
+        var steps = List.<TransformationConfig>of(
+                new ConvertTransformationConfig(new AvroFormatConfig()),
+                new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                new SetHeaderTransformationConfig("content-type", "application/avro"));
+
+        // when / then
+        assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(), steps, null))
+                .withFailMessage(() -> "A convert to Avro without a subject was accepted because header steps followed it")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encoding transformed values as Avro requires a 'subject'");
+    }
+
+    @Test
+    void refusesAConvertToXmlWithoutARootFollowedByHeaderSteps() {
+        // given
+        var steps = List.<TransformationConfig>of(
+                new ConvertTransformationConfig(new XmlFormatConfig()),
+                new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                new SetHeaderTransformationConfig("content-type", "application/xml"));
+
+        // when / then
+        assertThatThrownBy(() -> new VirtualTopicConfig("orders.raw", null, false, new JsonFormatConfig(), steps, null))
+                .withFailMessage(() -> "A convert to XML without a root was accepted because header steps followed it")
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("encoding transformed values as XML requires a 'root'");
     }
 
     @Test

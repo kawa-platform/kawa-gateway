@@ -1,12 +1,16 @@
 package io.jonasg.kawa.http.topics;
 
+import io.jonasg.kawa.config.AvroFormatConfig;
 import io.jonasg.kawa.config.DropFieldsTransformationConfig;
+import io.jonasg.kawa.config.DropHeadersTransformationConfig;
 import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.HeaderEqualsFilterConfig;
 import io.jonasg.kawa.config.JsonFormatConfig;
 import io.jonasg.kawa.config.RenameFieldTransformationConfig;
+import io.jonasg.kawa.config.SetHeaderTransformationConfig;
 import io.jonasg.kawa.config.TransformationConfig;
 import io.jonasg.kawa.config.VirtualTopicConfig;
+import io.jonasg.kawa.config.XmlFormatConfig;
 import io.jonasg.kawa.http.AdminHttpSliceTestBase;
 import io.jonasg.kawa.http.FakeDynamicConfigRepository;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
@@ -289,6 +293,56 @@ class PatchTopicSliceTest extends AdminHttpSliceTestBase {
         assertThat(repository.getActiveConfig().virtualTopics().get("orders.public").transformations())
                 .withFailMessage(() -> "A PATCH with [] did not remove the steps")
                 .isEmpty();
+    }
+
+    @Test
+    void patchesHeaderStepsOntoAnAvroTopicWithoutASubject() throws Exception {
+        // given
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders.public",
+                new VirtualTopicConfig("orders", null, false, new AvroFormatConfig(), List.of(), null)));
+        startServer();
+
+        // when
+        var patchTopicResp = send("PATCH", "/topics/orders.public", """
+                {"transformations": [
+                  {"type": "dropHeaders", "headers": ["__TypeId__"]},
+                  {"type": "setHeader", "header": "content-type", "value": "application/avro"}
+                ]}
+                """);
+
+        // then
+        assertThat(patchTopicResp).hasStatusCode(200);
+        var patched = repository.getActiveConfig().virtualTopics().get("orders.public").transformations();
+        assertThat(patched)
+                .withFailMessage(() -> "The header steps were not patched onto the Avro topic without a subject: " + patched)
+                .containsExactly(
+                        new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                        new SetHeaderTransformationConfig("content-type", "application/avro"));
+    }
+
+    @Test
+    void patchesHeaderStepsOntoAnXmlTopicWithoutARoot() throws Exception {
+        // given
+        repository = new FakeDynamicConfigRepository(DynamicConfig.empty().upsertVirtualTopic("orders.public",
+                new VirtualTopicConfig("orders", null, false, new XmlFormatConfig(), List.of(), null)));
+        startServer();
+
+        // when
+        var patchTopicResp = send("PATCH", "/topics/orders.public", """
+                {"transformations": [
+                  {"type": "dropHeaders", "headers": ["__TypeId__"]},
+                  {"type": "setHeader", "header": "content-type", "value": "application/xml"}
+                ]}
+                """);
+
+        // then
+        assertThat(patchTopicResp).hasStatusCode(200);
+        var patched = repository.getActiveConfig().virtualTopics().get("orders.public").transformations();
+        assertThat(patched)
+                .withFailMessage(() -> "The header steps were not patched onto the XML topic without a root: " + patched)
+                .containsExactly(
+                        new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                        new SetHeaderTransformationConfig("content-type", "application/xml"));
     }
 
     @Test

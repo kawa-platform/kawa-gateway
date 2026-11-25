@@ -1273,6 +1273,148 @@ class TopicSliceTest extends AdminHttpSliceTestBase {
     }
 
     @Test
+    void putsAHeaderOnlyVirtualTopicOnAnAvroValueFormatWithoutASubject() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putTopicResp = send("PUT", "/topics/orders.public", """
+                {"type": "virtual", "topic": "orders", "valueFormat": {"type": "avro"},
+                 "transformations": [
+                   {"type": "dropHeaders", "headers": ["__TypeId__"]},
+                   {"type": "setHeader", "header": "content-type", "value": "application/avro"}
+                 ]}
+                """);
+
+        // then
+        assertThat(putTopicResp).hasStatusCode(200);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders.public").transformations())
+                .withFailMessage(() -> "The header steps of an Avro topic without a subject were not persisted")
+                .containsExactly(
+                        new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                        new SetHeaderTransformationConfig("content-type", "application/avro"));
+    }
+
+    @Test
+    void putsAHeaderOnlyVirtualTopicOnAnXmlValueFormatWithoutARoot() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putTopicResp = send("PUT", "/topics/orders.public", """
+                {"type": "virtual", "topic": "orders", "valueFormat": {"type": "xml"},
+                 "transformations": [
+                   {"type": "dropHeaders", "headers": ["__TypeId__"]},
+                   {"type": "setHeader", "header": "content-type", "value": "application/xml"}
+                 ]}
+                """);
+
+        // then
+        assertThat(putTopicResp).hasStatusCode(200);
+        assertThat(repository.getActiveConfig().virtualTopics().get("orders.public").transformations())
+                .withFailMessage(() -> "The header steps of an XML topic without a root were not persisted")
+                .containsExactly(
+                        new DropHeadersTransformationConfig(List.of("__TypeId__")),
+                        new SetHeaderTransformationConfig("content-type", "application/xml"));
+    }
+
+    @Test
+    void refusesACelStepWithHeaderStepsOnAnAvroValueFormatWithoutASubject() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putTopicResp = send("PUT", "/topics/orders.public", """
+                {"type": "virtual", "topic": "orders", "valueFormat": {"type": "avro"},
+                 "transformations": [
+                   {"type": "cel", "expression": "{\\"id\\": value.id}"},
+                   {"type": "setHeader", "header": "content-type", "value": "application/avro"}
+                 ]}
+                """);
+
+        // then
+        assertThat(putTopicResp).hasStatusCode(400);
+        assertThatJson(putTopicResp.body()).inPath("error").asString()
+                .withFailMessage(() -> "A cel step encoding Avro without a subject was not refused for it: " + putTopicResp.body())
+                .contains("encoding transformed values as Avro requires a 'subject'");
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "A refused virtual topic was persisted")
+                .doesNotContainKey("orders.public");
+    }
+
+    @Test
+    void refusesACelStepWithHeaderStepsOnAnXmlValueFormatWithoutARoot() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putTopicResp = send("PUT", "/topics/orders.public", """
+                {"type": "virtual", "topic": "orders", "valueFormat": {"type": "xml"},
+                 "transformations": [
+                   {"type": "dropHeaders", "headers": ["__TypeId__"]},
+                   {"type": "cel", "expression": "{\\"id\\": value.id}"}
+                 ]}
+                """);
+
+        // then
+        assertThat(putTopicResp).hasStatusCode(400);
+        assertThatJson(putTopicResp.body()).inPath("error").asString()
+                .withFailMessage(() -> "A cel step encoding XML without a root was not refused for it: " + putTopicResp.body())
+                .contains("encoding transformed values as XML requires a 'root'");
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "A refused virtual topic was persisted")
+                .doesNotContainKey("orders.public");
+    }
+
+    @Test
+    void refusesAConvertToAvroWithoutASubjectFollowedByHeaderSteps() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putTopicResp = send("PUT", "/topics/orders.public", """
+                {"type": "virtual", "topic": "orders", "valueFormat": {"type": "json"},
+                 "transformations": [
+                   {"type": "convert", "format": {"type": "avro"}},
+                   {"type": "setHeader", "header": "content-type", "value": "application/avro"}
+                 ]}
+                """);
+
+        // then
+        assertThat(putTopicResp).hasStatusCode(400);
+        assertThatJson(putTopicResp.body()).inPath("error").asString()
+                .withFailMessage(() -> "A convert to Avro without a subject was not refused for it: " + putTopicResp.body())
+                .contains("encoding transformed values as Avro requires a 'subject'");
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "A refused virtual topic was persisted")
+                .doesNotContainKey("orders.public");
+    }
+
+    @Test
+    void refusesAConvertToXmlWithoutARootFollowedByHeaderSteps() throws Exception {
+        // given
+        startServer();
+
+        // when
+        var putTopicResp = send("PUT", "/topics/orders.public", """
+                {"type": "virtual", "topic": "orders", "valueFormat": {"type": "json"},
+                 "transformations": [
+                   {"type": "convert", "format": {"type": "xml"}},
+                   {"type": "dropHeaders", "headers": ["__TypeId__"]}
+                 ]}
+                """);
+
+        // then
+        assertThat(putTopicResp).hasStatusCode(400);
+        assertThatJson(putTopicResp.body()).inPath("error").asString()
+                .withFailMessage(() -> "A convert to XML without a root was not refused for it: " + putTopicResp.body())
+                .contains("encoding transformed values as XML requires a 'root'");
+        assertThat(repository.getActiveConfig().virtualTopics())
+                .withFailMessage(() -> "A refused virtual topic was persisted")
+                .doesNotContainKey("orders.public");
+    }
+
+    @Test
     void refusesInvalidHeaderStepsAndUnknownFormatsNamingTheStep() throws Exception {
         // given
         startServer();

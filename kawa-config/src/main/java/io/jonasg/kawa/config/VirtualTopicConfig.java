@@ -17,8 +17,9 @@ import java.util.List;
 ///                            through unchanged. Value steps and a [ConvertTransformationConfig] decode
 ///                            and re-encode the value, so they require `valueFormat`; header steps alone
 ///                            do not, and leave the value bytes untouched. Only header steps may follow a
-///                            [ConvertTransformationConfig]. An Avro output format must name the
-///                            [AvroFormatConfig#subject] to encode with, an XML one its [XmlFormatConfig#root]
+///                            [ConvertTransformationConfig]. When a value is encoded (see [#encodesValues]),
+///                            an Avro output format must name the [AvroFormatConfig#subject] to encode with,
+///                            an XML one its [XmlFormatConfig#root]
 /// @param managedBy           the owner of this entry, or `null` when it is unmanaged
 public record VirtualTopicConfig(
         String topic,
@@ -31,7 +32,8 @@ public record VirtualTopicConfig(
 
     public VirtualTopicConfig {
         transformations = transformations == null ? List.of() : List.copyOf(transformations);
-        if (valueFormat == null && transformations.stream().anyMatch(step -> !isHeaderStep(step))) {
+        boolean encodesValues = encodesValues(transformations);
+        if (valueFormat == null && encodesValues) {
             throw new IllegalArgumentException("value transformations and convert require a 'valueFormat' to decode the record value");
         }
         int convert = -1;
@@ -44,7 +46,7 @@ public record VirtualTopicConfig(
                 convert = i;
             }
         }
-        PayloadFormatConfig output = transformations.isEmpty() ? null : outputFormat(valueFormat, transformations);
+        PayloadFormatConfig output = encodesValues ? outputFormat(valueFormat, transformations) : null;
         if (output != null) {
             switch (output) {
                 case AvroFormatConfig avro when avro.subject() == null ->
@@ -57,10 +59,21 @@ public record VirtualTopicConfig(
         }
     }
 
-    /// The format transformed values are encoded in: the `convert` step's, else `valueFormat`;
-    /// `null` when there are no transformations, or only header steps and no `valueFormat`.
+    /// The format delivered values are in: the `convert` step's, else `valueFormat`; `null` when
+    /// there are no transformations, or only header steps and no `valueFormat`. Values are encoded in
+    /// it only when [#encodesValues]; header steps alone deliver the stored bytes, already in `valueFormat`.
     public @Nullable PayloadFormatConfig outputFormat() {
         return transformations.isEmpty() ? null : outputFormat(valueFormat, transformations);
+    }
+
+    /// Whether record values are decoded and re-encoded: `true` when a value step or a
+    /// [ConvertTransformationConfig] is configured. Header steps alone keep the value bytes as stored.
+    public boolean encodesValues() {
+        return encodesValues(transformations);
+    }
+
+    private static boolean encodesValues(List<TransformationConfig> transformations) {
+        return transformations.stream().anyMatch(step -> !isHeaderStep(step));
     }
 
     private static boolean isHeaderStep(TransformationConfig step) {
