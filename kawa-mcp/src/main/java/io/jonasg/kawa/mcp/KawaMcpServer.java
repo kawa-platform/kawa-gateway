@@ -1,5 +1,6 @@
 package io.jonasg.kawa.mcp;
 
+import io.jonasg.kawa.broker.RecordReader;
 import io.jonasg.kawa.config.CorsConfig;
 import io.jonasg.kawa.http.AdminServices;
 import io.jonasg.kawa.http.modules.ModuleService;
@@ -12,6 +13,8 @@ import io.jonasg.kawa.mcp.listconsumergroups.ConsumerGroupsMcpResource;
 import io.jonasg.kawa.mcp.listconsumergroups.ListConsumerGroupsMcpTool;
 import io.jonasg.kawa.mcp.listtopics.ListTopicsMcpTool;
 import io.jonasg.kawa.mcp.listtopics.TopicsMcpResource;
+import io.jonasg.kawa.mcp.peekrecords.PeekRecordsMcpTool;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import io.modelcontextprotocol.json.McpJsonDefaults;
 import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
@@ -39,9 +42,12 @@ public final class KawaMcpServer implements AutoCloseable {
 
     /// @param router   the admin route table to serve `/mcp` from
     /// @param services the admin services the tools read from
-    /// @param cors     the admin CORS config: browser origins it allows may call `/mcp`; without it,
-    ///                 requests carrying an `Origin` header are refused
-    public KawaMcpServer(Router router, AdminServices services, @Nullable CorsConfig cors) {
+    /// @param cors             the admin CORS config: browser origins it allows may call `/mcp`; without it,
+    ///                         requests carrying an `Origin` header are refused
+    /// @param recordReader     reads topic records for `peek_records`
+    /// @param schemaRegistries the schema registry of each physical topic's cluster, to decode Avro values with
+    public KawaMcpServer(Router router, AdminServices services, @Nullable CorsConfig cors, RecordReader recordReader,
+                         SchemaRegistries schemaRegistries) {
         var mapper = McpJsonDefaults.getMapper();
         this(
                 router,
@@ -52,7 +58,8 @@ public final class KawaMcpServer implements AutoCloseable {
                         new ListTopicsMcpTool(mapper, services.topics()),
                         new DescribeTopicMcpTool(mapper, services.topics()),
                         new ListConsumerGroupsMcpTool(mapper, services.consumerGroups()),
-                        new DescribeConsumerGroupMcpTool(mapper, services.consumerGroups())
+                        new DescribeConsumerGroupMcpTool(mapper, services.consumerGroups()),
+                        new PeekRecordsMcpTool(mapper, services.topics(), recordReader, schemaRegistries)
                 ),
                 List.of(
                         new TopicsMcpResource(mapper, services.topics()),

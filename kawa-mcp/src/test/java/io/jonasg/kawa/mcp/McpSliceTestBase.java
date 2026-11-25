@@ -18,8 +18,10 @@ import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
 import io.jonasg.kawa.http.authentication.builtin.BuiltInAuthenticationPlugin;
 import io.jonasg.kawa.http.topics.TopicService;
 import io.jonasg.kawa.test.FakeBrokerAdmin;
+import io.jonasg.kawa.test.FakeRecordReader;
 import io.jonasg.kawa.test.FakeSchemaRegistries;
 import io.jonasg.kawa.virtualtopic.VirtualTopicManager;
+import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import tools.jackson.databind.json.JsonMapper;
@@ -53,6 +55,10 @@ public abstract class McpSliceTestBase {
     protected @Nullable TopicService topicService;
     /// The broker the topic service talks to: topics in here exist on the broker, as `states`.
     protected FakeBrokerAdmin brokerAdmin = new FakeBrokerAdmin();
+    /// The records `peek_records` reads.
+    protected FakeRecordReader records = new FakeRecordReader();
+    /// The schema registry `peek_records` decodes Avro values with.
+    protected SchemaRegistries schemaRegistries = FakeSchemaRegistries.PRESENT;
 
     private final HttpClient client = HttpClient.newHttpClient();
     private @Nullable AdminServices services;
@@ -104,7 +110,7 @@ public abstract class McpSliceTestBase {
         new BuiltInAuthenticationPlugin().register(authenticationProviders::register);
         server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none(), PUBLIC_URL), services,
                 authenticationProviders);
-        mcp = new KawaMcpServer(server.router(), services, null);
+        mcp = new KawaMcpServer(server.router(), services, null, records, schemaRegistries);
         server.start();
     }
 
