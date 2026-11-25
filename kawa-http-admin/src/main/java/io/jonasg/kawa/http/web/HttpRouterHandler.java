@@ -87,6 +87,7 @@ public final class HttpRouterHandler extends SimpleChannelInboundHandler<FullHtt
         try {
             response = match.handler().handle(req);
         } catch (Exception e) {
+            log.error("Admin request handler failed; answering 500 method={} path={}", req.method(), req.path(), e);
             write(ctx, request, HttpResponseStatus.INTERNAL_SERVER_ERROR, "{\"error\":\"handler failed\"}");
             return;
         }
