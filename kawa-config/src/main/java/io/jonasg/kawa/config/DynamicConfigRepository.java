@@ -23,11 +23,17 @@ public interface DynamicConfigRepository extends AutoCloseable {
     /// Applies mutation to the active config (or an empty config before the first snapshot)
     /// and persists the result. The read-modify-write base is resolved by the repository, so
     /// callers never see the null-before-first-snapshot case.
+    ///
+    /// @throws IllegalArgumentException when the gateway would reject the result (an unknown role
+    ///                                  reference, an invalid CEL expression or transformation);
+    ///                                  nothing is persisted
     void update(UnaryOperator<DynamicConfig> mutation);
 
     /// Applies mutation to the active config (or an empty config before the first snapshot),
     /// persists the result, and only returns when the write mode's consistency target has been
     /// reached. Repositories that only observe persistence may alias this to [update].
+    ///
+    /// @throws IllegalArgumentException when the gateway would reject the result; nothing is persisted
     void updateAndWaitUntilApplied(UnaryOperator<DynamicConfig> mutation);
 
     /// Releases the repository's resources (e.g. the config-topic producer).
