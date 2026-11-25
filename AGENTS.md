@@ -67,7 +67,8 @@ before forwarding requests to a real Kafka cluster. Maven multi-module, Java 26.
 The build dependency direction is: `kawa-config` → `kawa-core` and
 `kawa-protocol-kafka`; `kawa-virtual-topic` depends on core/config; `kawa-rbac` depends on
 core/config/virtual-topic; `kawa-governance` depends on core/config; `kawa-broker` depends on governance (the broker-facing
-topic port and its Kafka AdminClient implementation); `kawa-http-admin` depends on
+topic port and its Kafka AdminClient implementation, plus the read-only `RecordReader` port, whose `KafkaRecordReader`
+reads with a group-less, non-committing consumer per session); `kawa-http-admin` depends on
 core/config/governance/broker/virtual-topic; `kawa-mcp` depends on http-admin; `kawa-server` assembles the runtime modules; and
 `kawa-integration-tests` depends on `kawa-server`. `kawa-test-support` is consumed with `test` scope only; it may
 depend on production modules such as `kawa-config` or `kawa-broker` (for `FakeBrokerAdmin`), but never on a module that uses it.
@@ -91,7 +92,8 @@ depend on production modules such as `kawa-config` or `kawa-broker` (for `FakeBr
   authentication. It is switched by the runtime `mcp` module (`ModuleId.MCP`); while off, `/mcp` answers `404`. Resources
   (`McpResource`, read-only, same endpoint) expose the broker topics and consumer groups: `kafka://topics` and
   `kafka://topics/{topicName}` list and describe only physical topics, virtual topics stay on the tools. Tools
-  call the services in `AdminServices` directly, one package per tool (`listtopics/` holds `ListTopicsMcpTool` and its view;
+  call the services in `AdminServices` directly (`peek_records` also reads records through the `RecordReader` and
+  decodes values with kawa-virtual-topic's payload decoders and the cluster's schema registry), one package per tool (`listtopics/` holds `ListTopicsMcpTool` and its view;
   types shared by tools, such as `FilterView`, stay in the parent package), and answer with MCP-specific
   views as `structuredContent` plus the same JSON as text; the `McpTool` base class turns failures into tool errors and
   logs each call once at info (user, OAuth client, tool, outcome). A token reaching `/mcp` is either an admin

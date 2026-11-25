@@ -9,6 +9,7 @@ import io.jonasg.kawa.http.authentication.AuthenticationProviderRegistry;
 import io.jonasg.kawa.http.health.HealthProbe;
 import io.jonasg.kawa.http.health.HealthRoutes;
 import io.jonasg.kawa.broker.KafkaBrokerAdmin;
+import io.jonasg.kawa.broker.KafkaRecordReader;
 import io.jonasg.kawa.mcp.KawaMcpServer;
 import io.jonasg.kawa.virtualtopic.filter.SchemaRegistries;
 
@@ -33,7 +34,8 @@ public final class AdminSurface implements AutoCloseable {
                 state.governance(), brokerAdmin, schemaRegistries, config.auth().bootstrapUser(), config.publicUrl(), System::getenv);
         server = new AdminHttpServer(config, services, authenticationProviders);
         HealthRoutes.register(server.router(), health);
-        mcp = new KawaMcpServer(server.router(), services, config.cors());
+        mcp = new KawaMcpServer(server.router(), services, config.cors(),
+                new KafkaRecordReader(bootstrapServers, brokerSecurity), schemaRegistries);
     }
 
     public void start() throws InterruptedException {

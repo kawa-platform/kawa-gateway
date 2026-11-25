@@ -9,6 +9,8 @@ import io.modelcontextprotocol.server.McpStatelessServerFeatures;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,6 +57,11 @@ public abstract class McpTool {
     /// The JSON Schema of the view [#call(CallToolRequest)] returns.
     protected abstract String outputSchema();
 
+    /// The hints the tool is advertised with, such as `readOnlyHint`; `null` for none.
+    protected @Nullable ToolAnnotations annotations() {
+        return null;
+    }
+
     /// Does the tool's work and returns the view it answers with. Throws on bad input or a missing resource.
     protected abstract Object call(CallToolRequest request);
 
@@ -63,6 +70,7 @@ public abstract class McpTool {
         var tool = Tool.builder(name(), mapper, inputSchema())
                 .description(description())
                 .outputSchema(mapper, outputSchema())
+                .annotations(annotations())
                 .build();
         return McpStatelessServerFeatures.SyncToolSpecification.builder()
                 .tool(tool)
