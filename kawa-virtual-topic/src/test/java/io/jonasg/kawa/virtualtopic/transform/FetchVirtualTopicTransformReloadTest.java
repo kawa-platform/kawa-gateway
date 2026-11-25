@@ -103,14 +103,14 @@ class FetchVirtualTopicTransformReloadTest {
     }
 
     @Test
-    void answersUnknownServerErrorOnceASnapshotWithAFilterThatDoesNotCompileIsPublished() {
+    void answersUnknownServerErrorOnceAReloadWithAFilterThatDoesNotCompileIsApplied() {
         // given a consumer that fetched `orders` while it kept values with a above 1
         var virtualTopics = new VirtualTopicManager(Map.of("orders", filtered("value.a > 1")));
         var transform = transform(virtualTopics);
         fetch(transform);
 
-        // when a snapshot whose filter does not compile is prepared and published
-        virtualTopics.publish(virtualTopics.prepare(Map.of("orders", filtered("value.a >"))));
+        // when a mapping whose filter does not compile is reloaded
+        virtualTopics.reload(Map.of("orders", filtered("value.a >")));
         FetchResponseData.PartitionData partition = fetchPartition(transform);
 
         // then

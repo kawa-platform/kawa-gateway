@@ -26,24 +26,23 @@ import java.util.Set;
 /// Maintains the virtual-to-physical virtual-topic map, along with each virtual topic's
 /// optional consume filter configuration.
 ///
-/// The whole mapping is an immutable [Snapshot] swapped atomically via a single `volatile`
-/// reference. Changing it takes two steps: [#prepare] builds the complete new snapshot without
-/// changing what the manager answers, and [#publish] makes it current in one write, so a reader on
-/// the hot path observes either the previous or the new mapping in its entirety - never a mix of
-/// the two. A caller applying a configuration that spans several components can prepare first, so
-/// an invalid one is refused before any part of it takes effect, and publish once the rest is
-/// applied; [#reload] does both at once.
+/// The whole mapping is an immutable [State] swapped atomically via a single `volatile` reference.
+/// Changing it takes two steps: [#prepare] builds the complete new state without changing what the
+/// manager answers, and [#publish] makes it current in one write, so a reader on the hot path
+/// observes either the previous or the new mapping in its entirety - never a mix of the two. A
+/// caller applying a configuration that spans several components can prepare first, so an invalid
+/// one is refused before any part of it takes effect; [#reload] does both at once.
 ///
-/// Each snapshot entry also carries what fetches need prepared - the topic's compiled consume
-/// filter and its value transformer with their codecs - built by [#prepare] from the configuration
-/// alone. So they exist only for the virtual topics of the current snapshot: a reload that changes
-/// or removes a topic leaves nothing of its previous configuration behind.
+/// Each entry also carries what fetches need prepared - the topic's compiled consume filter and its
+/// value transformer with their codecs - built by [#prepare] from the configuration alone. So they
+/// exist only for the virtual topics of the current mapping: a reload that changes or removes a topic
+/// leaves nothing of its previous configuration behind.
 ///
 /// Topic names that are not virtualized map to themselves (identity) and carry no filter.
 public final class VirtualTopicManager {
 
     private final SchemaRegistries schemaRegistries;
-    private volatile Snapshot snapshot;
+    private volatile State state;
 
     /// A manager whose topics' clusters have no schema registry.
     public VirtualTopicManager(Map<String, VirtualTopicConfig> virtualTopics) {
@@ -58,19 +57,18 @@ public final class VirtualTopicManager {
         reload(virtualTopics);
     }
 
-    /// Replaces the virtual-topic mapping with a new snapshot built from `virtualTopics`:
-    /// [#publish] of [#prepare]. An invalid transformation throws and leaves the previous snapshot
-    /// in place.
+    /// Replaces the virtual-topic mapping with one built from `virtualTopics`: [#publish] of
+    /// [#prepare]. An invalid transformation throws and leaves the previous mapping in place.
     public void reload(Map<String, VirtualTopicConfig> virtualTopics) {
         publish(prepare(virtualTopics));
     }
 
-    /// Builds the complete snapshot for `virtualTopics` - the mapping and each virtual topic's
-    /// compiled transformations, consume filter and value transformer, so no fetch prepares them -
-    /// without changing what this manager answers. Pass it to [#publish] to make it current.
+    /// Builds the complete state for `virtualTopics` - the mapping and each topic's compiled
+    /// transformations, consume filter and value transformer, so no fetch prepares them - without
+    /// changing what this manager answers. Pass the result to [#publish] to make it current.
     ///
     /// @throws IllegalArgumentException naming the virtual topic and step whose transformations are invalid
-    public Snapshot prepare(Map<String, VirtualTopicConfig> virtualTopics) {
+    public State prepare(Map<String, VirtualTopicConfig> virtualTopics) {
         Map<String, VirtualTopic> virtual = new LinkedHashMap<>();
         Map<String, List<VirtualTopic>> physical = new LinkedHashMap<>();
         Map<String, String> names = new LinkedHashMap<>();
@@ -81,18 +79,18 @@ public final class VirtualTopicManager {
             names.put(v, config.topic());
         });
         physical.replaceAll((_, topics) -> List.copyOf(topics));
-        return new Snapshot(
+        return new State(
                 Collections.unmodifiableMap(virtual),
                 Collections.unmodifiableMap(physical),
                 Collections.unmodifiableMap(names));
     }
 
-    /// Makes `snapshot`, built by [#prepare], the current mapping.
+    /// Makes `state`, built by [#prepare], the current mapping.
     ///
-    /// Safe to call concurrently with readers: the snapshot is assigned to a single `volatile`
+    /// Safe to call concurrently with readers: the state is assigned to a single `volatile`
     /// reference, so readers see either the previous or the new mapping, never a partially-applied one.
-    public void publish(Snapshot snapshot) {
-        this.snapshot = Objects.requireNonNull(snapshot, "snapshot");
+    public void publish(State state) {
+        this.state = Objects.requireNonNull(state, "state");
     }
 
     private VirtualTopic virtualTopic(String name, VirtualTopicConfig config) {
@@ -120,7 +118,7 @@ public final class VirtualTopicManager {
     }
 
     public Optional<VirtualTopic> findByName(String name) {
-        return this.snapshot.byVirtual().values()
+        return this.state.byVirtual().values()
                 .stream()
                 .filter(virtualTopic -> Objects.equals(name, virtualTopic.name))
                 .findFirst();
@@ -128,14 +126,14 @@ public final class VirtualTopicManager {
 
     /// Maps a client-visible name to the physical topic name the broker must see.
     public String toPhysical(String virtual) {
-        VirtualTopic virtualTopic = snapshot.byVirtual().get(virtual);
+        VirtualTopic virtualTopic = state.byVirtual().get(virtual);
         return virtualTopic == null ? virtual : virtualTopic.physical();
     }
 
     /// Maps a physical topic name back to the client-visible (virtual) names: every virtual topic
     /// that points at it, or the physical name itself when none does.
     public List<String> toVirtual(String physical) {
-        List<VirtualTopic> virtualTopics = snapshot.byPhysical().get(physical);
+        List<VirtualTopic> virtualTopics = state.byPhysical().get(physical);
         return virtualTopics == null ? List.of(physical) : virtualTopics.stream().map(VirtualTopic::name).toList();
     }
 
@@ -144,10 +142,10 @@ public final class VirtualTopicManager {
     /// per physical topic: the broker keeps records, fetch positions and committed offsets per physical partition,
     /// so two such names would collide. Empty when none collide; names that are not virtual topics never do.
     public Map<String, Set<String>> sharedPhysicalTopics(Collection<String> names) {
-        Snapshot snap = snapshot;
+        State current = state;
         Map<String, Set<String>> byPhysical = new LinkedHashMap<>();
         for (String name : names) {
-            VirtualTopic virtualTopic = snap.byVirtual().get(name);
+            VirtualTopic virtualTopic = current.byVirtual().get(name);
             if (virtualTopic != null) {
                 byPhysical.computeIfAbsent(virtualTopic.physical(), _ -> new LinkedHashSet<>()).add(name);
             }
@@ -157,16 +155,16 @@ public final class VirtualTopicManager {
     }
 
     public boolean hasVirtualTopic(String physical) {
-        return snapshot.byPhysical().containsKey(physical);
+        return state.byPhysical().containsKey(physical);
     }
 
     public int size() {
-        return snapshot.byVirtual().size();
+        return state.byVirtual().size();
     }
 
     /// Virtual-to-physical virtual-topic map (unmodifiable).
     public Map<String, String> virtualTopics() {
-        return snapshot.virtualToPhysical();
+        return state.virtualToPhysical();
     }
 
     /// The configured consume filter for the virtual topic `virtual`, or [Optional#empty] if it has no filter
@@ -192,7 +190,7 @@ public final class VirtualTopicManager {
     /// The virtual topic named `virtual`, or [Optional#empty] if no virtual topic has that name.
     /// A map lookup, unlike [#findByName], so it suits the hot path.
     public Optional<VirtualTopic> virtualTopic(String virtual) {
-        return Optional.ofNullable(snapshot.byVirtual().get(virtual));
+        return Optional.ofNullable(state.byVirtual().get(virtual));
     }
 
     /// @param mapping      the compiled value steps, [ValueMapping#IDENTITY] when there are none
@@ -218,15 +216,15 @@ public final class VirtualTopicManager {
         }
     }
 
-    /// Immutable snapshot of all three lookup maps, built by [#prepare] and made current by
-    /// [#publish] as a unit, so a reload can never be observed half-applied. Opaque to callers.
-    public static final class Snapshot {
+    /// Immutable state of all three lookup maps, built by [#prepare] and made current by [#publish]
+    /// as a unit, so a reload can never be observed half-applied. Opaque to callers.
+    public static final class State {
 
         private final Map<String, VirtualTopic> byVirtual;
         private final Map<String, List<VirtualTopic>> byPhysical;
         private final Map<String, String> virtualToPhysical;
 
-        private Snapshot(
+        private State(
                 Map<String, VirtualTopic> byVirtual,
                 Map<String, List<VirtualTopic>> byPhysical,
                 Map<String, String> virtualToPhysical) {

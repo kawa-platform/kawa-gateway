@@ -11,6 +11,7 @@ import org.apache.kafka.common.security.scram.ScramCredentialCallback;
 import org.apache.kafka.common.security.scram.internals.ScramMechanism;
 import org.apache.kafka.common.security.scram.internals.ScramSaslServer;
 
+import io.jonasg.kawa.config.AuthConfig;
 import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.server.netty.ClientSession;
 
@@ -43,7 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /// SCRAM-SHA-256/512 via Kafka's `ScramSaslServer` running the real RFC 5802 / RFC 7677
 /// challenge-response exchange.
 ///
-/// The mechanisms and clients are an immutable snapshot replaced atomically via [reload]: a
+/// The mechanisms and clients are an immutable state replaced atomically via [reload]: a
 /// reader on the hot path sees either the previous or the new auth state, never a
 /// partially-applied one.
 ///
@@ -54,9 +55,8 @@ public final class SaslAuthenticator {
 
     private static final Set<String> DEFAULT_MECHANISMS = Set.of("PLAIN", "SCRAM-SHA-256", "SCRAM-SHA-512");
 
-    /// Immutable snapshot of the dynamic auth state, published as a unit so a reload can never
-    /// be observed half-applied.
-    private record Snapshot(Set<String> mechanisms, Map<String, ClientConfig> clients) {
+    /// The dynamic auth state, immutable so a reload is observed as a whole, never half-applied.
+    private record State(Set<String> mechanisms, Map<String, ClientConfig> clients) {
     }
 
     /// Per-connection SASL state: the mechanism negotiated at handshake plus the lazily-created
@@ -70,7 +70,7 @@ public final class SaslAuthenticator {
         }
     }
 
-    private volatile Snapshot snapshot;
+    private volatile State state;
     private final Map<ClientSession, SaslExchange> exchanges = new ConcurrentHashMap<>();
 
     public SaslAuthenticator() {
@@ -81,16 +81,16 @@ public final class SaslAuthenticator {
             Set<String> mechanisms,
             Map<String, ClientConfig> clients
     ) {
-        reload(mechanisms, clients);
+        this.state = new State(Set.copyOf(mechanisms), Map.copyOf(clients));
     }
 
-    /// Replaces the supported mechanisms and client directory with a new snapshot.
+    /// Replaces the supported mechanisms and client directory with those of `config`.
     ///
-    /// Safe to call concurrently with readers: the new snapshot is assigned to a single
-    /// `volatile` reference, so readers see either the previous or the new auth state, never a
+    /// Safe to call concurrently with readers: the new state is assigned to a single `volatile`
+    /// reference, so readers see either the previous or the new auth state, never a
     /// partially-applied one.
-    public void reload(Set<String> mechanisms, Map<String, ClientConfig> clients) {
-        this.snapshot = new Snapshot(Set.copyOf(mechanisms), Map.copyOf(clients));
+    public void reload(AuthConfig config) {
+        this.state = new State(Set.copyOf(config.mechanisms()), Map.copyOf(config.clients()));
     }
 
     public static boolean isSaslApi(int apiKey) {
@@ -102,7 +102,7 @@ public final class SaslAuthenticator {
     /// mechanism so the client knows what to retry with. Records the negotiated mechanism for
     /// the session so a later `SaslAuthenticate` knows which credential check to run.
     public SaslHandshakeResponseData handleHandshake(ClientSession session, SaslHandshakeRequestData request) {
-        Set<String> mechanisms = snapshot.mechanisms();
+        Set<String> mechanisms = state.mechanisms();
         var response = new SaslHandshakeResponseData();
         boolean supported = mechanisms.contains(request.mechanism());
         response.setErrorCode(supported ? Errors.NONE.code() : Errors.UNSUPPORTED_SASL_MECHANISM.code());
@@ -162,7 +162,7 @@ public final class SaslAuthenticator {
             return authenticationFailed(response);
         }
 
-        var clientConfig = snapshot.clients().get(username);
+        var clientConfig = state.clients().get(username);
         if (clientConfig == null || !clientConfig.password().verify(password)) {
             return authenticationFailed(response);
         }
@@ -205,7 +205,7 @@ public final class SaslAuthenticator {
         }
     }
 
-    /// Resolves SCRAM credentials from the current snapshot at callback time, so a reload
+    /// Resolves SCRAM credentials from the current state at callback time, so a reload
     /// mid-exchange picks up the new credentials. The username arrives on the [NameCallback]
     /// that precedes the [ScramCredentialCallback] in the same callback array. Unknown users
     /// leave the credential unset and `ScramSaslServer` rejects them with a generic error.
@@ -218,7 +218,7 @@ public final class SaslAuthenticator {
                     username = nameCallback.getDefaultName();
                     nameCallback.setName(username);
                 } else if (callback instanceof ScramCredentialCallback credentialCallback) {
-                    var clientConfig = snapshot.clients().get(username);
+                    var clientConfig = state.clients().get(username);
                     if (clientConfig != null) {
                         credentialCallback.scramCredential(ScramCredentials.toScramCredential(clientConfig.password()));
                     }

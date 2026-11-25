@@ -18,52 +18,42 @@ import java.util.stream.Collectors;
 /// against that map. Default-deny: a request is authorized only if at least one matching ACL
 /// allows it, and any matching deny wins immediately.
 ///
-/// The per-user ACL map is an immutable snapshot replaced atomically via [reload]: a reader on
+/// The per-user ACLs are an immutable state replaced atomically via [reload]: a reader on
 /// the hot path sees either the previous or the new ACL set, never a partially-applied one.
 public final class RbacAuthorizer {
 
-    private volatile Map<String, List<AclConfig>> aclsByUser;
+    private volatile State state;
 
     public RbacAuthorizer(RbacConfig config) {
         reload(config);
     }
 
-    /// Replaces the per-user ACL map with a new snapshot built from `config`: [#publish] of
-    /// [#prepare]. An unknown role reference throws and leaves the previous snapshot in place.
+    /// Replaces the per-user ACLs with those resolved from `config`: [#publish] of [#prepare]. An
+    /// unknown role reference throws and leaves the previous state in place.
     public void reload(RbacConfig config) {
         publish(prepare(config));
     }
 
-    /// Resolves `config` into the per-user ACL map without changing what this authorizer answers.
-    /// Pass it to [#publish] to make it current.
+    /// Resolves `config` into the per-user ACLs without changing what this authorizer answers.
+    /// Pass the result to [#publish] to make it current.
     ///
     /// @throws IllegalArgumentException if `config` references an unknown role
-    public Snapshot prepare(RbacConfig config) {
-        return new Snapshot(flatten(config));
+    public State prepare(RbacConfig config) {
+        return new State(flatten(config));
     }
 
-    /// Makes `snapshot`, built by [#prepare], the current ACL set.
+    /// Makes `state`, built by [#prepare], the current ACL set.
     ///
-    /// Safe to call concurrently with readers: the map is assigned to a single `volatile`
+    /// Safe to call concurrently with readers: the state is assigned to a single `volatile`
     /// reference, so readers see either the previous or the new ACL set, never a partially-applied one.
-    public void publish(Snapshot snapshot) {
-        this.aclsByUser = snapshot.aclsByUser;
-    }
-
-    /// A resolved RBAC config, built by [#prepare].
-    public static final class Snapshot {
-
-        private final Map<String, List<AclConfig>> aclsByUser;
-
-        private Snapshot(Map<String, List<AclConfig>> aclsByUser) {
-            this.aclsByUser = aclsByUser;
-        }
+    public void publish(State state) {
+        this.state = state;
     }
 
     /// Whether any principal has any ACLs configured. When `false`, every request is denied
     /// (default-deny with an empty config).
     public boolean hasAnyAcls() {
-        return !aclsByUser.isEmpty();
+        return !state.aclsByUser().isEmpty();
     }
 
     /// Whether `principal` is authorized to perform `operation` on `resource` of `type`.
@@ -85,7 +75,7 @@ public final class RbacAuthorizer {
     }
 
     private List<AclConfig> aclsFor(String principal) {
-        return aclsByUser.getOrDefault(principal, List.of());
+        return state.aclsByUser().getOrDefault(principal, List.of());
     }
 
     private static Map<String, List<AclConfig>> flatten(RbacConfig config) {
@@ -126,5 +116,19 @@ public final class RbacAuthorizer {
             return resource.startsWith(pattern);
         }
         return resource.equals(pattern); // LITERAL exact match
+    }
+
+    /// The per-user ACLs, built by [#prepare]; immutable so a reload is observed as a whole.
+    public static final class State {
+
+        private final Map<String, List<AclConfig>> aclsByUser;
+
+        private State(Map<String, List<AclConfig>> aclsByUser) {
+            this.aclsByUser = aclsByUser;
+        }
+
+        private Map<String, List<AclConfig>> aclsByUser() {
+            return aclsByUser;
+        }
     }
 }

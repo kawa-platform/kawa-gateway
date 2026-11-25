@@ -1,5 +1,6 @@
 package io.jonasg.kawa.server.auth;
 
+import io.jonasg.kawa.config.AuthConfig;
 import io.jonasg.kawa.config.ClientConfig;
 import io.jonasg.kawa.config.HashedPassword;
 import io.jonasg.kawa.config.Mechanism;
@@ -357,7 +358,7 @@ class SaslAuthenticatorTest {
         var authenticator = new SaslAuthenticator(Set.of("PLAIN"), Map.of("alice", client("PLAIN", "secret")));
 
         // when
-        authenticator.reload(Set.of("PLAIN"), Map.of("bob", client("PLAIN", "hunter2")));
+        authenticator.reload(new AuthConfig(Set.of("PLAIN"), Map.of("bob", client("PLAIN", "hunter2"))));
 
         // then
         var session = session();
@@ -378,7 +379,7 @@ class SaslAuthenticatorTest {
         var authenticator = new SaslAuthenticator(Set.of("PLAIN"), Map.of("alice", client("PLAIN", "secret")));
 
         // when
-        authenticator.reload(Set.of(), Map.of());
+        authenticator.reload(new AuthConfig(Set.of(), Map.of()));
 
         // then
         var session = session();
@@ -399,7 +400,7 @@ class SaslAuthenticatorTest {
         // when
         var writer = new Thread(() -> {
             for (int i = 0; i < 50; i++) {
-                authenticator.reload(Set.of("PLAIN"), i % 2 == 0 ? first : second);
+                authenticator.reload(new AuthConfig(Set.of("PLAIN"), i % 2 == 0 ? first : second));
             }
         });
         var reader = new Thread(() -> {
