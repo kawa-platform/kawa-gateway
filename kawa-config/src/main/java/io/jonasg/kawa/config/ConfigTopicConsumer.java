@@ -14,6 +14,7 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Properties;
 import java.util.Set;
@@ -26,13 +27,17 @@ import java.util.function.LongConsumer;
 /// snapshot to a callback.
 ///
 /// On [start] the consumer reads the topic from the beginning until it has caught up to the
-/// end offset that existed at assignment time (the "initial load"), then continues consuming
-/// live changes. [awaitInitialLoad] blocks until that catch-up is done, so the gateway can
-/// refuse to serve until it has applied the config that existed at boot.
+/// end offset that existed at assignment time (the "initial load"). It applies only the latest
+/// retained snapshot from that range: older records may still be present because compaction is
+/// asynchronous, but they are superseded. [awaitInitialLoad] blocks until that latest snapshot
+/// has been applied, so the gateway can refuse to serve until it has applied the config that
+/// existed at boot.
 ///
-/// A single bad message (unparseable JSON, or a callback that rejects the config) is logged
-/// and skipped rather than killing the consumer thread - the gateway keeps its last-known-good
-/// config and the next valid message resumes the stream.
+/// If the latest retained snapshot is invalid or rejected by the callback, initial load fails:
+/// falling back to an older snapshot would hide corruption of the authoritative config. After
+/// initial load, a bad live message is logged and skipped rather than killing the consumer
+/// thread - the gateway keeps its last-known-good config and the next valid message resumes the
+/// stream.
 ///
 /// The consumer reads `read_committed`: snapshots are written in transactions (see
 /// [TransactionalConfigTopicWriter]), and a write that was fenced by another replica is aborted, so
@@ -45,8 +50,9 @@ import java.util.function.LongConsumer;
 public final class ConfigTopicConsumer implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(ConfigTopicConsumer.class);
+    private static final String CONFIG_KEY = "config";
 
-    private final KafkaConsumer<String, String> consumer;
+    private final org.apache.kafka.clients.consumer.Consumer<String, String> consumer;
     private final String topic;
     private final BiConsumer<DynamicConfig, Long> onConfigWithOffset;
     private final LongConsumer onPosition;
@@ -102,10 +108,19 @@ public final class ConfigTopicConsumer implements AutoCloseable {
             BiConsumer<DynamicConfig, Long> onConfigWithOffset,
             LongConsumer onPosition
     ) {
+        this(topic, new KafkaConsumer<>(consumerProps(bootstrapServers, extraProps)), onConfigWithOffset, onPosition);
+    }
+
+    ConfigTopicConsumer(
+            String topic,
+            org.apache.kafka.clients.consumer.Consumer<String, String> consumer,
+            BiConsumer<DynamicConfig, Long> onConfigWithOffset,
+            LongConsumer onPosition
+    ) {
         this.topic = topic;
         this.onConfigWithOffset = onConfigWithOffset;
         this.onPosition = onPosition;
-        this.consumer = new KafkaConsumer<>(consumerProps(bootstrapServers, extraProps));
+        this.consumer = consumer;
     }
 
     /// Starts the consumer thread. Idempotent.
@@ -165,16 +180,32 @@ public final class ConfigTopicConsumer implements AutoCloseable {
             consumer.seekToBeginning(Set.of(partition));
             long targetEnd = consumer.endOffsets(Set.of(partition)).get(partition);
             boolean caughtUp = false;
+            ConsumerRecord<String, String> latestInitialRecord = null;
             while (running) {
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(200));
+                var liveRecords = new ArrayList<ConsumerRecord<String, String>>();
                 for (ConsumerRecord<String, String> record : records) {
-                    handle(record);
+                    if (!isConfigRecord(record)) {
+                        log.warn("ignoring record with unexpected key '{}' at offset {} on config topic {}",
+                                record.key(), record.offset(), topic);
+                    } else if (!caughtUp && record.offset() < targetEnd) {
+                        latestInitialRecord = record;
+                    } else if (!caughtUp) {
+                        liveRecords.add(record);
+                    } else {
+                        handle(record);
+                    }
                 }
-                onPosition.accept(consumer.position(partition));
-                if (!caughtUp && consumer.position(partition) >= targetEnd) {
+                long position = consumer.position(partition);
+                if (!caughtUp && position >= targetEnd) {
+                    applyInitialRecord(latestInitialRecord);
                     caughtUp = true;
+                    liveRecords.forEach(this::handle);
+                    onPosition.accept(position);
                     initialLoad.countDown();
                     log.info("initial config load complete for topic {} at offset {}", topic, targetEnd);
+                } else {
+                    onPosition.accept(position);
                 }
             }
         } catch (WakeupException e) {
@@ -194,11 +225,25 @@ public final class ConfigTopicConsumer implements AutoCloseable {
     /// message-handling path is testable without a broker.
     void handle(ConsumerRecord<String, String> record) {
         try {
-            DynamicConfig config = mapper.readValue(record.value(), DynamicConfig.class);
-            onConfigWithOffset.accept(config, record.offset());
+            apply(record);
         } catch (Exception e) {
             log.error("skipping invalid config message at offset {} on topic {}", record.offset(), topic, e);
         }
+    }
+
+    private void applyInitialRecord(ConsumerRecord<String, String> record) throws Exception {
+        if (record != null) {
+            apply(record);
+        }
+    }
+
+    private void apply(ConsumerRecord<String, String> record) throws Exception {
+        DynamicConfig config = mapper.readValue(record.value(), DynamicConfig.class);
+        onConfigWithOffset.accept(config, record.offset());
+    }
+
+    private static boolean isConfigRecord(ConsumerRecord<String, String> record) {
+        return CONFIG_KEY.equals(record.key());
     }
 
     private static Properties consumerProps(String bootstrapServers, Properties extraProps) {
