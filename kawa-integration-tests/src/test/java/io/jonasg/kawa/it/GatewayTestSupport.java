@@ -319,7 +319,7 @@ abstract class GatewayTestSupport {
         props.put(KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         props.put(VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
         try (var producer = new KafkaProducer<String, String>(props)) {
-            producer.send(new ProducerRecord<>(CONFIG_TOPIC, "test-gateway", json)).get();
+            producer.send(new ProducerRecord<>(CONFIG_TOPIC, "config", json)).get();
         }
     }
 }
