@@ -242,7 +242,7 @@ class BrokerAuthIT {
         props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
         props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
         try (var producer = new KafkaProducer<String, String>(props)) {
-            producer.send(new ProducerRecord<>(CONFIG_TOPIC, "test-gateway", json)).get();
+            producer.send(new ProducerRecord<>(CONFIG_TOPIC, "config", json)).get();
         }
     }
 
