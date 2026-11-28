@@ -1,5 +1,6 @@
 package io.jonasg.kawa.it;
 
+import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.BootstrapConfig;
@@ -153,7 +154,7 @@ class ConfigReplicasIT {
                 Map.of("default", new ClusterConfig(List.of(kafka.getBootstrapServers()))),
                 new AdvertisedListener(1, "localhost", 0),
                 null,
-                new AdminConfig(true, "127.0.0.1", 0, null),
+                new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none()),
                 CONFIG_TOPIC);
         var gateway = new KafkaGateway(bootstrap);
         gateway.start();

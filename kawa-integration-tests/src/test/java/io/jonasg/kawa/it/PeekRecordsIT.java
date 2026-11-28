@@ -1,5 +1,6 @@
 package io.jonasg.kawa.it;
 
+import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.ModuleConfig;
 import io.jonasg.kawa.config.ModuleId;
@@ -41,7 +42,7 @@ class PeekRecordsIT extends AdminHTTPTestSupport {
 
     @Override
     protected AdminConfig adminConfig() {
-        return new AdminConfig(true, "127.0.0.1", 0, null, null, "https://kawa.example.com");
+        return new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none(), "https://kawa.example.com");
     }
 
     @Override

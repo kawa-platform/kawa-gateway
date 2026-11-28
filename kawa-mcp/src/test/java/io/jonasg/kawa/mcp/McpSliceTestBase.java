@@ -89,7 +89,7 @@ public abstract class McpSliceTestBase {
                 new GovernancePolicy(new GovernanceConfig(null)),
                 brokerAdmin,
                 FakeSchemaRegistries.PRESENT,
-                null,
+                AdminAuthConfig.none(),
                 PUBLIC_URL,
                 _ -> null
         );
@@ -102,6 +102,7 @@ public abstract class McpSliceTestBase {
                 adminServices.governanceRules(),
                 adminServices.adminUsers(),
                 adminServices.adminUserAuthenticator(),
+                adminServices.setup(),
                 adminServices.modules(),
                 adminServices.oauthClients(),
                 adminServices.oauthClientDirectory()

@@ -13,7 +13,6 @@ import static io.jonasg.kawa.http.AdminUserConfigMother.CREATED_AT;
 import static io.jonasg.kawa.http.AdminUserConfigMother.adminUser;
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /// Slice tests for seeding `admin.auth.bootstrapUser` when the [AdminHttpServer][io.jonasg.kawa.http.AdminHttpServer] starts: it becomes a
 /// stored admin user on a gateway without any, is ignored once admin users exist, and is restored by
@@ -157,17 +156,6 @@ class BootstrapUserSeedSliceTest extends AdminHttpSliceTestBase {
 
         // then
         assertThat(signIn("alice@mycom.com", "alice-secret")).hasStatusCode(200);
-    }
-
-    @Test
-    void oauthRefusesToStartWithoutAnyAdminUser() {
-        // given
-        enableOAuth(null);
-
-        // when / then
-        assertThatThrownBy(this::startServer)
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("admin.auth.type 'oauth' requires an admin user: set admin.auth.bootstrapUser to create the first one");
     }
 
     private AdminUserConfig seeded() {

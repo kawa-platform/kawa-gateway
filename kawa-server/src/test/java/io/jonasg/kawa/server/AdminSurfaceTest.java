@@ -1,5 +1,6 @@
 package io.jonasg.kawa.server;
 
+import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.core.InterceptorPipeline;
 import io.jonasg.kawa.core.cluster.MetadataCache;
@@ -23,7 +24,8 @@ class AdminSurfaceTest {
         state.createConfigManager(new InterceptorPipeline(List.of()));
         var cache = new MetadataCache();
         var admin = new AdminSurface(
-                new AdminConfig(true, "127.0.0.1", 0, null), state, cache, () -> java.util.concurrent.CompletableFuture.completedFuture(null),
+                new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none()), state, cache,
+                () -> java.util.concurrent.CompletableFuture.completedFuture(null),
                 "localhost:9092", new java.util.Properties(),
                 new PluginLoader(getClass().getClassLoader()).loadAll().authenticationProviders(),
                 new HealthProbe() {

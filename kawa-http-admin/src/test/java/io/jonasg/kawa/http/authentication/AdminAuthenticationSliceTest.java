@@ -1,15 +1,22 @@
 package io.jonasg.kawa.http.authentication;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.DynamicConfig;
 import io.jonasg.kawa.config.OAuthClientConfig;
 import io.jonasg.kawa.config.OAuthClientConfig.Audience;
 import io.jonasg.kawa.http.AdminHttpSliceTestBase;
 import io.jonasg.kawa.http.FakeDynamicConfigRepository;
+import io.jonasg.kawa.http.authentication.none.NoneAuthenticationProviderFactory;
 import io.jonasg.kawa.http.authentication.oauth.SigningKeys;
 import io.jonasg.kawa.http.authentication.oauth.TokenIssuer;
 import io.jonasg.kawa.http.web.Router;
 import io.jonasg.kawa.test.TestSigningKeys;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
@@ -25,7 +32,8 @@ import static io.jonasg.kawa.http.AdminUserConfigMother.adminUser;
 import static io.jonasg.kawa.test.KawaAssertions.assertThat;
 import static net.javacrumbs.jsonunit.assertj.JsonAssertions.assertThatJson;
 
-/// Slice tests for bearer-token enforcement on the admin API with `admin.auth.type: oauth`.
+/// Slice tests for bearer-token enforcement on the admin API with `admin.auth.type: oauth`, and for the explicit
+/// opt-out `none`.
 class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
 
     @Test
@@ -234,6 +242,50 @@ class AdminAuthenticationSliceTest extends AdminHttpSliceTestBase {
         // then
         assertThat(docs).hasStatusCode(200);
         assertThat(jwks).hasStatusCode(200);
+    }
+
+    @Test
+    void authorizeRedirectsToTheLoginUiBeforeTheFirstAdminUserExists() throws Exception {
+        // given: setup mode, oauth without a bootstrap user and without admin users
+        enableOAuth(null);
+        startServer();
+
+        // when
+        var authorizeResp = authorize("verifier-" + "x".repeat(43));
+
+        // then
+        assertThat(authorizeResp).hasStatusCode(302);
+        assertThat(authorizeResp.headers().firstValue("Location"))
+                .withFailMessage(() -> "authorize did not hand the login UI a challenge in setup mode: " + authorizeResp.headers())
+                .hasValueSatisfying(location -> assertThat(location).startsWith(LOGIN_URL + "?login_challenge="));
+    }
+
+    @Test
+    void warnsThatTheAdminApiIsUnauthenticatedWithNone() throws Exception {
+        // given
+        auth = AdminAuthConfig.none();
+        var providerLog = (Logger) LoggerFactory.getLogger(NoneAuthenticationProviderFactory.class);
+        var logged = new ListAppender<ILoggingEvent>();
+        logged.start();
+        providerLog.addAppender(logged);
+
+        // when
+        try {
+            startServer();
+        } finally {
+            providerLog.detachAppender(logged);
+        }
+
+        // then
+        assertThat(logged.list)
+                .withFailMessage(() -> "admin.auth.type 'none' did not warn once at WARN: " + logged.list)
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                    assertThat(event.getFormattedMessage()).isEqualTo("admin.auth.type is 'none': the admin API at https://kawa.example.com "
+                            + "is not authenticated, so anyone who can reach it can read and change the gateway config. "
+                            + "Remove admin.auth.type (it defaults to 'oauth') to require a login.");
+                });
     }
 
     @Test

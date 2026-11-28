@@ -1,6 +1,7 @@
 package io.jonasg.kawa.it;
 
 import io.jonasg.kawa.config.AdvertisedListener;
+import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.BootstrapConfig;
 import io.jonasg.kawa.config.ClusterConfig;
@@ -61,7 +62,7 @@ class AdminConfigApiIT {
                 Map.of("default", new ClusterConfig(List.of(brokerBootstrap))),
                 new AdvertisedListener(1, "localhost", 0),
                 null,
-                new AdminConfig(true, "127.0.0.1", 0, null),
+                new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none()),
                 CONFIG_TOPIC);
 
         gateway = new KafkaGateway(bootstrap);

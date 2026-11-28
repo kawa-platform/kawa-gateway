@@ -10,11 +10,11 @@ import java.util.function.Function;
 /// Authentication for the admin HTTP API. Bootstrap-only (YAML): it carries secrets and is never
 /// written to the config topic.
 ///
-/// The authentication itself is done by a pluggable provider, selected by name. kawa ships `none`
-/// (the admin API is open) and `oauth` (kawa acts as an OAuth authorization server); plugins can
-/// register more, e.g. `oidc`.
+/// The authentication itself is done by a pluggable provider, selected by name. kawa ships `oauth`
+/// (kawa acts as an OAuth authorization server, the default) and `none` (the admin API is open, only
+/// when chosen explicitly); plugins can register more, e.g. `oidc`.
 ///
-/// @param type          the name of the authentication provider (defaults to `none`)
+/// @param type          the name of the authentication provider (defaults to `oauth`)
 /// @param bootstrapUser the first admin user: created as a stored admin user when the gateway starts
 ///                      without any, and ignored once admin users exist
 /// @param settings      provider-specific settings handed to the selected provider as-is, with
@@ -25,8 +25,14 @@ public record AdminAuthConfig(
         Map<String, Object> settings
 ) {
 
-    /// The provider used when `admin.auth.type` is not set.
-    public static final String DEFAULT_TYPE = "none";
+    /// kawa's built-in OAuth authorization server.
+    public static final String OAUTH_TYPE = "oauth";
+
+    /// The explicit opt-out: the admin API is not authenticated.
+    public static final String NONE_TYPE = "none";
+
+    /// The provider used when `admin.auth.type` is not set or blank.
+    public static final String DEFAULT_TYPE = OAUTH_TYPE;
 
     public AdminAuthConfig {
         if (type == null || type.isBlank()) {
@@ -35,9 +41,9 @@ public record AdminAuthConfig(
         settings = settings == null ? Map.of() : resolveEnvVars(settings, System::getenv);
     }
 
-    /// The default: no admin authentication.
+    /// The explicit opt-out `admin.auth.type: none`: no admin authentication.
     public static AdminAuthConfig none() {
-        return new AdminAuthConfig(DEFAULT_TYPE, null, null);
+        return new AdminAuthConfig(NONE_TYPE, null, null);
     }
 
     static Map<String, Object> resolveEnvVars(Map<String, Object> settings, Function<String, String> envLookup) {

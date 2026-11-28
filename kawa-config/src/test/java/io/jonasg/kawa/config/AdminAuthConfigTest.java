@@ -12,7 +12,7 @@ class AdminAuthConfigTest {
     private final ConfigLoader loader = new ConfigLoader();
 
     @Test
-    void defaultsToNoAuthentication() {
+    void defaultsToOAuth() {
         // when
         BootstrapConfig config = loader.loadFromYaml("""
                 admin:
@@ -20,8 +20,40 @@ class AdminAuthConfigTest {
                 """);
 
         // then
+        assertThat(config.admin().auth().type())
+                .withFailMessage(() -> "admin.auth.type did not default to 'oauth', was " + config.admin().auth().type())
+                .isEqualTo("oauth");
+    }
+
+    @Test
+    void blankTypeDefaultsToOAuth() {
+        // when
+        BootstrapConfig config = loader.loadFromYaml("""
+                admin:
+                  enabled: true
+                  auth:
+                    type: " "
+                """);
+
+        // then
+        assertThat(config.admin().auth().type())
+                .withFailMessage(() -> "a blank admin.auth.type did not default to 'oauth', was " + config.admin().auth().type())
+                .isEqualTo("oauth");
+    }
+
+    @Test
+    void keepsExplicitNone() {
+        // when
+        BootstrapConfig config = loader.loadFromYaml("""
+                admin:
+                  enabled: true
+                  auth:
+                    type: none
+                """);
+
+        // then
         assertThat(config.admin().auth())
-                .withFailMessage(() -> "admin.auth did not default to 'none', was " + config.admin().auth())
+                .withFailMessage(() -> "an explicit admin.auth.type 'none' was not kept, was " + config.admin().auth())
                 .isEqualTo(AdminAuthConfig.none());
     }
 

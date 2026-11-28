@@ -20,7 +20,7 @@ public interface AdminUserDirectory {
     /// their tokens immediately.
     Optional<String> username(String subject);
 
-    /// Whether at least one admin user is stored. A provider that only admits kawa's local admin
-    /// users needs one, or nobody could ever log in.
+    /// Whether at least one admin user is stored. Without one nobody can log in to a provider that only
+    /// admits kawa's local admin users, until the gateway's setup creates the first.
     boolean hasAdminUsers();
 }
