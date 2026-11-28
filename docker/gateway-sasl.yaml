@@ -22,6 +22,10 @@ admin:
   enabled: true
   host: 0.0.0.0
   port: 8080
+  # Open admin API (no login) for this local demo. admin.auth.type defaults to oauth, so the opt-out
+  # must be explicit; the gateway warns at startup that the admin API is unauthenticated.
+  auth:
+    type: none
   cors:
     allowedOrigins:
       - http://localhost:5173

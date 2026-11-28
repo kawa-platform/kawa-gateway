@@ -12,7 +12,7 @@ import java.net.URISyntaxException;
 /// @param port      bind port, or `0` to bind an ephemeral port (defaults to `8080`)
 /// @param cors      CORS configuration for browser-based UIs served from another host/port
 ///                  (`null` disables CORS entirely)
-/// @param auth      admin API authentication (defaults to none)
+/// @param auth      admin API authentication (defaults to `oauth`, see [AdminAuthConfig#DEFAULT_TYPE])
 /// @param publicUrl the absolute URL clients reach the admin API at, e.g. `https://kawa.example.com`
 ///                  when kawa sits behind a proxy; `null` when not set, see [#resolvedPublicUrl()].
 ///                  Only scheme, host and port: OAuth discovery clients look for `/.well-known/...` right
@@ -34,7 +34,7 @@ public record AdminConfig(
             port = 8080;
         }
         if (auth == null) {
-            auth = AdminAuthConfig.none();
+            auth = new AdminAuthConfig(null, null, null);
         }
         if (publicUrl != null) {
             publicUrl = absoluteUrl(publicUrl);

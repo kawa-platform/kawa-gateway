@@ -14,15 +14,20 @@ info:
     paths return `404`, known paths hit with the wrong method return `405`, and handler
     or serialization failures return `500` - all with an `{"error": "..."}` body.
 
-    Authentication is configured with `admin.auth`. With `type: none` (the default) the API is
-    open. With `type: oauth`, kawa acts as a headless OAuth 2.0 authorization server: clients use
+    Authentication is configured with `admin.auth`. With `type: oauth` (the default), kawa acts as a
+    headless OAuth 2.0 authorization server: clients use
     the authorization code flow with PKCE (`/oauth/authorize`, the external login UI posting to
     `/oauth/login`, then `/oauth/token`) and send the access token as
-    `Authorization: Bearer <token>`. Every endpoint except `/oauth/*`, `/.well-known/*` and `/docs`
-    then answers `401` without a valid token; its `WWW-Authenticate` header points at the RFC 9728
+    `Authorization: Bearer <token>`. Every endpoint except `/oauth/*`, `/.well-known/*`, `/admin/setup` and
+    `/docs` then answers `401` without a valid token; its `WWW-Authenticate` header points at the RFC 9728
     protected resource metadata (`/.well-known/oauth-protected-resource`), from which clients
     discover the authorization server. URLs kawa publishes are based on `admin.publicUrl`
-    (defaults to `http://<admin.host>:<admin.port>`).
+    (defaults to `http://<admin.host>:<admin.port>`). With the explicit opt-out `type: none` the API
+    is open.
+
+    A gateway started with `type: oauth`, without `admin.auth.bootstrapUser` and without admin
+    users is in setup mode: the public `/admin/setup` endpoints let kawa studio create the first
+    admin user with the setup token the gateway logs at startup (or `KAWA_SETUP_TOKEN`).
 
     Virtual topics, RBAC roles and groups, and auth clients can be *managed*: a write by the
     kawa operator (its own token, or one it obtained for another principal) marks the entry
@@ -1097,6 +1102,70 @@ paths:
           $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalError'
+  /admin/setup:
+    get:
+      summary: Whether the first admin user must be created
+      description: |
+        Public: answers without a token, also once setup is done. `required` is `true` only while the
+        gateway is in setup mode: it started with `admin.auth.type: oauth`, without
+        `admin.auth.bootstrapUser` and without admin users, and no admin user exists yet.
+      security: []
+      responses:
+        '200':
+          description: Whether setup is required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupView'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      summary: Create the first admin user
+      description: |
+        Public, guarded by the setup token: the value of `KAWA_SETUP_TOKEN` when set (so replicas can
+        share one), otherwise a random token each gateway instance generates and logs at `WARN` at
+        startup. Creates an enabled admin user like `POST /admin/users` and ends setup mode on every
+        replica: any later call answers `409`, and so do concurrent calls on any replica except the
+        one that created the admin user. The token is checked before the admin user, so a wrong token
+        is a `401` whatever the email and password.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '201':
+          description: The created admin user; `Location` points at it
+          headers:
+            Location:
+              schema:
+                type: string
+              description: '`/admin/users/{id}` of the new admin user'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserView'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: |
+            Missing or wrong setup token - `{"error": "invalid setup token"}`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: |
+            Setup is not required: the gateway is not in setup mode or already has an admin user -
+            `{"error": "setup is not required: the gateway is not in setup mode or already has an admin user"}`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /admin/users/{id}:
     get:
       summary: Get an admin user
@@ -1572,6 +1641,32 @@ components:
         displayName:
           type: string
           description: An optional human-readable label to tell admin users apart.
+    SetupView:
+      type: object
+      required:
+        - required
+      properties:
+        required:
+          type: boolean
+          description: Whether the first admin user still has to be created through `POST /admin/setup`.
+    SetupRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - token
+        - email
+        - password
+      properties:
+        token:
+          type: string
+          description: The setup token the gateway logged at startup, or the value of `KAWA_SETUP_TOKEN`.
+        email:
+          type: string
+          format: email
+          description: The username of the first admin user; stored in lower case.
+        password:
+          type: string
+          format: password
     UpdateAdminUserRequest:
       type: object
       additionalProperties: false

@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Clock;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -51,10 +52,13 @@ import java.util.stream.Collectors;
 /// the URL that metadata is served under.
 ///
 /// Requires a public URL (`admin.publicUrl`, or the bind address it defaults to) that clients can reach:
-/// a wildcard bind address such as `0.0.0.0` is refused, as tokens and metadata would name it.
+/// a wildcard bind address such as `0.0.0.0` is refused, as tokens and metadata would name it. A missing
+/// public URL, `loginUrl` or `redirectUris` fails the start with one message naming all of them, as `oauth`
+/// is the default `admin.auth.type`: kawa studio usually runs on another origin, so none of them is derived.
 ///
-/// Requires at least one admin user: without one nobody could log in to create further admin users.
-/// The gateway seeds `admin.auth.bootstrapUser` as the first admin user before the provider is created.
+/// Starts without admin users too. Then nobody can log in until the first one exists: the gateway seeds
+/// `admin.auth.bootstrapUser`, or creates the first admin user through its setup endpoint. The
+/// authorization flow works meanwhile, so the login UI gets its `login_challenge` and can offer setup.
 public final class OAuthAuthenticationProviderFactory implements AuthenticationProviderFactory {
 
     static final Duration DEFAULT_TOKEN_TTL = Duration.ofMinutes(15);
@@ -90,22 +94,16 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
 
     @Override
     public AuthenticationProvider create(AuthenticationProviderContext context) {
-        if (!context.adminUsers().hasAdminUsers()) {
-            throw new IllegalArgumentException("admin.auth.type 'oauth' requires an admin user: "
-                    + "set admin.auth.bootstrapUser to create the first one");
-        }
-        requireReachable(context.publicUrl());
+        requireSettings(context);
         var settings = context.settings();
         String issuer = context.publicUrl();
         Duration tokenTtl = positive("tokenTtl", settings.duration("tokenTtl").orElse(DEFAULT_TOKEN_TTL));
         Duration sessionTtl = positive("sessionTtl", settings.duration("sessionTtl").orElse(DEFAULT_SESSION_TTL));
         String loginUrl = absoluteUri("loginUrl", settings.requireString("loginUrl")).toString();
         Set<URI> redirectUris = settings.strings("redirectUris").stream()
+                .filter(uri -> !uri.isBlank())
                 .map(uri -> absoluteUri("redirectUris", uri))
                 .collect(Collectors.toUnmodifiableSet());
-        if (redirectUris.isEmpty()) {
-            throw new IllegalArgumentException("admin.auth.settings.redirectUris is required");
-        }
         var operator = OperatorClient.from(settings.string("operatorSecret").orElse(null),
                 settings.string("operatorActsAs").orElse(OperatorClient.DEFAULT_ACTS_AS));
         Set<String> metadataDocumentRestriction = settings.strings("clientIdMetadataDocuments").stream()
@@ -134,18 +132,37 @@ public final class OAuthAuthenticationProviderFactory implements AuthenticationP
         return new KawaTokenAuthenticationProvider(keys, issuer, audiences, clients, context.adminUsers(), operator, context.publicUrl());
     }
 
-    private static void requireReachable(String publicUrl) {
+    /// Fails with one message naming every required setting that is missing, so a gateway started with the
+    /// default `admin.auth.type` learns all it needs at once.
+    private static void requireSettings(AuthenticationProviderContext context) {
+        var settings = context.settings();
+        var missing = new ArrayList<String>();
+        if (isWildcard(context.publicUrl())) {
+            missing.add("admin.publicUrl (the URL clients reach the admin API at, e.g. https://kawa.example.com; the bind address "
+                    + context.publicUrl() + " is a wildcard)");
+        }
+        if (settings.string("loginUrl").filter(value -> !value.isBlank()).isEmpty()) {
+            missing.add("admin.auth.settings.loginUrl (kawa studio's login page, e.g. https://studio.example.com/admin/login)");
+        }
+        if (settings.strings("redirectUris").stream().allMatch(String::isBlank)) {
+            missing.add("admin.auth.settings.redirectUris (kawa studio's callback, e.g. https://studio.example.com/admin/auth/callback)");
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalArgumentException("admin.auth.type 'oauth' (the default) is missing required settings: "
+                    + String.join(", ", missing) + ". Set them, or set admin.auth.type: none to run the admin API without authentication.");
+        }
+    }
+
+    /// Whether `publicUrl` names a wildcard bind address such as `0.0.0.0`, which clients cannot reach.
+    private static boolean isWildcard(String publicUrl) {
         String host = URI.create(publicUrl).getHost();
         if (host != null && host.startsWith("[") && host.endsWith("]")) {
             host = host.substring(1, host.length() - 1);
         }
-        if (host != null && isWildcard(host)) {
-            throw new IllegalArgumentException("admin.auth.type 'oauth' needs the URL clients reach the admin API at, but the "
-                    + "public URL " + publicUrl + " is a wildcard bind address: set admin.publicUrl, e.g. https://kawa.example.com");
-        }
+        return host != null && isWildcardAddress(host);
     }
 
-    private static boolean isWildcard(String host) {
+    private static boolean isWildcardAddress(String host) {
         try {
             return InetAddress.ofLiteral(host).isAnyLocalAddress();
         } catch (IllegalArgumentException notAnIpLiteral) {

@@ -1,6 +1,6 @@
 package io.jonasg.kawa.http;
 
-import io.jonasg.kawa.config.AdminAuthConfig.BootstrapUser;
+import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.DynamicConfigRepository;
 import io.jonasg.kawa.core.cluster.MetadataCache;
 import io.jonasg.kawa.core.cluster.MetadataRefresher;
@@ -15,6 +15,7 @@ import io.jonasg.kawa.http.rbac.RbacGroupService;
 import io.jonasg.kawa.http.rbac.RbacRoleService;
 import io.jonasg.kawa.broker.BrokerAdmin;
 import io.jonasg.kawa.http.topics.TopicService;
+import io.jonasg.kawa.http.users.AdminSetup;
 import io.jonasg.kawa.http.users.AdminUserAuthenticator;
 import io.jonasg.kawa.http.users.AdminUserService;
 import io.jonasg.kawa.http.users.BootstrapUserSeeder;
@@ -32,6 +33,7 @@ import java.util.function.Function;
 ///
 /// @param adminUserAuthenticator checks admin user credentials for the authentication provider
 /// @param oauthClientDirectory   the stored OAuth clients, for the authentication provider
+/// @param setup                  setup mode: creating the first admin user of an `oauth` gateway without any
 public record AdminServices(
         TopicService topics,
         ConsumerGroupService consumerGroups,
@@ -41,21 +43,22 @@ public record AdminServices(
         GovernanceService governanceRules,
         AdminUserService adminUsers,
         AdminUserAuthenticator adminUserAuthenticator,
+        AdminSetup setup,
         ModuleService modules,
         OAuthClientService oauthClients,
         StoredOAuthClients oauthClientDirectory
 ) implements AutoCloseable {
 
-    /// Builds the services and seeds `bootstrapUser` into the admin users (see
-    /// [BootstrapUserSeeder]), so it must be called after the config topic has been read and
-    /// before the admin authentication provider is created: a provider may require an admin user
-    /// to exist.
+    /// Builds the services, seeds `admin.auth.bootstrapUser` into the admin users (see
+    /// [BootstrapUserSeeder]) and then decides on setup mode (see [AdminSetup]), so it must be called
+    /// after the config topic has been read and before the admin authentication provider is created.
     ///
     /// @param metadataRefresher       refreshes `cache` on demand, so a created topic is listed at once
     /// @param topicVisibilityTimeout  how long a topic creation waits for the created topic to reach `cache`
     /// @param schemaRegistries        the schema registry of each physical topic's cluster, see [TopicService]
+    /// @param auth                    `admin.auth`: its bootstrap user and provider type
     /// @param publicUrl               `admin.publicUrl`, or `null` when it is not set: then the mcp module cannot be switched on
-    /// @param env                     looks up environment variables, such as the bootstrap user reset switch
+    /// @param env                     looks up environment variables: the bootstrap user reset switch and the setup token
     public static AdminServices create(
             VirtualTopicManager virtualTopics,
             MetadataCache cache,
@@ -65,12 +68,13 @@ public record AdminServices(
             GovernancePolicy governance,
             BrokerAdmin brokerAdmin,
             SchemaRegistries schemaRegistries,
-            @Nullable BootstrapUser bootstrapUser,
+            AdminAuthConfig auth,
             @Nullable String publicUrl,
             Function<String, @Nullable String> env
     ) {
         new BootstrapUserSeeder(configRepository, Clock.systemUTC())
-                .seed(bootstrapUser, Boolean.parseBoolean(env.apply(BootstrapUserSeeder.RESET_ENV)));
+                .seed(auth.bootstrapUser(), Boolean.parseBoolean(env.apply(BootstrapUserSeeder.RESET_ENV)));
+        var adminUsers = new AdminUserService(configRepository);
         return new AdminServices(
                 new TopicService(virtualTopics, cache, metadataRefresher, configRepository, brokerAdmin, governance,
                         topicVisibilityTimeout, schemaRegistries),
@@ -79,8 +83,9 @@ public record AdminServices(
                 new RbacGroupService(configRepository),
                 new AuthClientService(configRepository),
                 new GovernanceService(configRepository, governance),
-                new AdminUserService(configRepository),
+                adminUsers,
                 new AdminUserAuthenticator(configRepository),
+                AdminSetup.start(auth, configRepository, adminUsers, env),
                 new ModuleService(configRepository, publicUrl),
                 new OAuthClientService(configRepository),
                 new StoredOAuthClients(configRepository));

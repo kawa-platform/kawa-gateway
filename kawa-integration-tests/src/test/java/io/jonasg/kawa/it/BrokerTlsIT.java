@@ -4,6 +4,7 @@ import com.github.dockerjava.api.model.ExposedPort;
 import com.github.dockerjava.api.model.PortBinding;
 import com.github.dockerjava.api.model.Ports;
 import io.jonasg.kawa.config.AclConfig;
+import io.jonasg.kawa.config.AdminAuthConfig;
 import io.jonasg.kawa.config.AdminConfig;
 import io.jonasg.kawa.config.AdvertisedListener;
 import io.jonasg.kawa.config.AuthConfig;
@@ -259,7 +260,7 @@ class BrokerTlsIT {
                 Map.of("default", new ClusterConfig(List.of(brokerBootstrap), tls)),
                 new AdvertisedListener(1, "localhost", 0),
                 new BootstrapConfig.Auth(brokerAuth),
-                new AdminConfig(true, "127.0.0.1", 0, null),
+                new AdminConfig(true, "127.0.0.1", 0, null, AdminAuthConfig.none()),
                 CONFIG_TOPIC);
     }
 

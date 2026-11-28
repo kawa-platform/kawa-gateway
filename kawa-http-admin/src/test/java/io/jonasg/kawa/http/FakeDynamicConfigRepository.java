@@ -6,10 +6,12 @@ import io.jonasg.kawa.config.DynamicConfigRepository;
 import java.util.function.UnaryOperator;
 
 /// In-memory [DynamicConfigRepository] for handler tests: [update] replaces the current
-/// snapshot synchronously, mirroring what the config-topic consumer does asynchronously.
+/// snapshot synchronously, mirroring what the config-topic consumer does asynchronously. Updates are
+/// serialized and each mutation runs on the newest snapshot, like the gateway's compare-and-set across
+/// replicas, so gateway instances sharing one fake behave like replicas sharing a config topic.
 public final class FakeDynamicConfigRepository implements DynamicConfigRepository {
 
-    private DynamicConfig current;
+    private volatile DynamicConfig current;
 
     public FakeDynamicConfigRepository(DynamicConfig initial) {
         this.current = initial;
@@ -21,12 +23,12 @@ public final class FakeDynamicConfigRepository implements DynamicConfigRepositor
     }
 
     @Override
-    public void update(UnaryOperator<DynamicConfig> mutation) {
+    public synchronized void update(UnaryOperator<DynamicConfig> mutation) {
         this.current = mutation.apply(getActiveConfigOrEmpty());
     }
 
     @Override
-    public void updateAndWaitUntilApplied(UnaryOperator<DynamicConfig> mutation) {
+    public synchronized void updateAndWaitUntilApplied(UnaryOperator<DynamicConfig> mutation) {
         this.current = mutation.apply(getActiveConfigOrEmpty());
     }
 

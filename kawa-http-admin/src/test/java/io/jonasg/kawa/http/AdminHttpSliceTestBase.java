@@ -79,6 +79,8 @@ public abstract class AdminHttpSliceTestBase {
 
     private @Nullable AdminServices services;
     private @Nullable AdminHttpServer server;
+    /// Further gateway instances started by [#startAnotherServer()], stopped after each test.
+    private final List<AutoCloseable> otherInstances = new ArrayList<>();
     private final HttpClient client = HttpClient.newHttpClient();
 
     protected @Nullable AdminHttpServer server() {
@@ -86,7 +88,10 @@ public abstract class AdminHttpSliceTestBase {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws Exception {
+        for (AutoCloseable instance : otherInstances) {
+            instance.close();
+        }
         if (server != null) {
             server.stop();
         }
@@ -97,10 +102,28 @@ public abstract class AdminHttpSliceTestBase {
 
     /// Boots the server with the current fakes. Call after configuring the fields.
     protected void startServer() throws InterruptedException {
-        services = AdminServices.create(virtualTopics, cache, metadataRefresher, topicVisibilityTimeout, repository,
-                governance, brokerAdmin, schemaRegistries, auth.bootstrapUser(), publicUrl, env::get);
+        services = createServices();
         server = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, cors, auth, publicUrl), services, authenticationProviders);
         server.start();
+    }
+
+    /// Boots another gateway instance with the current fakes, sharing [#repository] with the one
+    /// [#startServer()] started, as replicas share the config topic. Reach it with
+    /// [#send(AdminHttpServer, String, String, String, Map)].
+    protected AdminHttpServer startAnotherServer() throws InterruptedException {
+        var otherServices = createServices();
+        var other = new AdminHttpServer(new AdminConfig(true, "127.0.0.1", 0, cors, auth, publicUrl), otherServices, authenticationProviders);
+        other.start();
+        otherInstances.add(() -> {
+            other.stop();
+            otherServices.close();
+        });
+        return other;
+    }
+
+    private AdminServices createServices() {
+        return AdminServices.create(virtualTopics, cache, metadataRefresher, topicVisibilityTimeout, repository,
+                governance, brokerAdmin, schemaRegistries, auth, publicUrl, env::get);
     }
 
     /// Sends a request to the running server and returns the response. A `null` body sends a
@@ -120,8 +143,19 @@ public abstract class AdminHttpSliceTestBase {
             @Nullable String body,
             Map<String, String> headers
     ) throws Exception {
+        return send(server, method, path, body, headers);
+    }
+
+    /// Like [#send(String, String, String, Map)], to the gateway instance `target`.
+    protected HttpResponse<String> send(
+            AdminHttpServer target,
+            String method,
+            String path,
+            @Nullable String body,
+            Map<String, String> headers
+    ) throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder(
-                URI.create("http://127.0.0.1:" + server.boundPort() + path));
+                URI.create("http://127.0.0.1:" + target.boundPort() + path));
         headers.forEach(builder::header);
         if (body == null) {
             builder.method(method, HttpRequest.BodyPublishers.noBody());

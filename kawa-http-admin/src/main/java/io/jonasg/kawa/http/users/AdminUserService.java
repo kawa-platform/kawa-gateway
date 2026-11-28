@@ -60,6 +60,26 @@ public final class AdminUserService {
         return id;
     }
 
+    /// Stores `user` as the first admin user under a new id and returns that id, for the setup of a
+    /// gateway without admin users ([AdminSetup]).
+    ///
+    /// @throws ConflictException when any admin user exists. Checked inside the update, on the snapshot
+    ///                           that is written: the config repository commits it as a compare-and-set
+    ///                           across replicas, so of concurrent first admin users, on any replicas,
+    ///                           exactly one is stored
+    String createFirstAdminUser(AdminUserConfig user) {
+        String id = UUID.randomUUID().toString();
+        synchronized (writeLock) {
+            repository.updateAndWaitUntilApplied(config -> {
+                if (!config.adminUsers().isEmpty()) {
+                    throw new ConflictException(AdminSetup.NOT_REQUIRED);
+                }
+                return config.upsertAdminUser(id, user);
+            });
+        }
+        return id;
+    }
+
     /// Changes the fields of the admin user `id` that `patch` carries, keeps the rest, and returns the
     /// stored result.
     ///

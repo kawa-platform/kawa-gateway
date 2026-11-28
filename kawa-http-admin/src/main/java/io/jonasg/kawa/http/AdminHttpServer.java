@@ -34,8 +34,9 @@ import org.slf4j.LoggerFactory;
 /// endpoint except `/docs` requires the provider to accept the request.
 ///
 /// The routes dispatch to the [AdminServices] the server is given. Building those services seeds
-/// `admin.auth.bootstrapUser` into the admin users (see [AdminServices#create]); the server creates
-/// the authentication provider only afterwards, as a provider may require an admin user to exist.
+/// `admin.auth.bootstrapUser` into the admin users and decides on setup mode (see [AdminServices#create]);
+/// the server creates the authentication provider only afterwards. The public `/admin/setup` routes let
+/// kawa studio create the first admin user of a gateway in setup mode.
 public final class AdminHttpServer {
 
     private static final Logger log = LoggerFactory.getLogger(AdminHttpServer.class);
@@ -58,7 +59,7 @@ public final class AdminHttpServer {
         RbacRoutes.register(router, services.roles(), services.groups());
         ClientRoutes.register(router, services.clients());
         GovernanceRoutes.register(router, services.governanceRules());
-        UserRoutes.register(router, services.adminUsers());
+        UserRoutes.register(router, services.adminUsers(), services.setup());
         ModuleRoutes.register(router, services.modules());
         OAuthClientRoutes.register(router, services.oauthClients());
         router.publicGet("/docs", new GetDocsHandler());

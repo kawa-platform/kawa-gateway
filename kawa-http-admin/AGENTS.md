@@ -17,7 +17,7 @@ Code is grouped by what the admin API manages. `io.jonasg.kawa.http` is the comp
 | `clients`        | `/auth/clients`: `AuthClientService`                                                 |
 | `governance`     | `/governance`: `GovernanceService`, `GovernanceConfigMapper`                         |
 | `modules`        | `/modules`: `ModuleService`, `ModuleConfigMapper`                                    |
-| `users`          | `/admin/users`: `AdminUserService`, `BootstrapUserSeeder`, `AdminUserAuthenticator`  |
+| `users`          | `/admin/users`, `/admin/setup`: `AdminUserService`, `BootstrapUserSeeder`, `AdminSetup`, `AdminUserAuthenticator` |
 | `oauthclients`   | `/admin/oauth-clients`: `OAuthClientService`, `OAuthClientConfigMapper`              |
 | `authentication` | `AuthenticationProviderRegistry`, the provider context and settings                  |
 | `configchange`   | `Consistency`, `ConsistencyAwareUpdater` and the 404/409/403 exceptions              |

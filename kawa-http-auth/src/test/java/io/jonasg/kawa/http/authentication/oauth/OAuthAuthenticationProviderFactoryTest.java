@@ -580,14 +580,22 @@ class OAuthAuthenticationProviderFactoryTest {
     }
 
     @Test
-    void rejectsAGatewayWithoutAdminUsers() {
-        // given
+    void authorizeRedirectsToTheLoginUiWithoutAnyAdminUser() {
+        // given: a gateway in setup mode, before its first admin user exists
         var context = new FakeProviderContext(defaults(Map.of()), Map.of());
+        factory.create(context);
+        var flow = new AuthorizationCodeFlow(context);
 
-        // when / then
-        assertThatThrownBy(() -> factory.create(context))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("admin.auth.type 'oauth' requires an admin user: set admin.auth.bootstrapUser to create the first one");
+        // when
+        HttpResponse response = flow.authorize(flow.defaultAuthorization());
+
+        // then
+        assertThat(response.status())
+                .withFailMessage(() -> "authorize did not redirect without admin users: " + response.status())
+                .isEqualTo(302);
+        assertThat(response.headers().get("Location"))
+                .withFailMessage(() -> "authorize did not redirect to the login UI with a challenge: " + response.headers())
+                .startsWith(LOGIN_URL + "?login_challenge=");
     }
 
     @ParameterizedTest
@@ -600,7 +608,7 @@ class OAuthAuthenticationProviderFactoryTest {
         assertThatThrownBy(() -> factory.create(context))
                 .withFailMessage(() -> "the oauth provider started with the wildcard public URL " + publicUrl)
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("set admin.publicUrl");
+                .hasMessageContaining("missing required settings: admin.publicUrl (the URL clients reach the admin API at");
     }
 
     @ParameterizedTest
@@ -896,16 +904,34 @@ class OAuthAuthenticationProviderFactoryTest {
     }
 
     @Test
-    void requiresTheLoginUiAndRedirectUris() {
-        assertThatThrownBy(() -> factory.create(new FakeProviderContext(
-                Map.of("redirectUris", REDIRECT_URI), Map.of("admin", "s3cret"))))
+    void namesEveryMissingSettingInOneMessage() {
+        // given
+        var context = new FakeProviderContext(Map.of(), Map.of(), "http://0.0.0.0:8080");
+
+        // when / then
+        assertThatThrownBy(() -> factory.create(context))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("admin.auth.settings.loginUrl is required");
-        assertThatThrownBy(() -> factory.create(new FakeProviderContext(
-                Map.of("loginUrl", LOGIN_URL), Map.of("admin", "s3cret"))))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("admin.auth.settings.redirectUris is required");
+                .hasMessage(MISSING_SETTINGS_PREFIX + "admin.publicUrl (the URL clients reach the admin API at, e.g. https://kawa.example.com; "
+                        + "the bind address http://0.0.0.0:8080 is a wildcard), admin.auth.settings.loginUrl (kawa studio's login page, "
+                        + "e.g. https://studio.example.com/admin/login), admin.auth.settings.redirectUris (kawa studio's callback, "
+                        + "e.g. https://studio.example.com/admin/auth/callback). " + MISSING_SETTINGS_SUFFIX);
     }
+
+    @Test
+    void namesOnlyTheSettingsThatAreMissing() {
+        // given
+        var context = new FakeProviderContext(Map.of("loginUrl", LOGIN_URL, "redirectUris", " "), Map.of());
+
+        // when / then
+        assertThatThrownBy(() -> factory.create(context))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage(MISSING_SETTINGS_PREFIX + "admin.auth.settings.redirectUris (kawa studio's callback, "
+                        + "e.g. https://studio.example.com/admin/auth/callback). " + MISSING_SETTINGS_SUFFIX);
+    }
+
+    private static final String MISSING_SETTINGS_PREFIX = "admin.auth.type 'oauth' (the default) is missing required settings: ";
+    private static final String MISSING_SETTINGS_SUFFIX = "Set them, or set admin.auth.type: none to run the admin API "
+            + "without authentication.";
 
     private static FakeProviderContext context(Map<String, String> settings) {
         return new FakeProviderContext(defaults(settings), Map.of("admin", "s3cret"));
